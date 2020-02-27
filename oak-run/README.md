@@ -563,6 +563,8 @@ The following operations are available:
     
     --collect-garbage       - Execute garbage collection on the data store. If only mark phase to be run specify a true parameter.
     --check-consistency     - List all the missing blobs by doing a consistency check.
+    --dump-ref              - List all the blob references in the node store
+    --dump-id               - List all the ids in the data store
 
 The following options are available:
 

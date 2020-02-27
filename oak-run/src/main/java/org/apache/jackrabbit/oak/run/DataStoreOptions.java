@@ -41,6 +41,8 @@ public class DataStoreOptions implements OptionsBean {
     private final OptionSpec<File> outputDirOpt;
     private final OptionSpec<Boolean> collectGarbage;
     private final OptionSpec<Void> consistencyCheck;
+    private final OptionSpec<Void> refOp;
+    private final OptionSpec<Void> idOp;
     private final OptionSpec<Boolean> checkConsistencyAfterGC;
     private final OptionSpec<Integer> batchCount;
     private OptionSet options;
@@ -65,6 +67,10 @@ public class DataStoreOptions implements OptionsBean {
 
         consistencyCheck =
             parser.accepts("check-consistency", "Performs a consistency check on the repository/datastore defined");
+
+        refOp = parser.accepts("dump-ref", "Gets a dump of Blob References");
+
+        idOp = parser.accepts("dump-id", "Gets a dump of Blob Ids");
 
         blobGcMaxAgeInSecs = parser.accepts("max-age", "")
             .withRequiredArg().ofType(Long.class).defaultsTo(86400L);
@@ -91,7 +97,7 @@ public class DataStoreOptions implements OptionsBean {
             "type, URI to export the metrics and optional metadata all delimeted by semi-colon(;)").withRequiredArg();
 
         //Set of options which define action
-        actionOpts = ImmutableSet.of(collectGarbage, consistencyCheck);
+        actionOpts = ImmutableSet.of(collectGarbage, consistencyCheck, idOp, refOp);
         operationNames = collectionOperationNames(actionOpts);
     }
 
@@ -145,6 +151,14 @@ public class DataStoreOptions implements OptionsBean {
 
     public boolean checkConsistency(){
         return options.has(consistencyCheck);
+    }
+
+    public boolean dumpRefs() {
+        return options.has(refOp);
+    }
+
+    public boolean dumpIds() {
+        return options.has(idOp);
     }
 
     public boolean checkConsistencyAfterGC() {
