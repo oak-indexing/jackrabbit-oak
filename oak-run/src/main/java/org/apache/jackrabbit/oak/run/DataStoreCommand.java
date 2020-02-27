@@ -45,7 +45,6 @@ import org.apache.commons.io.filefilter.FileFilterUtils;
 import org.apache.jackrabbit.oak.api.Blob;
 import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.api.Type;
-import org.apache.jackrabbit.oak.commons.FileIOUtils;
 import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.commons.concurrent.ExecutorCloser;
 import org.apache.jackrabbit.oak.commons.io.BurnOnCloseFileIterator;
@@ -102,6 +101,14 @@ public class DataStoreCommand implements Command {
 
     private Options opts;
     private DataStoreOptions dataStoreOpts;
+
+    private static final Comparator<String> idComparator = new Comparator<String>() {
+        @Override
+        public int compare(String s1, String s2) {
+            return s1.split(DELIM)[0].compareTo(s2.split(DELIM)[0]);
+        }
+    };
+
 
     @Override
     public void execute(String... args) throws Exception {
@@ -175,24 +182,24 @@ public class DataStoreCommand implements Command {
             metricsCloser.register(metricsExporterFixture);
 
             if (dataStoreOpts.dumpRefs()) {
-                final File referencesTemp = File.createTempFile("traverseref",null, new File(opts.getTempDirectory()));
-                final BufferedWriter writer = Files.newWriter(referencesTemp, Charsets.UTF_8);
+                final File referencesTemp = File.createTempFile("traverseref", null, new File(opts.getTempDirectory()));
+                final BufferedWriter writer = Files.newWriter(referencesTemp, UTF_8);
 
                 boolean threw = true;
                 try {
                     BlobReferenceRetriever retriever = getRetriever(fixture, dataStoreOpts, opts);
 
-                    retriever.collectReferences( new ReferenceCollector() {
+                    retriever.collectReferences(new ReferenceCollector() {
                         @Override
                         public void addReference(String blobId, String nodeId) {
                             try {
-                                Iterator<String> idIter = ((GarbageCollectableBlobStore)fixture.getBlobStore()).resolveChunks(blobId);
+                                Iterator<String> idIter = ((GarbageCollectableBlobStore) fixture.getBlobStore()).resolveChunks(blobId);
 
                                 while (idIter.hasNext()) {
                                     String id = idIter.next();
                                     final Joiner delimJoiner = Joiner.on(DELIM).skipNulls();
                                     String line = delimJoiner.join(VerboseIdLogger.encodeId(delimJoiner.join(id, escapeLineBreak(nodeId)),
-                                           optionBean.getBlobStoreType()), escapeLineBreak(nodeId));
+                                            optionBean.getBlobStoreType()), escapeLineBreak(nodeId));
                                     writeAsLine(writer, line, false);
                                 }
                             } catch (Exception e) {
@@ -204,31 +211,33 @@ public class DataStoreCommand implements Command {
                     writer.flush();
                     threw = false;
 
+                    sort(referencesTemp, idComparator);
+
                     File parent = new File(dataStoreOpts.getOutDir().getAbsolutePath(), "dump");
                     long startTime = System.currentTimeMillis();
-                    final File references = new File(parent,"dump-ref-" + startTime);
+                    final File references = new File(parent, "dump-ref-" + startTime);
                     FileUtils.forceMkdir(parent);
 
-                    FileUtils.copyFile(referencesTemp,references);
+                    FileUtils.copyFile(referencesTemp, references);
                 } finally {
                     Closeables.close(writer, threw);
                 }
 
-            } else if (dataStoreOpts.dumpIds()){
-                final File blobidsTemp = File.createTempFile("blobidstemp",null, new File(opts.getTempDirectory()));
+            } else if (dataStoreOpts.dumpIds()) {
+                final File blobidsTemp = File.createTempFile("blobidstemp", null, new File(opts.getTempDirectory()));
 
-                retrieveBlobIds((GarbageCollectableBlobStore)fixture.getBlobStore(), blobidsTemp);
+                retrieveBlobIds((GarbageCollectableBlobStore) fixture.getBlobStore(), blobidsTemp);
 
                 File parent = new File(dataStoreOpts.getOutDir().getAbsolutePath(), "dump");
                 long startTime = System.currentTimeMillis();
-                final File ids = new File(parent,"dump-id-" + startTime);
+                final File ids = new File(parent, "dump-id-" + startTime);
                 FileUtils.forceMkdir(parent);
 
 
                 if (dataStoreOpts.isVerbose()) {
                     verboseIds(optionBean, blobidsTemp, ids);
                 } else {
-                    FileUtils.copyFile(blobidsTemp,ids);
+                    FileUtils.copyFile(blobidsTemp, ids);
                 }
 
             } else {
@@ -275,7 +284,7 @@ public class DataStoreCommand implements Command {
         return collector;
     }
 
-    private static BlobReferenceRetriever getRetriever(NodeStoreFixture fixture, DataStoreOptions dataStoreOpts, Options opts ) {
+    private static BlobReferenceRetriever getRetriever(NodeStoreFixture fixture, DataStoreOptions dataStoreOpts, Options opts) {
         BlobReferenceRetriever retriever;
         if (opts.getCommonOpts().isDocument() && !dataStoreOpts.hasVerboseRootPaths()) {
             retriever = new DocumentBlobReferenceRetriever((DocumentNodeStore) fixture.getStore());
@@ -303,16 +312,16 @@ public class DataStoreCommand implements Command {
 
         sort(blob);
         System.out.println(count + " blob ids found");
-        System.out.println("Finished in " + watch.elapsed(TimeUnit.SECONDS) + " seconds");
+        System.out.println("Finished in " + watch.elapsed(SECONDS) + " seconds");
     }
 
     private static void verboseIds(BlobStoreOptions blobOpts, File readFile, File writeFile) throws IOException {
-        LineIterator idIterator = FileUtils.lineIterator(readFile, Charsets.UTF_8.name());
+        LineIterator idIterator = FileUtils.lineIterator(readFile, UTF_8.name());
 
         try (BurnOnCloseFileIterator<String> iterator =
                      new BurnOnCloseFileIterator<String>(idIterator, readFile,
                              (Function<String, String>) input -> VerboseIdLogger.encodeId(input, blobOpts.getBlobStoreType()))) {
-            FileIOUtils.writeStrings(iterator, writeFile, true, log, "Transformed to verbose ids - ");
+            writeStrings(iterator, writeFile, true, log, "Transformed to verbose ids - ");
         }
     }
 
@@ -477,7 +486,7 @@ public class DataStoreCommand implements Command {
                 try (BurnOnCloseFileIterator<String> iterator =
                     new BurnOnCloseFileIterator<String>(FileUtils.lineIterator(tempFile, UTF_8.toString()), tempFile,
                         (Function<String, String>) input -> encodeId(input, blobStoreType))) {
-                FileIOUtils.writeStrings(iterator, outFile, true, log, "Transformed to verbose ids - ");
+                writeStrings(iterator, outFile, true, log, "Transformed to verbose ids - ");
             }
             }
         }
