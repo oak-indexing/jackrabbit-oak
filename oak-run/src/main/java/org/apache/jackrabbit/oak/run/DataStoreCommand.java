@@ -24,12 +24,15 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
@@ -198,8 +201,8 @@ public class DataStoreCommand implements Command {
                                 while (idIter.hasNext()) {
                                     String id = idIter.next();
                                     final Joiner delimJoiner = Joiner.on(DELIM).skipNulls();
-                                    String line = delimJoiner.join(VerboseIdLogger.encodeId(delimJoiner.join(id, escapeLineBreak(nodeId)),
-                                            optionBean.getBlobStoreType()), escapeLineBreak(nodeId));
+                                    String line = VerboseIdLogger.encodeId(delimJoiner.join(id, escapeLineBreak(nodeId)),
+                                            optionBean.getBlobStoreType());
                                     writeAsLine(writer, line, false);
                                 }
                             } catch (Exception e) {
@@ -291,8 +294,10 @@ public class DataStoreCommand implements Command {
         } else {
             if (dataStoreOpts.isVerbose()) {
                 List<String> rootPathList = dataStoreOpts.getVerboseRootPaths();
+                List<String> roothPathInclusionRegex = dataStoreOpts.getverboseInclusionRegex();
                 retriever = new NodeTraverserReferenceRetriever(fixture.getStore(),
-                        (String[]) rootPathList.toArray(new String[rootPathList.size()]));
+                        rootPathList.toArray(new String[rootPathList.size()]),
+                        roothPathInclusionRegex.toArray(new String[roothPathInclusionRegex.size()]));
             } else {
                 ReadOnlyFileStore fileStore = getService(fixture.getWhiteboard(), ReadOnlyFileStore.class);
                 retriever = new SegmentBlobReferenceRetriever(fileStore);
@@ -351,10 +356,16 @@ public class DataStoreCommand implements Command {
     static class NodeTraverserReferenceRetriever implements BlobReferenceRetriever {
         private final NodeStore nodeStore;
         private final String[] paths;
+        private final String[] inclusionRegex;
 
-        public NodeTraverserReferenceRetriever(NodeStore nodeStore, String ... paths) {
+        public NodeTraverserReferenceRetriever(NodeStore nodeStore) {
+            this(nodeStore, null, null);
+        }
+
+        public NodeTraverserReferenceRetriever(NodeStore nodeStore, String[] paths, String[] inclusionRegex) {
             this.nodeStore = nodeStore;
             this.paths = paths;
+            this.inclusionRegex = inclusionRegex;
         }
 
         private void binaryProperties(NodeState state, String path, ReferenceCollector collector) {
@@ -387,7 +398,7 @@ public class DataStoreCommand implements Command {
 
         @Override public void collectReferences(ReferenceCollector collector) throws IOException {
             log.info("Starting dump of blob references by traversing");
-            if (paths.length == 0) {
+            if (paths == null || paths.length == 0) {
                 traverseChildren(nodeStore.getRoot(), "/", collector);
             } else {
                 for (String path: paths) {
@@ -396,10 +407,55 @@ public class DataStoreCommand implements Command {
                     for (String node: nodeList) {
                         state = state.getChildNode(node);
                     }
-                    traverseChildren(state, path, collector);
+
+                    if (inclusionRegex == null || inclusionRegex.length == 0) {
+                        traverseChildren(state, path, collector);
+                    } else {
+                        for (String regex : inclusionRegex) {
+                            Map<NodeState, String> inclusionMap = new HashMap<NodeState, String>();
+                            getInclusionListFromRegex(state, path, regex, inclusionMap);
+                            if (inclusionMap.size() == 0 ) {
+                                System.out.println("No Valid paths found for traversal, " +
+                                        "for the inclusion Regex " + regex + " under the path " + path);
+                                continue;
+                            }
+                            for(NodeState s : inclusionMap.keySet()) {
+                                traverseChildren(s, inclusionMap.get(s), collector);
+                            }
+                        }
+                    }
+
                 }
             }
 
+
+        }
+
+        private void getInclusionListFromRegex(NodeState rootState, String rootPath, String inclusionRegex, Map<NodeState, String> inclusionNodeStates) {
+            Splitter delimSplitter = Splitter.on("/").trimResults().omitEmptyStrings();
+            List<String> pathElementList = delimSplitter.splitToList(inclusionRegex);
+
+            Joiner delimJoiner = Joiner.on("/").skipNulls();
+
+            // Get the first pathElement from the regexPath
+            String pathElement = pathElementList.get(0);
+            // If the pathElement == *, get all child nodes and scan under them for the rest of the regex
+            if (pathElement.equals("*")) {
+                for (String nodeName : rootState.getChildNodeNames()) {
+                    String rootPathTemp = PathUtils.concat(rootPath, nodeName);
+                    // Remove the current Path Element from the regexPath
+                    // and recurse on getInclusionListFromRegex with this childNodeState and the regexPath
+                    // under the current pahtElement
+                    String sub = delimJoiner.join(pathElementList.subList(1, pathElementList.size()));
+                    getInclusionListFromRegex(rootState.getChildNode(nodeName), rootPathTemp, sub, inclusionNodeStates);
+                }
+            } else {
+                rootState = rootState.getChildNode(pathElement);
+                if (rootState.exists()) {
+                    inclusionNodeStates.put(rootState, PathUtils.concat(rootPath, pathElement));
+                }
+
+            }
 
         }
     }
@@ -455,23 +511,50 @@ public class DataStoreCommand implements Command {
             return null;
         }
 
+        /**
+         * Encode the blob id/blob ref in a format understood by the backing datastore
+         *
+         * Example:
+         * b47b58169f121822cd4a...#123311,/a/b/c => b47b-58169f121822cd4a...,/a/b/c (dsType = S3 or Azure)
+         * b47b58169f121822cd4a...#123311 => b47b-58169f121822cd4a... (dsType = S3 or Azure)
+         *
+         * @param line   can be either of the format b47b...#12311,/a/b/c or
+         *               b47b...#12311
+         * @param dsType
+         * @return In case of ref dump, concatanated encoded blob ref in a
+         * format understood by backing datastore impl and the path
+         * on which ref is present separated by delimJoiner
+         * In case of id dump, just the encoded blob ids.
+         */
         static String encodeId(String line, BlobStoreOptions.Type dsType) {
+            // Split the input line on ",". This would be the case while dumping refs along with paths
+            // Line would be like b47b58169f121822cd4a0a0a153ba5910e581ad2bc450b6af7e51e6214c2b173#123311,/a/b/c
+            // In case of dumping ids, there would not be any paths associated and there the line would simply be
+            // b47b58169f121822cd4a0a0a153ba5910e581ad2bc450b6af7e51e6214c2b173#123311
             List<String> list = delimSplitter.splitToList(line);
 
             String id = list.get(0);
+            // Split b47b58169f121822cd4a0a0a153ba5910e581ad2bc450b6af7e51e6214c2b173#123311 on # to get the id
             List<String> idLengthSepList = Splitter.on(HASH).trimResults().omitEmptyStrings().splitToList(id);
             String blobId = idLengthSepList.get(0);
 
             if (dsType == FAKE || dsType == FDS) {
+                // 0102030405... => 01/02/03/0102030405...
                 blobId = (blobId.substring(0, 2) + FILE_SEPARATOR.value() + blobId.substring(2, 4) + FILE_SEPARATOR.value() + blobId
                     .substring(4, 6) + FILE_SEPARATOR.value() + blobId);
             } else if (dsType == S3 || dsType == AZURE) {
+                //b47b58169f121822cd4a0... => b47b-58169f121822cd4a0...
                 blobId = (blobId.substring(0, 4) + DASH + blobId.substring(4));
             }
 
+            // Check if the line provided as input was a line dumped from blob refs or blob ids
+            // In case of blob refs dump, the list size would be 2 (Consisting of blob ref and the path on which ref is present)
+            // In case of blob ids dump, the list size would be 1 (Consisting of just the id)
             if (list.size() > 1) {
+                // Join back the encoded blob ref and the path on which the ref is present
                 return delimJoiner.join(blobId, EscapeUtils.unescapeLineBreaks(list.get(1)));
             } else {
+                // return the encoded blob id
                 return blobId;
             }
 
