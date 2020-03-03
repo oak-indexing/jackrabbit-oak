@@ -220,7 +220,7 @@ public class DataStoreOptions implements OptionsBean {
         return options.valuesOf(verboseRootPath);
     }
 
-    public List<String> getverboseInclusionRegex() {
+    public List<String> getVerboseInclusionRegex() {
         return options.valuesOf(verbosePathInclusionRegex);
     }
 

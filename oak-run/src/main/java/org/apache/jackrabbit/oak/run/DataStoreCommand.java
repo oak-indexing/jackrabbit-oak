@@ -30,11 +30,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
-import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.base.Stopwatch;
@@ -294,7 +291,7 @@ public class DataStoreCommand implements Command {
         } else {
             if (dataStoreOpts.isVerbose()) {
                 List<String> rootPathList = dataStoreOpts.getVerboseRootPaths();
-                List<String> roothPathInclusionRegex = dataStoreOpts.getverboseInclusionRegex();
+                List<String> roothPathInclusionRegex = dataStoreOpts.getVerboseInclusionRegex();
                 retriever = new NodeTraverserReferenceRetriever(fixture.getStore(),
                         rootPathList.toArray(new String[rootPathList.size()]),
                         roothPathInclusionRegex.toArray(new String[roothPathInclusionRegex.size()]));
@@ -415,7 +412,7 @@ public class DataStoreCommand implements Command {
                             Map<NodeState, String> inclusionMap = new HashMap<NodeState, String>();
                             getInclusionListFromRegex(state, path, regex, inclusionMap);
                             if (inclusionMap.size() == 0 ) {
-                                System.out.println("No Valid paths found for traversal, " +
+                                System.out.println("No valid paths found for traversal, " +
                                         "for the inclusion Regex " + regex + " under the path " + path);
                                 continue;
                             }
@@ -440,7 +437,7 @@ public class DataStoreCommand implements Command {
             // Get the first pathElement from the regexPath
             String pathElement = pathElementList.get(0);
             // If the pathElement == *, get all child nodes and scan under them for the rest of the regex
-            if (pathElement.equals("*")) {
+            if ("*".equals(pathElement)) {
                 for (String nodeName : rootState.getChildNodeNames()) {
                     String rootPathTemp = PathUtils.concat(rootPath, nodeName);
                     // Remove the current Path Element from the regexPath
@@ -450,9 +447,9 @@ public class DataStoreCommand implements Command {
                     getInclusionListFromRegex(rootState.getChildNode(nodeName), rootPathTemp, sub, inclusionNodeStates);
                 }
             } else {
-                rootState = rootState.getChildNode(pathElement);
-                if (rootState.exists()) {
-                    inclusionNodeStates.put(rootState, PathUtils.concat(rootPath, pathElement));
+                NodeState rootStateToInclude = rootState.getChildNode(pathElement);
+                if (rootStateToInclude.exists()) {
+                    inclusionNodeStates.put(rootStateToInclude, PathUtils.concat(rootPath, pathElement));
                 }
 
             }
