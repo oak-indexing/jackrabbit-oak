@@ -133,7 +133,7 @@ public class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.Fu
             return false;
         }
 
-        if(indexNode != null) {
+        if(indexNode == null) {
             throw new IllegalStateException("indexNode cannot be null");
         }
 
