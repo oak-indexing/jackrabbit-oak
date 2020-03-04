@@ -198,9 +198,13 @@ public class DataStoreCommand implements Command {
                                 while (idIter.hasNext()) {
                                     String id = idIter.next();
                                     final Joiner delimJoiner = Joiner.on(DELIM).skipNulls();
-                                    String line = VerboseIdLogger.encodeId(delimJoiner.join(id, escapeLineBreak(nodeId)),
-                                            optionBean.getBlobStoreType());
-                                    writeAsLine(writer, line, false);
+                                    // If --verbose is present, convert blob ID to a backend friendly format and
+                                    // concat the path that has the ref. Otherwise simply add the ID to the o/p file
+                                    // as it is.
+                                    String line = dataStoreOpts.isVerbose() ? VerboseIdLogger.encodeId(delimJoiner.join(id,
+                                                    escapeLineBreak(nodeId)),
+                                            optionBean.getBlobStoreType()) : id;
+                                    writeAsLine(writer, line, true);
                                 }
                             } catch (Exception e) {
                                 throw new RuntimeException("Error in retrieving references", e);
@@ -490,10 +494,14 @@ public class DataStoreCommand implements Command {
             }
         }
 
-        @Nullable
         static File filterFiles(File outDir, String filePrefix) {
+            return filterFiles(outDir, "gcworkdir-", filePrefix);
+        }
+
+        @Nullable
+        static File filterFiles(File outDir, String dirPrefix, String filePrefix) {
             List<File> subDirs = FileFilterUtils.filterList(FileFilterUtils
-                    .and(FileFilterUtils.prefixFileFilter("gcworkdir-"), FileFilterUtils.directoryFileFilter()),
+                    .and(FileFilterUtils.prefixFileFilter(dirPrefix), FileFilterUtils.directoryFileFilter()),
                 outDir.listFiles());
 
             if (subDirs != null && !subDirs.isEmpty()) {
