@@ -34,8 +34,9 @@ import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.junit.Assert;
-import org.junit.Rule;
+import org.junit.ClassRule;
 import org.junit.Test;
+import org.testcontainers.elasticsearch.ElasticsearchContainer;
 
 import java.util.Arrays;
 
@@ -47,14 +48,24 @@ import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.MatcherAssert.assertThat;
 
 public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
-    @Rule
-    public ElasticsearchManagementRule esMgmt = new ElasticsearchManagementRule();
+    @ClassRule
+    public static final ElasticsearchContainer ELASTIC =
+            new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:7.6.0");
+
+    private ElasticsearchIndexCoordinateFactory eicf = indexDefinition -> {
+        ElasticsearchCoordinate esCoord =
+                new ElasticsearchCoordinateImpl(
+                        new ElasticsearchConnectionFactory(), "http", ELASTIC.getContainerIpAddress(),
+                        ELASTIC.getMappedPort(9200)
+                );
+        return new ElasticsearchIndexCoordinateImpl(esCoord, indexDefinition);
+    };
 
     @Override
     protected ContentRepository createRepository() {
-        ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(esMgmt,
+        ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(eicf,
                 new ExtractedTextCache(10* FileUtils.ONE_MB, 100));
-        ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(esMgmt);
+        ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(eicf);
 
         // remove all indexes to avoid cost competition (essentially a TODO for fixing cost ES cost estimation)
         NodeBuilder builder = InitialContentHelper.INITIAL_CONTENT.builder();
