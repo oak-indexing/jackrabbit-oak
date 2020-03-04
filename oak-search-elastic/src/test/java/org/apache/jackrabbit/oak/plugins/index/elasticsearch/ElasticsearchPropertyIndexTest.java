@@ -41,7 +41,6 @@ import org.testcontainers.elasticsearch.ElasticsearchContainer;
 import java.util.Arrays;
 
 import static java.util.Collections.singletonList;
-import static org.apache.derby.vti.XmlVTI.asList;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NAME;
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROPDEF_PROP_NODE_NAME;
 import static org.hamcrest.CoreMatchers.containsString;
@@ -105,9 +104,9 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
         assertThat(explain(propaQuery), containsString("elasticsearch:test1"));
         assertThat(explain("select [jcr:path] from [nt:base] where [propc] = 'foo'"), containsString("elasticsearch:test2"));
 
-        assertQuery(propaQuery, asList("/test/a", "/test/b"));
-        assertQuery("select [jcr:path] from [nt:base] where [propa] = 'foo2'", asList("/test/c"));
-        assertQuery("select [jcr:path] from [nt:base] where [propc] = 'foo'", asList("/test/d"));
+        assertQuery(propaQuery, Arrays.asList("/test/a", "/test/b"));
+        assertQuery("select [jcr:path] from [nt:base] where [propa] = 'foo2'", Arrays.asList("/test/c"));
+        assertQuery("select [jcr:path] from [nt:base] where [propc] = 'foo'", Arrays.asList("/test/d"));
     }
 
     //OAK-3825
