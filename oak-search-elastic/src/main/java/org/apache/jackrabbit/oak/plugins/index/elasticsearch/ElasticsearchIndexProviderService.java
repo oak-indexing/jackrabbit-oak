@@ -16,9 +16,6 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elasticsearch;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.felix.scr.annotations.*;
 import org.apache.jackrabbit.oak.api.jmx.CacheStatsMBean;
@@ -41,12 +38,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Dictionary;
+import java.util.HashMap;
 import java.util.Hashtable;
 import java.util.List;
 import java.util.Map;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import static org.apache.commons.io.FileUtils.ONE_MB;
 import static org.apache.jackrabbit.oak.spi.whiteboard.WhiteboardUtils.registerMBean;
 
@@ -123,8 +121,8 @@ public class ElasticsearchIndexProviderService {
 
     private ElasticsearchConnectionFactory connectionFactory = null;
 
-    private final List<ServiceRegistration> regs = Lists.newArrayList();
-    private final List<Registration> oakRegs = Lists.newArrayList();
+    private final List<ServiceRegistration> regs = new ArrayList<>();
+    private final List<Registration> oakRegs = new ArrayList<>();
 
     private Whiteboard whiteboard;
     private File textExtractionDir;
@@ -211,15 +209,17 @@ public class ElasticsearchIndexProviderService {
 
     void initializeTextExtractionDir(BundleContext bundleContext, Map<String, ?> config) {
         String textExtractionDir = PropertiesUtil.toString(config.get(PROP_LOCAL_TEXT_EXTRACTION_DIR), null);
-        if (Strings.isNullOrEmpty(textExtractionDir)) {
+        if (textExtractionDir == null || textExtractionDir.trim().isEmpty()) {
             String repoHome = bundleContext.getProperty(REPOSITORY_HOME);
             if (repoHome != null){
                 textExtractionDir = FilenameUtils.concat(repoHome, "index");
             }
         }
 
-        checkNotNull(textExtractionDir, "Text extraction directory cannot be determined as neither " +
-                "directory path [%s] nor repository home [%s] defined", PROP_LOCAL_TEXT_EXTRACTION_DIR, REPOSITORY_HOME);
+        if (textExtractionDir == null) {
+            throw new IllegalStateException(String.format("Text extraction directory cannot be determined as neither " +
+                    "directory path [%s] nor repository home [%s] defined", PROP_LOCAL_TEXT_EXTRACTION_DIR, REPOSITORY_HOME));
+        }
 
         this.textExtractionDir = new File(textExtractionDir);
     }
@@ -240,7 +240,7 @@ public class ElasticsearchIndexProviderService {
 
     private ElasticsearchIndexCoordinateFactory getElasticsearchIndexCoordinateFactory(Map<String, ?> config) {
         ElasticsearchIndexCoordinateFactory esIndexCoordFactory;
-        Map<String, String> esCfg = Maps.newHashMap();
+        Map<String, String> esCfg = new HashMap<>();
         esCfg.put(ElasticsearchCoordinate.SCHEME_PROP,
                 PropertiesUtil.toString(config.get(PROP_ELASTICSEARCH_SCHEME), PROP_ELASTICSEARCH_SCHEME_DEFAULT));
         esCfg.put(ElasticsearchCoordinate.HOST_PROP,

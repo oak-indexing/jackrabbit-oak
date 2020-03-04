@@ -38,10 +38,8 @@ import org.junit.Rule;
 import org.junit.Test;
 
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.Set;
 
-import static com.google.common.collect.ImmutableSet.of;
+import static java.util.Collections.singletonList;
 import static org.apache.derby.vti.XmlVTI.asList;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NAME;
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROPDEF_PROP_NODE_NAME;
@@ -81,8 +79,8 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
 
     @Test
     public void indexSelection() throws Exception {
-        setIndex("test1", createIndex(of("propa", "propb")));
-        setIndex("test2", createIndex(of("propc")));
+        setIndex("test1", createIndex("propa", "propb"));
+        setIndex("test2", createIndex("propc"));
 
         Tree test = root.getTree("/").addChild("test");
         test.addChild("a").setProperty("propa", "foo");
@@ -105,7 +103,7 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
     @Test
     public void nodeNameViaPropDefinition() throws Exception{
         //make index
-        IndexDefinitionBuilder builder = createIndex(Collections.EMPTY_SET);
+        IndexDefinitionBuilder builder = createIndex();
         builder.includedPaths("/test")
                 .evaluatePathRestrictions()
                 .indexRule("nt:base")
@@ -126,19 +124,19 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
         String explanation = explain(propabQuery);
         Assert.assertThat(explanation, containsString("elasticsearch:test1(/oak:index/test1) "));
         Assert.assertThat(explanation, containsString("{\"term\":{\":nodeName\":{\"value\":\"foo\","));
-        assertQuery(propabQuery, Arrays.asList("/test/foo"));
-        assertQuery(queryPrefix + "LOCALNAME() = 'bar'", Arrays.asList("/test/sc/bar"));
-        assertQuery(queryPrefix + "LOCALNAME() LIKE 'foo'", Arrays.asList("/test/foo"));
-        assertQuery(queryPrefix + "LOCALNAME() LIKE 'camel%'", Arrays.asList("/test/camelCase"));
+        assertQuery(propabQuery, singletonList("/test/foo"));
+        assertQuery(queryPrefix + "LOCALNAME() = 'bar'", singletonList("/test/sc/bar"));
+        assertQuery(queryPrefix + "LOCALNAME() LIKE 'foo'", singletonList("/test/foo"));
+        assertQuery(queryPrefix + "LOCALNAME() LIKE 'camel%'", singletonList("/test/camelCase"));
 
-        assertQuery(queryPrefix + "NAME() = 'bar'", Arrays.asList("/test/sc/bar"));
-        assertQuery(queryPrefix + "NAME() LIKE 'foo'", Arrays.asList("/test/foo"));
-        assertQuery(queryPrefix + "NAME() LIKE 'camel%'", Arrays.asList("/test/camelCase"));
+        assertQuery(queryPrefix + "NAME() = 'bar'", singletonList("/test/sc/bar"));
+        assertQuery(queryPrefix + "NAME() LIKE 'foo'", singletonList("/test/foo"));
+        assertQuery(queryPrefix + "NAME() LIKE 'camel%'", singletonList("/test/camelCase"));
     }
 
     @Test
     public void emptyIndex() throws Exception{
-        setIndex("test1", createIndex(of("propa", "propb")));
+        setIndex("test1", createIndex("propa", "propb"));
         root.commit();
 
         Tree test = root.getTree("/").addChild("test");
@@ -151,7 +149,7 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
 
     @Test
     public void propertyExistenceQuery() throws Exception {
-        setIndex("test1", createIndex(of("propa", "propb")));
+        setIndex("test1", createIndex("propa", "propb"));
 
         Tree test = root.getTree("/").addChild("test");
         test.addChild("a").setProperty("propa", "a");
@@ -162,11 +160,12 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
         assertQuery("select [jcr:path] from [nt:base] where propa is not null", Arrays.asList("/test/a", "/test/b"));
     }
 
-    private static IndexDefinitionBuilder createIndex(Set<String> propNames) {
+    private static IndexDefinitionBuilder createIndex(String ... propNames) {
         IndexDefinitionBuilder builder = new ElasticsearchIndexDefinitionBuilder().noAsync();
         IndexDefinitionBuilder.IndexRule indexRule = builder.indexRule("nt:base");
-        propNames.forEach(propName -> indexRule.property(propName).propertyIndex());
-
+        for (String propName : propNames) {
+            indexRule.property(propName).propertyIndex();
+        }
         return builder;
     }
 

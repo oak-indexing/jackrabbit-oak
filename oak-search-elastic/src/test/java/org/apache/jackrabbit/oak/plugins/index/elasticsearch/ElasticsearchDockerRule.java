@@ -35,7 +35,7 @@ class ElasticsearchDockerRule extends DockerRule {
 
     private static final String CONFIG_NAME = "Elasticsearch";
 
-    private static final String VERSION = System.getProperty("elasticsearch.version", "7.1.1");
+    private static final String VERSION = System.getProperty("elasticsearch.version", "7.6.0");
 
     private static final String IMAGE = "elasticsearch:" + VERSION;
 

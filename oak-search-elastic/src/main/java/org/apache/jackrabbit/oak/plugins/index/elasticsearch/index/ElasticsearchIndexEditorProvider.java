@@ -30,7 +30,6 @@ import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexConstants.TYPE_ELASTICSEARCH;
 
 public class ElasticsearchIndexEditorProvider implements IndexEditorProvider {
@@ -49,8 +48,8 @@ public class ElasticsearchIndexEditorProvider implements IndexEditorProvider {
                                            @NotNull NodeBuilder definition, @NotNull NodeState root,
                                            @NotNull IndexUpdateCallback callback) throws CommitFailedException {
         if (TYPE_ELASTICSEARCH.equals(type)) {
-            checkArgument(callback instanceof ContextAwareCallback, "callback instance not of type " +
-                    "ContextAwareCallback [%s]", callback);
+            assert callback instanceof ContextAwareCallback : "callback instance not of type " +
+                    "ContextAwareCallback [" + callback + "]";
             IndexingContext indexingContext = ((ContextAwareCallback)callback).getIndexingContext();
 
             String indexPath = indexingContext.getIndexPath();

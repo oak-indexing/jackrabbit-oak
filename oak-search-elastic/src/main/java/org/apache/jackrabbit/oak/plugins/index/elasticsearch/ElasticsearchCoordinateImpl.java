@@ -16,12 +16,12 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elasticsearch;
 
-import com.google.common.base.Objects;
 import org.apache.jackrabbit.oak.plugins.index.search.util.ConfigUtil;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.elasticsearch.client.RestHighLevelClient;
 
 import java.util.Map;
+import java.util.Objects;
 
 public class ElasticsearchCoordinateImpl implements ElasticsearchCoordinate {
     private final ElasticsearchConnectionFactory connectionFactory;
@@ -39,10 +39,8 @@ public class ElasticsearchCoordinateImpl implements ElasticsearchCoordinate {
 
     static ElasticsearchCoordinate construct(ElasticsearchConnectionFactory connectionFactory,
                                              NodeState indexDefn, Map<String, String> configMap) {
-        ElasticsearchCoordinate esCoord;
-
         // index defn is at highest prio
-        esCoord = readFrom(connectionFactory, indexDefn);
+        ElasticsearchCoordinate esCoord = readFrom(connectionFactory, indexDefn);
         if (esCoord != null) {
             return esCoord;
         }
@@ -106,7 +104,7 @@ public class ElasticsearchCoordinateImpl implements ElasticsearchCoordinate {
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(getScheme(), getHost(), getPort());
+        return Objects.hash(getScheme(), getHost(), getPort());
     }
 
     @Override

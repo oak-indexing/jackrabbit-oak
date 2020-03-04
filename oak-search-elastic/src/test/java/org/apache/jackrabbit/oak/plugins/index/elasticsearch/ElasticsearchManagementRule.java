@@ -16,7 +16,6 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elasticsearch;
 
-import com.google.common.collect.Sets;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest;
@@ -29,6 +28,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.Set;
 
 public class ElasticsearchManagementRule extends ExternalResource
@@ -39,7 +39,7 @@ public class ElasticsearchManagementRule extends ExternalResource
 
     private final ElasticsearchConnectionFactory connectionFactory = new ElasticsearchConnectionFactory();
 
-    private final Set<ElasticsearchIndexCoordinate> indices = Sets.newHashSet();
+    private final Set<ElasticsearchIndexCoordinate> indices = new HashSet<>();
 
     private boolean usingDocker;
 

@@ -16,7 +16,6 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elasticsearch;
 
-import com.google.common.collect.Maps;
 import org.apache.http.HttpHost;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestHighLevelClient;
@@ -25,13 +24,14 @@ import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class ElasticsearchConnectionFactory implements Closeable {
     private static final Logger LOG = LoggerFactory.getLogger(ElasticsearchConnectionFactory.class);
-    private final ConcurrentMap<ElasticsearchCoordinate, RestHighLevelClient> clientMap = Maps.newConcurrentMap();
+    private final ConcurrentMap<ElasticsearchCoordinate, RestHighLevelClient> clientMap = new ConcurrentHashMap<>();
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     private final AtomicBoolean isClosed = new AtomicBoolean();

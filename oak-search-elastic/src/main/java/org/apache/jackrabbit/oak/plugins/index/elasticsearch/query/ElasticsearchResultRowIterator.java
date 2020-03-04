@@ -16,9 +16,6 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elasticsearch.query;
 
-import com.google.common.collect.AbstractIterator;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Queues;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.commons.PerfLogger;
@@ -48,13 +45,15 @@ import javax.jcr.PropertyType;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiPredicate;
+import java.util.stream.StreamSupport;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
 import static org.apache.jackrabbit.JcrConstants.JCR_MIXINTYPES;
 import static org.apache.jackrabbit.JcrConstants.JCR_PRIMARYTYPE;
 import static org.apache.jackrabbit.oak.api.Type.STRING;
@@ -66,7 +65,7 @@ import static org.apache.jackrabbit.oak.spi.query.QueryConstants.JCR_PATH;
 import static org.apache.jackrabbit.util.ISO8601.parse;
 import static org.elasticsearch.index.query.QueryBuilders.*;
 
-public class ElasticsearchResultRowIterator extends AbstractIterator<FulltextIndex.FulltextResultRow> {
+public class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.FulltextResultRow> {
     private static final Logger LOG = LoggerFactory
             .getLogger(ElasticsearchResultRowIterator.class);
     private static final PerfLogger PERF_LOGGER =
@@ -83,8 +82,7 @@ public class ElasticsearchResultRowIterator extends AbstractIterator<FulltextInd
 
     private static final int ELASTICSEARCH_QUERY_MAX_BATCH_SIZE = 10000;
 
-
-    private final Deque<FulltextIndex.FulltextResultRow> queue = Queues.newArrayDeque();
+    private final Deque<FulltextIndex.FulltextResultRow> queue = new ArrayDeque<>();
     // TODO : find if ES can return dup docs - if so how to avoid
 //    private final Set<String> seenPaths = Sets.newHashSet();
     private SearchHit lastDoc;
@@ -116,12 +114,13 @@ public class ElasticsearchResultRowIterator extends AbstractIterator<FulltextInd
     }
 
     @Override
-    protected FulltextIndex.FulltextResultRow computeNext() {
-        if (!queue.isEmpty() || loadDocs()) {
-            return queue.remove();
-        } else {
-            return endOfData();
-        }
+    public boolean hasNext() {
+        return !queue.isEmpty() || loadDocs();
+    }
+
+    @Override
+    public FulltextIndex.FulltextResultRow next() {
+        return queue.remove();
     }
 
     /**
@@ -134,9 +133,11 @@ public class ElasticsearchResultRowIterator extends AbstractIterator<FulltextInd
             return false;
         }
 
-        SearchHit lastDocToRecord = null;
+        if(indexNode != null) {
+            throw new IllegalStateException("indexNode cannot be null");
+        }
 
-        checkState(indexNode != null);
+        SearchHit lastDocToRecord = null;
         try {
             ElasticsearchSearcher searcher = getCurrentSearcher(indexNode);
             QueryBuilder query = getESRequest(plan, pr);
@@ -430,7 +431,6 @@ public class ElasticsearchResultRowIterator extends AbstractIterator<FulltextInd
      */
     @NotNull
     private static QueryBuilder performAdditionalWraps(@NotNull List<QueryBuilder> qs) {
-        checkNotNull(qs);
         if (qs.size() == 1) {
             // we don't need to worry about all-negatives in a bool query as
             // BoolQueryBuilder.adjustPureNegative is on by default anyway
@@ -460,8 +460,6 @@ public class ElasticsearchResultRowIterator extends AbstractIterator<FulltextInd
      * @return true if there where at least one unwrapped NOT. false otherwise.
      */
     private static boolean unwrapMustNot(@NotNull BoolQueryBuilder input, @NotNull BoolQueryBuilder output) {
-        checkNotNull(input);
-        checkNotNull(output);
         boolean unwrapped = false;
         for (QueryBuilder mustNot : input.mustNot()) {
             output.mustNot(mustNot);
@@ -479,7 +477,10 @@ public class ElasticsearchResultRowIterator extends AbstractIterator<FulltextInd
     }
 
     private static void addNonFullTextConstraints(List<QueryBuilder> qs,
-                                                  IndexPlan plan, PlanResult planResult) {
+                                                      IndexPlan plan, PlanResult planResult) {
+        final BiPredicate<Iterable<String>, String> any = (iterable, value) ->
+            StreamSupport.stream(iterable.spliterator(), false).anyMatch(value::equals);
+
         Filter filter = plan.getFilter();
         IndexDefinition defn = planResult.indexDefinition;
         if (!filter.matchesAllTypes()) {
@@ -509,7 +510,7 @@ public class ElasticsearchResultRowIterator extends AbstractIterator<FulltextInd
                 // deduced
                 if (planResult.isPathTransformed()) {
                     String parentPathSegment = planResult.getParentPathSegment();
-                    if ( ! Iterables.any(PathUtils.elements(parentPathSegment), "*"::equals)) {
+                    if ( ! any.test(PathUtils.elements(parentPathSegment), "*")) {
                         qs.add(newPathQuery(path + parentPathSegment));
                     }
                 } else {
@@ -527,7 +528,7 @@ public class ElasticsearchResultRowIterator extends AbstractIterator<FulltextInd
                     // deduced
                     if (planResult.isPathTransformed()) {
                         String parentPathSegment = planResult.getParentPathSegment();
-                        if ( ! Iterables.any(PathUtils.elements(parentPathSegment), "*"::equals)) {
+                        if ( ! any.test(PathUtils.elements(parentPathSegment), "*")) {
                             qs.add(newPathQuery(getParentPath(path) + parentPathSegment));
                         }
                     } else {
