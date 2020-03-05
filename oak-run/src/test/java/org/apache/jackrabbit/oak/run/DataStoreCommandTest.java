@@ -714,7 +714,7 @@ public class DataStoreCommandTest {
         DataStoreCommand cmd = new DataStoreCommand();
         cmd.execute(argsList.toArray(new String[0]));
 
-        // Verbose would have paths as well as ids changed but normally only DocumentNS would have paths suffixed
+        // Verbose would have paths as well as ids changed, otherwise only ids would be listed as it is.
         assertFileEquals(dump, "dump-ref-", verbose ?
                 encodedIdsAndPath(Sets.difference(verboseRootPath ? data.addedSubset :
                         data.added, data.deleted), blobFixture.getType(), data.idToPath, true) :
