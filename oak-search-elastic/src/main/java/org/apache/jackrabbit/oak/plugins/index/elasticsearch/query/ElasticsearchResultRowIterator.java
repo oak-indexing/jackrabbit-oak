@@ -353,9 +353,6 @@ public class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.Fu
             private boolean visitTerm(String propertyName, String text, String boost, boolean not) {
                 String p = getLuceneFieldName(propertyName, pr);
                 QueryBuilder q = tokenToQuery(text, p, pr);
-                if (q == null) {
-                    return false;
-                }
                 if (boost != null) {
                     q.boost(Float.parseFloat(boost));
                 }
