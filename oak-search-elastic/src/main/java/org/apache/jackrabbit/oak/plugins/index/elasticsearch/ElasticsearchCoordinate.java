@@ -58,16 +58,14 @@ public class ElasticsearchCoordinate {
         return port;
     }
 
+    @Override
     public boolean equals(Object o) {
-        if (!(o instanceof ElasticsearchCoordinate)) {
-            return false;
-        }
-
-        ElasticsearchCoordinate other = (ElasticsearchCoordinate) o;
-        return hashCode() == other.hashCode() // just to have a quicker comparison
-                && getScheme().equals(other.getScheme())
-                && getHost().equals(other.getHost())
-                && getPort() == other.getPort();
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        ElasticsearchCoordinate that = (ElasticsearchCoordinate) o;
+        return port == that.port &&
+                Objects.equals(scheme, that.scheme) &&
+                Objects.equals(host, that.host);
     }
 
     @Override
