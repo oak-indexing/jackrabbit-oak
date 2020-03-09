@@ -50,7 +50,7 @@ public class ElasticsearchIndexEditorProvider implements IndexEditorProvider {
         if (TYPE_ELASTICSEARCH.equals(type)) {
             assert callback instanceof ContextAwareCallback : "callback instance not of type " +
                     "ContextAwareCallback [" + callback + "]";
-            IndexingContext indexingContext = ((ContextAwareCallback)callback).getIndexingContext();
+            IndexingContext indexingContext = ((ContextAwareCallback) callback).getIndexingContext();
 
             String indexPath = indexingContext.getIndexPath();
             ElasticsearchIndexDefinition indexDefinition =

@@ -59,7 +59,7 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
                 ELASTIC.getMappedPort(ElasticsearchCoordinate.DEFAULT_PORT)
         );
         ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(coordinate,
-                new ExtractedTextCache(10* FileUtils.ONE_MB, 100));
+                new ExtractedTextCache(10 * FileUtils.ONE_MB, 100));
         ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(coordinate);
 
         // remove all indexes to avoid cost competition (essentially a TODO for fixing cost ES cost estimation)
@@ -107,7 +107,7 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
 
     //OAK-3825
     @Test
-    public void nodeNameViaPropDefinition() throws Exception{
+    public void nodeNameViaPropDefinition() throws Exception {
         //make index
         IndexDefinitionBuilder builder = createIndex();
         builder.includedPaths("/test")
@@ -141,7 +141,7 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
     }
 
     @Test
-    public void emptyIndex() throws Exception{
+    public void emptyIndex() throws Exception {
         setIndex("test1", createIndex("propa", "propb"));
         root.commit();
 
@@ -166,7 +166,7 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
         assertQuery("select [jcr:path] from [nt:base] where propa is not null", Arrays.asList("/test/a", "/test/b"));
     }
 
-    private static IndexDefinitionBuilder createIndex(String ... propNames) {
+    private static IndexDefinitionBuilder createIndex(String... propNames) {
         IndexDefinitionBuilder builder = new ElasticsearchIndexDefinitionBuilder().noAsync();
         IndexDefinitionBuilder.IndexRule indexRule = builder.indexRule("nt:base");
         for (String propName : propNames) {
@@ -179,7 +179,7 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
         builder.build(root.getTree("/").addChild(INDEX_DEFINITIONS_NAME).addChild(idxName));
     }
 
-    private String explain(String query){
+    private String explain(String query) {
         String explain = "explain " + query;
         return executeQuery(explain, "JCR-SQL2").get(0);
     }

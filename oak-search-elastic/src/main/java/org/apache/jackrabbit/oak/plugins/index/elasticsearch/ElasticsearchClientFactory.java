@@ -38,7 +38,8 @@ public class ElasticsearchClientFactory implements Closeable {
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     private final AtomicBoolean isClosed = new AtomicBoolean();
 
-    private ElasticsearchClientFactory() { }
+    private ElasticsearchClientFactory() {
+    }
 
     public static ElasticsearchClientFactory getInstance() {
         return INSTANCE;
@@ -54,11 +55,11 @@ public class ElasticsearchClientFactory implements Closeable {
             return clientMap.computeIfAbsent(esCoord, elasticsearchCoordinate -> {
                 LOG.info("Creating client {}", elasticsearchCoordinate);
                 return new RestHighLevelClient(
-                    RestClient.builder(
-                            new HttpHost(elasticsearchCoordinate.getHost(),
-                                    elasticsearchCoordinate.getPort(),
-                                    elasticsearchCoordinate.getScheme())
-                    ));
+                        RestClient.builder(
+                                new HttpHost(elasticsearchCoordinate.getHost(),
+                                        elasticsearchCoordinate.getPort(),
+                                        elasticsearchCoordinate.getScheme())
+                        ));
             });
         } finally {
             lock.readLock().unlock();

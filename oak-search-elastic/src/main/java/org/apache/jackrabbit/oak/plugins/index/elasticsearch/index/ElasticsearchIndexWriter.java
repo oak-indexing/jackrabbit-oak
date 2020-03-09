@@ -120,8 +120,8 @@ public class ElasticsearchIndexWriter implements FulltextIndexWriter<Elasticsear
 
             // provision settings
             request.settings(Settings.builder()
-                            .put("analysis.analyzer.ancestor_analyzer.type", "custom")
-                            .put("analysis.analyzer.ancestor_analyzer.tokenizer", "path_hierarchy"));
+                    .put("analysis.analyzer.ancestor_analyzer.type", "custom")
+                    .put("analysis.analyzer.ancestor_analyzer.tokenizer", "path_hierarchy"));
 
             // provision mappings
             XContentBuilder mappingBuilder = XContentFactory.jsonBuilder();

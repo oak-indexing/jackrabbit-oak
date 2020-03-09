@@ -23,13 +23,18 @@ import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexD
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.PropertyDefinition;
-import org.apache.jackrabbit.oak.plugins.index.search.util.LMSEstimator;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndexPlanner.PlanResult;
+import org.apache.jackrabbit.oak.plugins.index.search.util.LMSEstimator;
 import org.apache.jackrabbit.oak.spi.query.Filter;
 import org.apache.jackrabbit.oak.spi.query.QueryConstants;
 import org.apache.jackrabbit.oak.spi.query.QueryIndex.IndexPlan;
-import org.apache.jackrabbit.oak.spi.query.fulltext.*;
+import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextAnd;
+import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextContains;
+import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextExpression;
+import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextOr;
+import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextTerm;
+import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextVisitor;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilder;
@@ -58,11 +63,25 @@ import static org.apache.jackrabbit.JcrConstants.JCR_PRIMARYTYPE;
 import static org.apache.jackrabbit.oak.api.Type.STRING;
 import static org.apache.jackrabbit.oak.commons.PathUtils.denotesRoot;
 import static org.apache.jackrabbit.oak.commons.PathUtils.getParentPath;
-import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.util.TermQueryBuilderFactory.*;
+import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.util.TermQueryBuilderFactory.newAncestorQuery;
+import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.util.TermQueryBuilderFactory.newDepthQuery;
+import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.util.TermQueryBuilderFactory.newMixinTypeQuery;
+import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.util.TermQueryBuilderFactory.newNodeTypeQuery;
+import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.util.TermQueryBuilderFactory.newNotNullPropQuery;
+import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.util.TermQueryBuilderFactory.newNullPropQuery;
+import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.util.TermQueryBuilderFactory.newPathQuery;
+import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.util.TermQueryBuilderFactory.newPrefixPathQuery;
+import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.util.TermQueryBuilderFactory.newPrefixQuery;
+import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.util.TermQueryBuilderFactory.newPropertyRestrictionQuery;
+import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.util.TermQueryBuilderFactory.newWildcardPathQuery;
+import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.util.TermQueryBuilderFactory.newWildcardQuery;
 import static org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex.isNodePath;
 import static org.apache.jackrabbit.oak.spi.query.QueryConstants.JCR_PATH;
 import static org.apache.jackrabbit.util.ISO8601.parse;
-import static org.elasticsearch.index.query.QueryBuilders.*;
+import static org.elasticsearch.index.query.QueryBuilders.boolQuery;
+import static org.elasticsearch.index.query.QueryBuilders.matchAllQuery;
+import static org.elasticsearch.index.query.QueryBuilders.matchQuery;
+import static org.elasticsearch.index.query.QueryBuilders.termQuery;
 
 public class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.FulltextResultRow> {
     private static final Logger LOG = LoggerFactory
@@ -121,6 +140,7 @@ public class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.Fu
 
     /**
      * Loads the lucene documents in batches
+     *
      * @return true if any document is loaded
      */
     private boolean loadDocs() {
@@ -129,7 +149,7 @@ public class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.Fu
             return false;
         }
 
-        if(indexNode == null) {
+        if (indexNode == null) {
             throw new IllegalStateException("indexNode cannot be null");
         }
 
@@ -237,7 +257,7 @@ public class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.Fu
     /**
      * Get the Elasticsearch query for the given filter.
      *
-     * @param plan index plan containing filter details
+     * @param plan       index plan containing filter details
      * @param planResult
      * @return the Lucene query
      */
@@ -326,7 +346,7 @@ public class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.Fu
                     if (x instanceof BoolQueryBuilder) {
                         BoolQueryBuilder bq = (BoolQueryBuilder) x;
                         if (bq.mustNot().size() == 1
-                            // no other clauses
+                                // no other clauses
                                 && bq.should().isEmpty() && bq.must().isEmpty() && bq.filter().isEmpty()) {
                             hasMustNot = true;
                             q.mustNot(bq.mustNot().get(0));
@@ -448,7 +468,7 @@ public class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.Fu
     /**
      * unwraps any NOT clauses from the provided boolean query into another boolean query.
      *
-     * @param input the query to be analysed for the existence of NOT clauses. Cannot be null.
+     * @param input  the query to be analysed for the existence of NOT clauses. Cannot be null.
      * @param output the query where the unwrapped NOTs will be saved into. Cannot be null.
      * @return true if there where at least one unwrapped NOT. false otherwise.
      */
@@ -470,9 +490,9 @@ public class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.Fu
     }
 
     private static void addNonFullTextConstraints(List<QueryBuilder> qs,
-                                                      IndexPlan plan, PlanResult planResult) {
+                                                  IndexPlan plan, PlanResult planResult) {
         final BiPredicate<Iterable<String>, String> any = (iterable, value) ->
-            StreamSupport.stream(iterable.spliterator(), false).anyMatch(value::equals);
+                StreamSupport.stream(iterable.spliterator(), false).anyMatch(value::equals);
 
         Filter filter = plan.getFilter();
         IndexDefinition defn = planResult.indexDefinition;
@@ -503,7 +523,7 @@ public class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.Fu
                 // deduced
                 if (planResult.isPathTransformed()) {
                     String parentPathSegment = planResult.getParentPathSegment();
-                    if ( ! any.test(PathUtils.elements(parentPathSegment), "*")) {
+                    if (!any.test(PathUtils.elements(parentPathSegment), "*")) {
                         qs.add(newPathQuery(path + parentPathSegment));
                     }
                 } else {
@@ -521,7 +541,7 @@ public class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.Fu
                     // deduced
                     if (planResult.isPathTransformed()) {
                         String parentPathSegment = planResult.getParentPathSegment();
-                        if ( ! any.test(PathUtils.elements(parentPathSegment), "*")) {
+                        if (!any.test(PathUtils.elements(parentPathSegment), "*")) {
                             qs.add(newPathQuery(getParentPath(path) + parentPathSegment));
                         }
                     } else {
@@ -651,7 +671,7 @@ public class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.Fu
 
     @Nullable
     private static QueryBuilder createQuery(String propertyName, Filter.PropertyRestriction pr,
-                                     PropertyDefinition defn) {
+                                            PropertyDefinition defn) {
         int propType = FulltextIndex.determinePropertyType(defn, pr);
 
         if (pr.isNullRestriction()) {

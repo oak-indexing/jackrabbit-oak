@@ -63,7 +63,7 @@ public class ElasticsearchCoordinate {
             return false;
         }
 
-        ElasticsearchCoordinate other = (ElasticsearchCoordinate)o;
+        ElasticsearchCoordinate other = (ElasticsearchCoordinate) o;
         return hashCode() == other.hashCode() // just to have a quicker comparison
                 && getScheme().equals(other.getScheme())
                 && getHost().equals(other.getHost())

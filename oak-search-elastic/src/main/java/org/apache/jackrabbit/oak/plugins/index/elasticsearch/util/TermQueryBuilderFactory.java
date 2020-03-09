@@ -86,7 +86,7 @@ public class TermQueryBuilderFactory {
         return wildcardQuery(PATH, value);
     }
 
-    public static TermQueryBuilder newAncestorQuery(String path){
+    public static TermQueryBuilder newAncestorQuery(String path) {
         return termQuery(FieldNames.ANCESTORS, preparePath(path));
     }
 

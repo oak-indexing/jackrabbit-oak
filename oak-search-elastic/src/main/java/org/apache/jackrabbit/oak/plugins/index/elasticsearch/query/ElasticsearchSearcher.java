@@ -39,8 +39,7 @@ public class ElasticsearchSearcher {
                 .query(query)
                 .fetchSource(false)
                 .storedField(FieldNames.PATH)
-                .size(batchSize)
-                ;
+                .size(batchSize);
 
         SearchRequest request = new SearchRequest(indexDescriptor.getIndexName())
                 .source(searchSourceBuilder);

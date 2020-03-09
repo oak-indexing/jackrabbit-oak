@@ -17,7 +17,14 @@
 package org.apache.jackrabbit.oak.plugins.index.elasticsearch;
 
 import org.apache.commons.io.FilenameUtils;
-import org.apache.felix.scr.annotations.*;
+import org.apache.felix.scr.annotations.Activate;
+import org.apache.felix.scr.annotations.Component;
+import org.apache.felix.scr.annotations.Deactivate;
+import org.apache.felix.scr.annotations.Property;
+import org.apache.felix.scr.annotations.Reference;
+import org.apache.felix.scr.annotations.ReferenceCardinality;
+import org.apache.felix.scr.annotations.ReferencePolicy;
+import org.apache.felix.scr.annotations.ReferencePolicyOption;
 import org.apache.jackrabbit.oak.api.jmx.CacheStatsMBean;
 import org.apache.jackrabbit.oak.cache.CacheStats;
 import org.apache.jackrabbit.oak.commons.IOUtils;
@@ -187,11 +194,11 @@ public class ElasticsearchIndexProviderService {
                 alwaysUsePreExtractedCache,
                 textExtractionDir,
                 statisticsProvider);
-        if (extractedTextProvider != null){
+        if (extractedTextProvider != null) {
             registerExtractedTextProvider(extractedTextProvider);
         }
         CacheStats stats = extractedTextCache.getCacheStats();
-        if (stats != null){
+        if (stats != null) {
             oakRegs.add(registerMBean(whiteboard,
                     CacheStatsMBean.class, stats,
                     CacheStatsMBean.TYPE, stats.getName()));
@@ -204,7 +211,7 @@ public class ElasticsearchIndexProviderService {
         String textExtractionDir = PropertiesUtil.toString(config.get(PROP_LOCAL_TEXT_EXTRACTION_DIR), null);
         if (textExtractionDir == null || textExtractionDir.trim().isEmpty()) {
             String repoHome = bundleContext.getProperty(REPOSITORY_HOME);
-            if (repoHome != null){
+            if (repoHome != null) {
                 textExtractionDir = FilenameUtils.concat(repoHome, "index");
             }
         }
@@ -217,13 +224,13 @@ public class ElasticsearchIndexProviderService {
         this.textExtractionDir = new File(textExtractionDir);
     }
 
-    private void registerExtractedTextProvider(PreExtractedTextProvider provider){
-        if (extractedTextCache != null){
-            if (provider != null){
+    private void registerExtractedTextProvider(PreExtractedTextProvider provider) {
+        if (extractedTextCache != null) {
+            if (provider != null) {
                 String usage = extractedTextCache.isAlwaysUsePreExtractedCache() ?
                         "always" : "only during reindexing phase";
                 LOG.info("Registering PreExtractedTextProvider {} with extracted text cache. " +
-                        "It would be used {}",  provider, usage);
+                        "It would be used {}", provider, usage);
             } else {
                 LOG.info("Unregistering PreExtractedTextProvider with extracted text cache");
             }

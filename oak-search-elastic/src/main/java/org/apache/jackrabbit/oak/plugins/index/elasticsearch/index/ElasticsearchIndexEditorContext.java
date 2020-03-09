@@ -58,6 +58,6 @@ public class ElasticsearchIndexEditorContext extends FulltextIndexEditorContext<
 
     @Override
     public ElasticsearchIndexWriter getWriter() {
-        return (ElasticsearchIndexWriter)super.getWriter();
+        return (ElasticsearchIndexWriter) super.getWriter();
     }
 }

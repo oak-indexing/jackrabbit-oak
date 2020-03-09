@@ -101,7 +101,7 @@ public class ElasticsearchIndexDescriptor {
      *     <li>xy:abc -> xyabc</li>
      *     <li>/oak:index/abc -> abc</li>
      * </ul>
-     *
+     * <p>
      * The resulting file name would be truncated to MAX_NAME_LENGTH
      */
     private static String getESSafeIndexName(String indexPath) {
@@ -112,7 +112,7 @@ public class ElasticsearchIndexDescriptor {
                 .map(ElasticsearchIndexDescriptor::getESSafeName)
                 .collect(Collectors.joining("_"));
 
-        if (name.length() > MAX_NAME_LENGTH){
+        if (name.length() > MAX_NAME_LENGTH) {
             name = name.substring(0, MAX_NAME_LENGTH);
         }
         return name;
