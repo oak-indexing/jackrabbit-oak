@@ -16,7 +16,7 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elasticsearch.query;
 
-import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexCoordinate;
+import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexDescriptor;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexStatistics;
 import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.core.CountRequest;
@@ -26,10 +26,10 @@ import org.elasticsearch.index.query.QueryBuilders;
 import java.io.IOException;
 
 public class ElasticsearchIndexStatistics implements IndexStatistics {
-    private final ElasticsearchIndexCoordinate elasticsearchIndexCoordinate;
+    private final ElasticsearchIndexDescriptor elasticsearchIndexDescriptor;
 
-    ElasticsearchIndexStatistics(ElasticsearchIndexCoordinate elasticsearchIndexCoordinate) {
-        this.elasticsearchIndexCoordinate = elasticsearchIndexCoordinate;
+    ElasticsearchIndexStatistics(ElasticsearchIndexDescriptor elasticsearchIndexDescriptor) {
+        this.elasticsearchIndexDescriptor = elasticsearchIndexDescriptor;
     }
 
     @Override
@@ -37,7 +37,7 @@ public class ElasticsearchIndexStatistics implements IndexStatistics {
         CountRequest countRequest = new CountRequest();
         countRequest.query(QueryBuilders.matchAllQuery());
         try {
-            CountResponse count = elasticsearchIndexCoordinate.getClient().count(countRequest, RequestOptions.DEFAULT);
+            CountResponse count = elasticsearchIndexDescriptor.getClient().count(countRequest, RequestOptions.DEFAULT);
             return (int) count.getCount();
         } catch (IOException e) {
             // ignore failure
@@ -50,7 +50,7 @@ public class ElasticsearchIndexStatistics implements IndexStatistics {
         CountRequest countRequest = new CountRequest();
         countRequest.query(QueryBuilders.existsQuery(key));
         try {
-            CountResponse count = elasticsearchIndexCoordinate.getClient().count(countRequest, RequestOptions.DEFAULT);
+            CountResponse count = elasticsearchIndexDescriptor.getClient().count(countRequest, RequestOptions.DEFAULT);
             return (int) count.getCount();
         } catch (IOException e) {
             // ignore failure

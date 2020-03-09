@@ -21,7 +21,7 @@ import org.apache.jackrabbit.oak.plugins.index.ContextAwareCallback;
 import org.apache.jackrabbit.oak.plugins.index.IndexEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.IndexUpdateCallback;
 import org.apache.jackrabbit.oak.plugins.index.IndexingContext;
-import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexCoordinateFactory;
+import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchCoordinate;
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.ExtractedTextCache;
 import org.apache.jackrabbit.oak.spi.commit.Editor;
@@ -34,12 +34,12 @@ import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.Elasticsearc
 
 public class ElasticsearchIndexEditorProvider implements IndexEditorProvider {
 
-    private final ElasticsearchIndexCoordinateFactory esIndexCoordFactory;
+    private final ElasticsearchCoordinate defaultCoordinate;
     private final ExtractedTextCache extractedTextCache;
 
-    public ElasticsearchIndexEditorProvider(@NotNull ElasticsearchIndexCoordinateFactory esIndexCoordFactory,
+    public ElasticsearchIndexEditorProvider(@NotNull ElasticsearchCoordinate defaultCoordinate,
                                             ExtractedTextCache extractedTextCache) {
-        this.esIndexCoordFactory = esIndexCoordFactory;
+        this.defaultCoordinate = defaultCoordinate;
         this.extractedTextCache = extractedTextCache != null ? extractedTextCache : new ExtractedTextCache(0, 0);
     }
 
@@ -56,7 +56,7 @@ public class ElasticsearchIndexEditorProvider implements IndexEditorProvider {
             ElasticsearchIndexDefinition indexDefinition =
                     new ElasticsearchIndexDefinition(root, definition.getNodeState(), indexPath);
 
-            ElasticsearchIndexWriterFactory writerFactory = new ElasticsearchIndexWriterFactory(esIndexCoordFactory);
+            ElasticsearchIndexWriterFactory writerFactory = new ElasticsearchIndexWriterFactory(defaultCoordinate);
 
             ElasticsearchIndexEditorContext context = new ElasticsearchIndexEditorContext(root,
                     definition, indexDefinition,

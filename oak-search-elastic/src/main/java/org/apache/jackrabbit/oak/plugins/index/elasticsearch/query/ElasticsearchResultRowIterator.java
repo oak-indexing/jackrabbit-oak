@@ -19,7 +19,6 @@ package org.apache.jackrabbit.oak.plugins.index.elasticsearch.query;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.commons.PerfLogger;
-import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexCoordinateFactory;
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
@@ -89,7 +88,6 @@ public class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.Fu
     private int nextBatchSize = ELASTICSEARCH_QUERY_BATCH_SIZE;
     private boolean noDocs = false;
 
-    private final ElasticsearchIndexCoordinateFactory esIndexCoordFactory;
     private final Filter filter;
     private final PlanResult pr;
     private final IndexPlan plan;
@@ -97,14 +95,12 @@ public class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.Fu
     private final RowInclusionPredicate rowInclusionPredicate;
     private final LMSEstimator estimator;
 
-    ElasticsearchResultRowIterator(@NotNull ElasticsearchIndexCoordinateFactory esIndexCoordFactory,
-                                   @NotNull Filter filter,
+    ElasticsearchResultRowIterator(@NotNull Filter filter,
                                    @NotNull PlanResult pr,
                                    @NotNull IndexPlan plan,
                                    ElasticsearchIndexNode indexNode,
                                    RowInclusionPredicate rowInclusionPredicate,
                                    LMSEstimator estimator) {
-        this.esIndexCoordFactory = esIndexCoordFactory;
         this.filter = filter;
         this.pr = pr;
         this.plan = plan;
@@ -203,7 +199,7 @@ public class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.Fu
     }
 
     private ElasticsearchSearcher getCurrentSearcher(ElasticsearchIndexNode indexNode) {
-        return new ElasticsearchSearcher(esIndexCoordFactory, indexNode);
+        return new ElasticsearchSearcher(indexNode);
     }
 
     private FulltextIndex.FulltextResultRow convertToRow(SearchHit hit) throws IOException {

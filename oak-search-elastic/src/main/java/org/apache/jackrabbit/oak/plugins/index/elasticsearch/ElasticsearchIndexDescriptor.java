@@ -18,6 +18,7 @@ package org.apache.jackrabbit.oak.plugins.index.elasticsearch;
 
 import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
+import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.elasticsearch.client.RestHighLevelClient;
 import org.jetbrains.annotations.NotNull;
 
@@ -28,42 +29,60 @@ import java.util.stream.StreamSupport;
 
 import static org.elasticsearch.common.Strings.INVALID_FILENAME_CHARS;
 
-public class ElasticsearchIndexCoordinateImpl implements ElasticsearchIndexCoordinate {
+public class ElasticsearchIndexDescriptor {
 
     private static final int MAX_NAME_LENGTH = 255;
 
-    private final ElasticsearchCoordinate esCoord;
-    private final String esIndexName;
+    private static final String INVALID_CHARS_REGEX = Pattern.quote(INVALID_FILENAME_CHARS
+            .stream()
+            .map(Object::toString)
+            .collect(Collectors.joining("")));
 
-    ElasticsearchIndexCoordinateImpl(@NotNull ElasticsearchCoordinate esCoord, IndexDefinition indexDefinition) {
-        this.esCoord = esCoord;
-        esIndexName = getRemoteIndexName(indexDefinition);
+    private final ElasticsearchCoordinate coordinate;
+    private final String indexName;
+
+    public ElasticsearchIndexDescriptor(IndexDefinition indexDefinition, @NotNull ElasticsearchCoordinate defaultCoordinate) {
+        ElasticsearchCoordinate c = build(indexDefinition);
+        coordinate = c != null ? c : defaultCoordinate;
+        indexName = getRemoteIndexName(indexDefinition);
     }
 
-    @Override
     public RestHighLevelClient getClient() {
-        return esCoord.getClient();
+        return ElasticsearchClientFactory.getInstance().getClient(coordinate);
     }
 
-    @Override
-    public String getEsIndexName() {
-        return esIndexName;
+    public String getIndexName() {
+        return indexName;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(esCoord, esIndexName);
+        return Objects.hash(coordinate, indexName);
     }
 
     @Override
     public boolean equals(Object o) {
-        if (! (o instanceof ElasticsearchIndexCoordinateImpl)) {
-            return false;
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        ElasticsearchIndexDescriptor that = (ElasticsearchIndexDescriptor) o;
+        return coordinate.equals(that.coordinate) &&
+                indexName.equals(that.indexName);
+    }
+
+    private ElasticsearchCoordinate build(IndexDefinition definition) {
+        final NodeState node = definition.getDefinitionNodeState();
+        if (node == null
+                || !node.hasProperty(ElasticsearchCoordinate.SCHEME_PROP)
+                || !node.hasProperty(ElasticsearchCoordinate.HOST_PROP)
+                || !node.hasProperty(ElasticsearchCoordinate.PORT_PROP)) {
+            return null;
         }
-        ElasticsearchIndexCoordinateImpl other = (ElasticsearchIndexCoordinateImpl)o;
-        return hashCode() == other.hashCode()
-                && esCoord.equals(other.esCoord)
-                && esIndexName.equals(other.esIndexName);
+
+        String scheme = node.getString(ElasticsearchCoordinate.SCHEME_PROP);
+        String host = node.getString(ElasticsearchCoordinate.HOST_PROP);
+        int port = (int) node.getLong(ElasticsearchCoordinate.PORT_PROP);
+
+        return new ElasticsearchCoordinate(scheme, host, port);
     }
 
     private String getRemoteIndexName(IndexDefinition definition) {
@@ -90,7 +109,7 @@ public class ElasticsearchIndexCoordinateImpl implements ElasticsearchIndexCoord
                 .stream(PathUtils.elements(indexPath).spliterator(), false)
                 .limit(3) //Max 3 nodeNames including oak:index which is the immediate parent for any indexPath
                 .filter(p -> !"oak:index".equals(p))
-                .map(ElasticsearchIndexCoordinateImpl::getESSafeName)
+                .map(ElasticsearchIndexDescriptor::getESSafeName)
                 .collect(Collectors.joining("_"));
 
         if (name.length() > MAX_NAME_LENGTH){
@@ -104,11 +123,7 @@ public class ElasticsearchIndexCoordinateImpl implements ElasticsearchIndexCoord
      * Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-create-index.html
      */
     private static String getESSafeName(String suggestedIndexName) {
-        String invalidCharsRegex = Pattern.quote(INVALID_FILENAME_CHARS
-                .stream()
-                .map(Object::toString)
-                .collect(Collectors.joining("")));
-        return suggestedIndexName.replaceAll(invalidCharsRegex, "").toLowerCase();
+        return suggestedIndexName.replaceAll(INVALID_CHARS_REGEX, "").toLowerCase();
     }
 
 }

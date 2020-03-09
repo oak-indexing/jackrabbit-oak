@@ -40,10 +40,10 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Dictionary;
-import java.util.HashMap;
 import java.util.Hashtable;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.apache.commons.io.FileUtils.ONE_MB;
 import static org.apache.jackrabbit.oak.spi.whiteboard.WhiteboardUtils.registerMBean;
@@ -81,25 +81,22 @@ public class ElasticsearchIndexProviderService {
     )
     private static final String PROP_PRE_EXTRACTED_TEXT_ALWAYS_USE = "alwaysUsePreExtractedCache";
 
-    private static final String PROP_ELASTICSEARCH_SCHEME_DEFAULT = "http";
-//    @Property(
-//            value = PROP_ELASTICSEARCH_SCHEME_DEFAULT,
-//            label = "Elasticsearch connection scheme"
-//    )
+    @Property(
+            value = ElasticsearchCoordinate.DEFAULT_SCHEME,
+            label = "Elasticsearch connection scheme"
+    )
     private static final String PROP_ELASTICSEARCH_SCHEME = "elasticsearch.scheme";
 
-    private static final String PROP_ELASTICSEARCH_HOST_DEFAULT = "localhost";
-//    @Property(
-//            value = PROP_ELASTICSEARCH_HOST_DEFAULT,
-//            label = "Elasticsearch connection host"
-//    )
+    @Property(
+            value = ElasticsearchCoordinate.DEFAULT_HOST,
+            label = "Elasticsearch connection host"
+    )
     private static final String PROP_ELASTICSEARCH_HOST = "elasticsearch.host";
 
-    private static final int PROP_ELASTICSEARCH_PORT_DEFAULT = 9200;
-//    @Property(
-//            intValue = PROP_ELASTICSEARCH_PORT_DEFAULT,
-//            label = "Elasticsearch connection port"
-//    )
+    @Property(
+            intValue = ElasticsearchCoordinate.DEFAULT_PORT,
+            label = "Elasticsearch connection port"
+    )
     private static final String PROP_ELASTICSEARCH_PORT = "elasticsearch.port";
 
     @Property(
@@ -119,8 +116,6 @@ public class ElasticsearchIndexProviderService {
 
     private ExtractedTextCache extractedTextCache;
 
-    private ElasticsearchConnectionFactory connectionFactory = null;
-
     private final List<ServiceRegistration> regs = new ArrayList<>();
     private final List<Registration> oakRegs = new ArrayList<>();
 
@@ -134,11 +129,10 @@ public class ElasticsearchIndexProviderService {
         initializeTextExtractionDir(bundleContext, config);
         initializeExtractedTextCache(config, statisticsProvider);
 
-        connectionFactory = new ElasticsearchConnectionFactory();
-        ElasticsearchIndexCoordinateFactory esIndexCoordFactory = getElasticsearchIndexCoordinateFactory(config);
+        final ElasticsearchCoordinate coordinate = getElasticsearchCoordinate(config);
 
-        registerIndexProvider(bundleContext, esIndexCoordFactory);
-        registerIndexEditor(bundleContext, esIndexCoordFactory);
+        registerIndexProvider(bundleContext, coordinate);
+        registerIndexEditor(bundleContext, coordinate);
     }
 
     @Deactivate
@@ -151,24 +145,23 @@ public class ElasticsearchIndexProviderService {
             reg.unregister();
         }
 
-        IOUtils.closeQuietly(connectionFactory);
-        connectionFactory = null;
+        IOUtils.closeQuietly(ElasticsearchClientFactory.getInstance());
 
         if (extractedTextCache != null) {
             extractedTextCache.close();
         }
     }
 
-    private void registerIndexProvider(BundleContext bundleContext, ElasticsearchIndexCoordinateFactory esIndexCoordFactory) {
-        ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(esIndexCoordFactory);
+    private void registerIndexProvider(BundleContext bundleContext, ElasticsearchCoordinate coordinate) {
+        ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(coordinate);
 
         Dictionary<String, Object> props = new Hashtable<>();
         props.put("type", ElasticsearchIndexConstants.TYPE_ELASTICSEARCH);
         regs.add(bundleContext.registerService(IndexEditorProvider.class.getName(), indexProvider, props));
     }
 
-    private void registerIndexEditor(BundleContext bundleContext, ElasticsearchIndexCoordinateFactory esIndexCoordFactory) {
-        ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(esIndexCoordFactory, extractedTextCache);
+    private void registerIndexEditor(BundleContext bundleContext, ElasticsearchCoordinate coordinate) {
+        ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(coordinate, extractedTextCache);
 
         Dictionary<String, Object> props = new Hashtable<>();
         props.put("type", ElasticsearchIndexConstants.TYPE_ELASTICSEARCH);
@@ -238,16 +231,20 @@ public class ElasticsearchIndexProviderService {
         }
     }
 
-    private ElasticsearchIndexCoordinateFactory getElasticsearchIndexCoordinateFactory(Map<String, ?> config) {
-        ElasticsearchIndexCoordinateFactory esIndexCoordFactory;
-        Map<String, String> esCfg = new HashMap<>();
-        esCfg.put(ElasticsearchCoordinate.SCHEME_PROP,
-                PropertiesUtil.toString(config.get(PROP_ELASTICSEARCH_SCHEME), PROP_ELASTICSEARCH_SCHEME_DEFAULT));
-        esCfg.put(ElasticsearchCoordinate.HOST_PROP,
-                PropertiesUtil.toString(config.get(PROP_ELASTICSEARCH_HOST), PROP_ELASTICSEARCH_HOST_DEFAULT));
-        esCfg.put(ElasticsearchCoordinate.PORT_PROP, String.valueOf(
-                PropertiesUtil.toInteger(config.get(PROP_ELASTICSEARCH_PORT), PROP_ELASTICSEARCH_PORT_DEFAULT)));
-        esIndexCoordFactory = new DefaultElasticsearchIndexCoordinateFactory(connectionFactory, esCfg);
-        return esIndexCoordFactory;
+    private ElasticsearchCoordinate getElasticsearchCoordinate(Map<String, ?> contextConfig) {
+        // system properties have priority
+        ElasticsearchCoordinate coordinate = ElasticsearchCoordinate.build(System.getProperties().entrySet()
+                .stream()
+                .collect(Collectors.toMap(
+                        e -> String.valueOf(e.getKey()),
+                        e -> String.valueOf(e.getValue()))
+                )
+        );
+
+        if (coordinate == null) {
+            coordinate = ElasticsearchCoordinate.build(contextConfig);
+        }
+
+        return coordinate != null ? coordinate : ElasticsearchCoordinate.DEFAULT;
     }
 }

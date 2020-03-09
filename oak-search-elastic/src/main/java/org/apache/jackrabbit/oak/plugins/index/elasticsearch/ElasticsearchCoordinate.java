@@ -16,18 +16,87 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elasticsearch;
 
-import org.elasticsearch.client.RestHighLevelClient;
+import org.jetbrains.annotations.NotNull;
 
-public interface ElasticsearchCoordinate {
-    String SCHEME_PROP = "elasticsearch.scheme";
-    String DEFAULT_SCHEME = "http";
-    String HOST_PROP = "elasticsearch.host";
-    String DEFAULT_HOST = "127.0.0.1";
-    String PORT_PROP = "elasticsearch.port";
-    int DEFAULT_PORT = 9200;
+import java.util.Map;
+import java.util.Objects;
 
-    RestHighLevelClient getClient();
-    String getScheme();
-    String getHost();
-    int getPort();
+public class ElasticsearchCoordinate {
+
+    protected static final String SCHEME_PROP = "elasticsearch.scheme";
+    protected static final String DEFAULT_SCHEME = "http";
+    protected static final String HOST_PROP = "elasticsearch.host";
+    protected static final String DEFAULT_HOST = "127.0.0.1";
+    protected static final String PORT_PROP = "elasticsearch.port";
+    protected static final int DEFAULT_PORT = 9200;
+
+    protected static final ElasticsearchCoordinate DEFAULT =
+            new ElasticsearchCoordinate(DEFAULT_SCHEME, DEFAULT_HOST, DEFAULT_PORT);
+
+    private final String scheme;
+    private final String host;
+    private final int port;
+
+    protected ElasticsearchCoordinate(String scheme, String host, Integer port) {
+        if (scheme == null || host == null || port == null) {
+            throw new IllegalArgumentException();
+        }
+        this.scheme = scheme;
+        this.host = host;
+        this.port = port;
+    }
+
+    public String getScheme() {
+        return scheme;
+    }
+
+    public String getHost() {
+        return host;
+    }
+
+    public int getPort() {
+        return port;
+    }
+
+    public boolean equals(Object o) {
+        if (!(o instanceof ElasticsearchCoordinate)) {
+            return false;
+        }
+
+        ElasticsearchCoordinate other = (ElasticsearchCoordinate)o;
+        return hashCode() == other.hashCode() // just to have a quicker comparison
+                && getScheme().equals(other.getScheme())
+                && getHost().equals(other.getHost())
+                && getPort() == other.getPort();
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(getScheme(), getHost(), getPort());
+    }
+
+    @Override
+    public String toString() {
+        return getScheme() + "://" + getHost() + ":" + getPort();
+    }
+
+    public static ElasticsearchCoordinate build(@NotNull Map<String, ?> config) {
+        ElasticsearchCoordinate coordinate = null;
+        Object p = config.get(PORT_PROP);
+        if (p != null) {
+            try {
+                Integer port = Integer.parseInt(p.toString());
+                coordinate = build((String) config.get(SCHEME_PROP), (String) config.get(HOST_PROP), port);
+            } catch (NumberFormatException nfe) { /* ignore */ }
+        }
+        return coordinate;
+    }
+
+    private static ElasticsearchCoordinate build(String scheme, String host, Integer port) {
+        if (scheme == null || host == null || port == null) {
+            return null;
+        }
+
+        return new ElasticsearchCoordinate(scheme, host, port);
+    }
 }

@@ -51,20 +51,16 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
     public static final ElasticsearchContainer ELASTIC =
             new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:7.6.0");
 
-    private ElasticsearchIndexCoordinateFactory eicf = indexDefinition -> {
-        ElasticsearchCoordinate esCoord =
-                new ElasticsearchCoordinateImpl(
-                        new ElasticsearchConnectionFactory(), "http", ELASTIC.getContainerIpAddress(),
-                        ELASTIC.getMappedPort(9200)
-                );
-        return new ElasticsearchIndexCoordinateImpl(esCoord, indexDefinition);
-    };
-
     @Override
     protected ContentRepository createRepository() {
-        ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(eicf,
+        ElasticsearchCoordinate coordinate = new ElasticsearchCoordinate(
+                ElasticsearchCoordinate.DEFAULT_SCHEME,
+                ELASTIC.getContainerIpAddress(),
+                ELASTIC.getMappedPort(ElasticsearchCoordinate.DEFAULT_PORT)
+        );
+        ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(coordinate,
                 new ExtractedTextCache(10* FileUtils.ONE_MB, 100));
-        ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(eicf);
+        ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(coordinate);
 
         // remove all indexes to avoid cost competition (essentially a TODO for fixing cost ES cost estimation)
         NodeBuilder builder = InitialContentHelper.INITIAL_CONTENT.builder();
@@ -105,8 +101,8 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
         assertThat(explain("select [jcr:path] from [nt:base] where [propc] = 'foo'"), containsString("elasticsearch:test2"));
 
         assertQuery(propaQuery, Arrays.asList("/test/a", "/test/b"));
-        assertQuery("select [jcr:path] from [nt:base] where [propa] = 'foo2'", Arrays.asList("/test/c"));
-        assertQuery("select [jcr:path] from [nt:base] where [propc] = 'foo'", Arrays.asList("/test/d"));
+        assertQuery("select [jcr:path] from [nt:base] where [propa] = 'foo2'", singletonList("/test/c"));
+        assertQuery("select [jcr:path] from [nt:base] where [propc] = 'foo'", singletonList("/test/d"));
     }
 
     //OAK-3825

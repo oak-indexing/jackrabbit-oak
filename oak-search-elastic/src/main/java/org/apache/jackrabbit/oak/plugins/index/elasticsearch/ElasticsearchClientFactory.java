@@ -29,14 +29,22 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public class ElasticsearchConnectionFactory implements Closeable {
-    private static final Logger LOG = LoggerFactory.getLogger(ElasticsearchConnectionFactory.class);
-    private final ConcurrentMap<ElasticsearchCoordinate, RestHighLevelClient> clientMap = new ConcurrentHashMap<>();
+public class ElasticsearchClientFactory implements Closeable {
+    private static final Logger LOG = LoggerFactory.getLogger(ElasticsearchClientFactory.class);
 
+    public static final ElasticsearchClientFactory INSTANCE = new ElasticsearchClientFactory();
+
+    private final ConcurrentMap<ElasticsearchCoordinate, RestHighLevelClient> clientMap = new ConcurrentHashMap<>();
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     private final AtomicBoolean isClosed = new AtomicBoolean();
 
-    public RestHighLevelClient getConnection(ElasticsearchCoordinate esCoord) {
+    private ElasticsearchClientFactory() { }
+
+    public static ElasticsearchClientFactory getInstance() {
+        return INSTANCE;
+    }
+
+    public RestHighLevelClient getClient(ElasticsearchCoordinate esCoord) {
         lock.readLock().lock();
         try {
             if (isClosed.get()) {
