@@ -49,7 +49,6 @@ public class ElasticsearchIndexWriter implements FulltextIndexWriter<Elasticsear
     private static final Logger LOG = LoggerFactory.getLogger(ElasticsearchIndexWriter.class);
 
     private final ElasticsearchIndexDescriptor indexDescriptor;
-    private boolean shouldProvisionIndex;
 
     private final boolean isAsync;
 
@@ -62,13 +61,10 @@ public class ElasticsearchIndexWriter implements FulltextIndexWriter<Elasticsear
         // For test without "async" indexing, we can use following hack BUT those where we
         // would setup async, we'd need to find another way.
         isAsync = indexDefinition.getDefinitionNodeState().getProperty("async") != null;
-
-        shouldProvisionIndex = false;
     }
 
     @Override
     public void updateDocument(String path, ElasticsearchDocument doc) throws IOException {
-        provisionIndex();
         IndexRequest request = new IndexRequest(indexDescriptor.getIndexName())
                 .id(pathToId(path))
                 // immediate refresh would slow indexing response such that next
@@ -82,7 +78,6 @@ public class ElasticsearchIndexWriter implements FulltextIndexWriter<Elasticsear
 
     @Override
     public void deleteDocuments(String path) throws IOException {
-        provisionIndex();
         DeleteRequest request = new DeleteRequest(indexDescriptor.getIndexName())
                 .id(pathToId(path))
                 // immediate refresh would slow indexing response such that next
@@ -96,69 +91,54 @@ public class ElasticsearchIndexWriter implements FulltextIndexWriter<Elasticsear
 
     @Override
     public boolean close(long timestamp) throws IOException {
-        provisionIndex();
         // TODO : track index updates and return accordingly
         // TODO : if/when we do async push, this is where to wait for those ops to complete
         return false;
     }
 
-    /**
-     * This method <b>won't</b> immediately provision index. But, provision would be done <b>before</b>
-     * any updates are sent to the index
-     */
-    void setProvisioningRequired() {
-        shouldProvisionIndex = true;
-    }
+    // TODO: we need to check if the index already exists and in that case we have to figure out if there are
+    // "breaking changes" in the index definition
+    protected void provisionIndex() throws IOException {
+        CreateIndexRequest request = new CreateIndexRequest(indexDescriptor.getIndexName());
 
-    private void provisionIndex() throws IOException {
-        if (!shouldProvisionIndex) {
-            return;
-        }
+        // provision settings
+        request.settings(Settings.builder()
+                .put("analysis.analyzer.ancestor_analyzer.type", "custom")
+                .put("analysis.analyzer.ancestor_analyzer.tokenizer", "path_hierarchy"));
 
-        try {
-            CreateIndexRequest request = new CreateIndexRequest(indexDescriptor.getIndexName());
-
-            // provision settings
-            request.settings(Settings.builder()
-                    .put("analysis.analyzer.ancestor_analyzer.type", "custom")
-                    .put("analysis.analyzer.ancestor_analyzer.tokenizer", "path_hierarchy"));
-
-            // provision mappings
-            XContentBuilder mappingBuilder = XContentFactory.jsonBuilder();
-            mappingBuilder.startObject();
+        // provision mappings
+        XContentBuilder mappingBuilder = XContentFactory.jsonBuilder();
+        mappingBuilder.startObject();
+        {
+            mappingBuilder.startObject("properties");
             {
-                mappingBuilder.startObject("properties");
-                {
-                    mappingBuilder.startObject(FieldNames.ANCESTORS)
-                            .field("type", "text")
-                            .field("analyzer", "ancestor_analyzer")
-                            .field("search_analyzer", "keyword")
-                            .field("search_quote_analyzer", "keyword")
-                            .endObject();
-                    mappingBuilder.startObject(FieldNames.PATH_DEPTH)
-                            .field("type", "integer")
-                            .endObject();
-                    mappingBuilder.startObject(FieldNames.SUGGEST)
-                            .field("type", "completion")
-                            .endObject();
-                    mappingBuilder.startObject(FieldNames.NOT_NULL_PROPS)
-                            .field("type", "keyword")
-                            .endObject();
-                    mappingBuilder.startObject(FieldNames.NULL_PROPS)
-                            .field("type", "keyword")
-                            .endObject();
-                }
-                mappingBuilder.endObject();
+                mappingBuilder.startObject(FieldNames.ANCESTORS)
+                        .field("type", "text")
+                        .field("analyzer", "ancestor_analyzer")
+                        .field("search_analyzer", "keyword")
+                        .field("search_quote_analyzer", "keyword")
+                        .endObject();
+                mappingBuilder.startObject(FieldNames.PATH_DEPTH)
+                        .field("type", "integer")
+                        .endObject();
+                mappingBuilder.startObject(FieldNames.SUGGEST)
+                        .field("type", "completion")
+                        .endObject();
+                mappingBuilder.startObject(FieldNames.NOT_NULL_PROPS)
+                        .field("type", "keyword")
+                        .endObject();
+                mappingBuilder.startObject(FieldNames.NULL_PROPS)
+                        .field("type", "keyword")
+                        .endObject();
             }
             mappingBuilder.endObject();
-            request.mapping(mappingBuilder);
-
-            String requestMsg = Strings.toString(request.toXContent(jsonBuilder(), EMPTY_PARAMS));
-            CreateIndexResponse response = indexDescriptor.getClient().indices().create(request, RequestOptions.DEFAULT);
-
-            LOG.info("Updated settings {}. Response acknowledged: {}", requestMsg, response.isAcknowledged());
-        } finally {
-            shouldProvisionIndex = false;
         }
+        mappingBuilder.endObject();
+        request.mapping(mappingBuilder);
+
+        String requestMsg = Strings.toString(request.toXContent(jsonBuilder(), EMPTY_PARAMS));
+        CreateIndexResponse response = indexDescriptor.getClient().indices().create(request, RequestOptions.DEFAULT);
+
+        LOG.info("Updated settings {}. Response acknowledged: {}", requestMsg, response.isAcknowledged());
     }
 }
