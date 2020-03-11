@@ -26,7 +26,6 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class ElasticsearchClientFactory implements Closeable {
@@ -36,7 +35,6 @@ public class ElasticsearchClientFactory implements Closeable {
 
     private final ConcurrentMap<ElasticsearchCoordinate, RestHighLevelClient> clientMap = new ConcurrentHashMap<>();
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-    private final AtomicBoolean isClosed = new AtomicBoolean();
 
     private ElasticsearchClientFactory() {
     }
@@ -48,10 +46,6 @@ public class ElasticsearchClientFactory implements Closeable {
     public RestHighLevelClient getClient(ElasticsearchCoordinate esCoord) {
         lock.readLock().lock();
         try {
-            if (isClosed.get()) {
-                throw new IllegalStateException("Already closed");
-            }
-
             return clientMap.computeIfAbsent(esCoord, elasticsearchCoordinate -> {
                 LOG.info("Creating client {}", elasticsearchCoordinate);
                 return new RestHighLevelClient(
@@ -70,7 +64,6 @@ public class ElasticsearchClientFactory implements Closeable {
     public void close() {
         lock.writeLock().lock();
         try {
-            isClosed.set(true);
             clientMap.values().forEach(restHighLevelClient -> {
                 try {
                     restHighLevelClient.close();

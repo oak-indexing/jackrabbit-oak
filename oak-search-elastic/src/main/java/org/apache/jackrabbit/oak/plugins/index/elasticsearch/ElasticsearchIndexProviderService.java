@@ -36,6 +36,7 @@ import org.apache.jackrabbit.oak.plugins.index.elasticsearch.query.Elasticsearch
 import org.apache.jackrabbit.oak.plugins.index.fulltext.PreExtractedTextProvider;
 import org.apache.jackrabbit.oak.plugins.index.search.ExtractedTextCache;
 import org.apache.jackrabbit.oak.plugins.index.search.TextExtractionStatsMBean;
+import org.apache.jackrabbit.oak.spi.query.QueryIndexProvider;
 import org.apache.jackrabbit.oak.spi.whiteboard.Registration;
 import org.apache.jackrabbit.oak.spi.whiteboard.Whiteboard;
 import org.apache.jackrabbit.oak.stats.StatisticsProvider;
@@ -164,7 +165,7 @@ public class ElasticsearchIndexProviderService {
 
         Dictionary<String, Object> props = new Hashtable<>();
         props.put("type", ElasticsearchIndexConstants.TYPE_ELASTICSEARCH);
-        regs.add(bundleContext.registerService(IndexEditorProvider.class.getName(), indexProvider, props));
+        regs.add(bundleContext.registerService(QueryIndexProvider.class.getName(), indexProvider, props));
     }
 
     private void registerIndexEditor(BundleContext bundleContext, ElasticsearchCoordinate coordinate) {
@@ -207,7 +208,7 @@ public class ElasticsearchIndexProviderService {
         }
     }
 
-    void initializeTextExtractionDir(BundleContext bundleContext, Map<String, ?> config) {
+    private void initializeTextExtractionDir(BundleContext bundleContext, Map<String, ?> config) {
         String textExtractionDir = PropertiesUtil.toString(config.get(PROP_LOCAL_TEXT_EXTRACTION_DIR), null);
         if (textExtractionDir == null || textExtractionDir.trim().isEmpty()) {
             String repoHome = bundleContext.getProperty(REPOSITORY_HOME);
