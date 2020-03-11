@@ -31,10 +31,11 @@ public class ElasticsearchIndexNode implements IndexNode {
     private final ElasticsearchIndexDefinition indexDefinition;
     private final ElasticsearchIndexDescriptor indexDescriptor;
 
-    protected ElasticsearchIndexNode(@NotNull NodeState root, @NotNull String indexPath, @NotNull ElasticsearchCoordinate defaultCoordinate) {
+    protected ElasticsearchIndexNode(@NotNull NodeState root, @NotNull String indexPath,
+                                     @NotNull ElasticsearchCoordinate elasticsearchCoordinate) {
         final NodeState indexNS = NodeStateUtils.getNode(root, indexPath);
         this.indexDefinition = new ElasticsearchIndexDefinition(root, indexNS, indexPath);
-        this.indexDescriptor = new ElasticsearchIndexDescriptor(indexDefinition, defaultCoordinate);
+        this.indexDescriptor = new ElasticsearchIndexDescriptor(indexDefinition, elasticsearchCoordinate);
     }
 
     @Override

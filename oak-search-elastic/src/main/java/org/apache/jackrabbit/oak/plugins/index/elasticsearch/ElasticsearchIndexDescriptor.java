@@ -18,7 +18,6 @@ package org.apache.jackrabbit.oak.plugins.index.elasticsearch;
 
 import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
-import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.elasticsearch.client.RestHighLevelClient;
 import org.jetbrains.annotations.NotNull;
 
@@ -41,10 +40,9 @@ public class ElasticsearchIndexDescriptor {
     private final ElasticsearchCoordinate coordinate;
     private final String indexName;
 
-    public ElasticsearchIndexDescriptor(IndexDefinition indexDefinition, @NotNull ElasticsearchCoordinate defaultCoordinate) {
-        ElasticsearchCoordinate c = build(indexDefinition);
-        coordinate = c != null ? c : defaultCoordinate;
-        indexName = getRemoteIndexName(indexDefinition);
+    public ElasticsearchIndexDescriptor(IndexDefinition indexDefinition, @NotNull ElasticsearchCoordinate coordinate) {
+        this.coordinate = coordinate;
+        this.indexName = getRemoteIndexName(indexDefinition);
     }
 
     public RestHighLevelClient getClient() {
@@ -67,22 +65,6 @@ public class ElasticsearchIndexDescriptor {
         ElasticsearchIndexDescriptor that = (ElasticsearchIndexDescriptor) o;
         return coordinate.equals(that.coordinate) &&
                 indexName.equals(that.indexName);
-    }
-
-    private ElasticsearchCoordinate build(IndexDefinition definition) {
-        final NodeState node = definition.getDefinitionNodeState();
-        if (node == null
-                || !node.hasProperty(ElasticsearchCoordinate.SCHEME_PROP)
-                || !node.hasProperty(ElasticsearchCoordinate.HOST_PROP)
-                || !node.hasProperty(ElasticsearchCoordinate.PORT_PROP)) {
-            return null;
-        }
-
-        String scheme = node.getString(ElasticsearchCoordinate.SCHEME_PROP);
-        String host = node.getString(ElasticsearchCoordinate.HOST_PROP);
-        int port = (int) node.getLong(ElasticsearchCoordinate.PORT_PROP);
-
-        return new ElasticsearchCoordinate(scheme, host, port);
     }
 
     private String getRemoteIndexName(IndexDefinition definition) {

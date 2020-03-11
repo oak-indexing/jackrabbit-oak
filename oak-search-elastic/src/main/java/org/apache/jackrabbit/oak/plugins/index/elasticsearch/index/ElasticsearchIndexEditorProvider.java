@@ -34,12 +34,12 @@ import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.Elasticsearc
 
 public class ElasticsearchIndexEditorProvider implements IndexEditorProvider {
 
-    private final ElasticsearchCoordinate defaultCoordinate;
+    private final ElasticsearchCoordinate elasticsearchCoordinate;
     private final ExtractedTextCache extractedTextCache;
 
-    public ElasticsearchIndexEditorProvider(@NotNull ElasticsearchCoordinate defaultCoordinate,
+    public ElasticsearchIndexEditorProvider(@NotNull ElasticsearchCoordinate elasticsearchCoordinate,
                                             ExtractedTextCache extractedTextCache) {
-        this.defaultCoordinate = defaultCoordinate;
+        this.elasticsearchCoordinate = elasticsearchCoordinate;
         this.extractedTextCache = extractedTextCache != null ? extractedTextCache : new ExtractedTextCache(0, 0);
     }
 
@@ -56,7 +56,7 @@ public class ElasticsearchIndexEditorProvider implements IndexEditorProvider {
             ElasticsearchIndexDefinition indexDefinition =
                     new ElasticsearchIndexDefinition(root, definition.getNodeState(), indexPath);
 
-            ElasticsearchIndexWriterFactory writerFactory = new ElasticsearchIndexWriterFactory(defaultCoordinate);
+            ElasticsearchIndexWriterFactory writerFactory = new ElasticsearchIndexWriterFactory(elasticsearchCoordinate);
 
             ElasticsearchIndexEditorContext context = new ElasticsearchIndexEditorContext(root,
                     definition, indexDefinition,

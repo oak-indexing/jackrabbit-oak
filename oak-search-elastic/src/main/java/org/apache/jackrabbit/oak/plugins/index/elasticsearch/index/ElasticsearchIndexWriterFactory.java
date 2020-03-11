@@ -23,14 +23,14 @@ import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.jetbrains.annotations.NotNull;
 
 public class ElasticsearchIndexWriterFactory implements FulltextIndexWriterFactory<ElasticsearchDocument> {
-    private final ElasticsearchCoordinate defaultCoordinate;
+    private final ElasticsearchCoordinate elasticsearchCoordinate;
 
-    ElasticsearchIndexWriterFactory(@NotNull ElasticsearchCoordinate defaultCoordinate) {
-        this.defaultCoordinate = defaultCoordinate;
+    ElasticsearchIndexWriterFactory(@NotNull ElasticsearchCoordinate elasticsearchCoordinate) {
+        this.elasticsearchCoordinate = elasticsearchCoordinate;
     }
 
     @Override
     public ElasticsearchIndexWriter newInstance(IndexDefinition definition, NodeBuilder definitionBuilder, boolean reindex) {
-        return new ElasticsearchIndexWriter(definition, defaultCoordinate);
+        return new ElasticsearchIndexWriter(definition, elasticsearchCoordinate);
     }
 }

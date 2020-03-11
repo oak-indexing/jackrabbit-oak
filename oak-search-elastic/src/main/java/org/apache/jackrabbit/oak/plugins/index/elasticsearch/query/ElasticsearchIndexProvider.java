@@ -26,14 +26,14 @@ import java.util.Collections;
 import java.util.List;
 
 public class ElasticsearchIndexProvider implements QueryIndexProvider {
-    private final ElasticsearchCoordinate defaultCoordinate;
+    private final ElasticsearchCoordinate elasticsearchCoordinate;
 
-    public ElasticsearchIndexProvider(ElasticsearchCoordinate defaultCoordinate) {
-        this.defaultCoordinate = defaultCoordinate;
+    public ElasticsearchIndexProvider(ElasticsearchCoordinate elasticsearchCoordinate) {
+        this.elasticsearchCoordinate = elasticsearchCoordinate;
     }
 
     @Override
     public @NotNull List<? extends QueryIndex> getQueryIndexes(NodeState nodeState) {
-        return Collections.singletonList(new ElasticsearchIndex(defaultCoordinate, nodeState));
+        return Collections.singletonList(new ElasticsearchIndex(elasticsearchCoordinate, nodeState));
     }
 }

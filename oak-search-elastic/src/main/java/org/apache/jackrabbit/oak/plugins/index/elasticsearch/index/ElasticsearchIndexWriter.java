@@ -55,8 +55,8 @@ public class ElasticsearchIndexWriter implements FulltextIndexWriter<Elasticsear
 
     // TODO: use bulk API - https://www.elastic.co/guide/en/elasticsearch/client/java-api/current/java-docs-bulk-processor.html
     ElasticsearchIndexWriter(@NotNull IndexDefinition indexDefinition,
-                             @NotNull ElasticsearchCoordinate defaultCoordinate) {
-        indexDescriptor = new ElasticsearchIndexDescriptor(indexDefinition, defaultCoordinate);
+                             @NotNull ElasticsearchCoordinate elasticsearchCoordinate) {
+        indexDescriptor = new ElasticsearchIndexDescriptor(indexDefinition, elasticsearchCoordinate);
 
         // TODO: ES indexing put another bit delay before docs appear in search.
         // For test without "async" indexing, we can use following hack BUT those where we

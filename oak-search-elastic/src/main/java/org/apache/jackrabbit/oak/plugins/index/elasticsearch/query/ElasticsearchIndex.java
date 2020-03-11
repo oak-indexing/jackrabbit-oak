@@ -45,11 +45,11 @@ public class ElasticsearchIndex extends FulltextIndex {
     // higher than some threshold below which the query should rather be answered by something else if possible
     private static final double MIN_COST = 100.1;
 
-    private final ElasticsearchCoordinate defaultCoordinate;
+    private final ElasticsearchCoordinate elasticsearchCoordinate;
     private final NodeState root;
 
-    ElasticsearchIndex(@NotNull ElasticsearchCoordinate defaultCoordinate, @NotNull NodeState root) {
-        this.defaultCoordinate = defaultCoordinate;
+    ElasticsearchIndex(@NotNull ElasticsearchCoordinate elasticsearchCoordinate, @NotNull NodeState root) {
+        this.elasticsearchCoordinate = elasticsearchCoordinate;
         this.root = root;
     }
 
@@ -85,7 +85,7 @@ public class ElasticsearchIndex extends FulltextIndex {
 
     @Override
     protected IndexNode acquireIndexNode(String indexPath) {
-        return new ElasticsearchIndexNode(root, indexPath, defaultCoordinate);
+        return new ElasticsearchIndexNode(root, indexPath, elasticsearchCoordinate);
     }
 
     @Override
