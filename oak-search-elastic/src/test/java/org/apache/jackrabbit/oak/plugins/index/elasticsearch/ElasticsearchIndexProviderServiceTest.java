@@ -8,6 +8,7 @@ import org.apache.jackrabbit.oak.spi.mount.Mounts;
 import org.apache.jackrabbit.oak.spi.query.QueryIndexProvider;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.apache.jackrabbit.oak.spi.whiteboard.Whiteboard;
+import org.apache.jackrabbit.oak.spi.whiteboard.WhiteboardUtils;
 import org.apache.jackrabbit.oak.stats.StatisticsProvider;
 import org.apache.sling.testing.mock.osgi.MockOsgi;
 import org.apache.sling.testing.mock.osgi.junit.OsgiContext;
@@ -31,12 +32,11 @@ public class ElasticsearchIndexProviderServiceTest {
 
     private final ElasticsearchIndexProviderService service = new ElasticsearchIndexProviderService();
 
-    private MountInfoProvider mip;
     private Whiteboard wb;
 
     @Before
     public void setUp() {
-        mip = Mounts.newBuilder().build();
+        MountInfoProvider mip = Mounts.newBuilder().build();
         context.registerService(MountInfoProvider.class, mip);
         context.registerService(NodeStore.class, new MemoryNodeStore());
         context.registerService(StatisticsProvider.class, StatisticsProvider.NOOP);
@@ -53,6 +53,8 @@ public class ElasticsearchIndexProviderServiceTest {
 
         assertNotNull(context.getService(QueryIndexProvider.class));
         assertNotNull(context.getService(IndexEditorProvider.class));
+
+        assertNotNull(WhiteboardUtils.getServices(wb, Runnable.class));
 
         MockOsgi.deactivate(service, context.bundleContext());
     }
