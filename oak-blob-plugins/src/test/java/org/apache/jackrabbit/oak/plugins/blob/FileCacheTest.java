@@ -317,6 +317,8 @@ public class FileCacheTest extends AbstractDataStoreCacheTest {
     public void evictImplicit() throws Exception {
         LOG.info("Started evictImplicit");
 
+        cache = FileCache.build(60 * 1024/* KB */, root, loader, null);
+        
         for (int i = 0; i < 15; i++) {
             File f = createFile(i, loader, cache, folder);
             assertCache(i, cache, f);
@@ -324,8 +326,8 @@ public class FileCacheTest extends AbstractDataStoreCacheTest {
 
         File f = createFile(30, loader, cache, folder);
         assertCache(30, cache, f);
-        // One of the entries should have been evicted
-        assertTrue(cache.getStats().getElementCount() == 15);
+        // Some entries should have been evicted
+        assertEquals(15, cache.getStats().getElementCount(), cache.getStats().getElementCount());
         assertCacheStats(cache, 15, 60 * 1024, 16, 16);
 
         LOG.info("Finished evictImplicit");
