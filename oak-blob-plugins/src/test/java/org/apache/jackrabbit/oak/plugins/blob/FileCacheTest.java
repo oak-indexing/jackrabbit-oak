@@ -318,6 +318,7 @@ public class FileCacheTest extends AbstractDataStoreCacheTest {
         LOG.info("Started evictImplicit");
 
         cache = FileCache.build(60 * 1024/* KB */, root, loader, null);
+        closer.register(cache);
         
         for (int i = 0; i < 15; i++) {
             File f = createFile(i, loader, cache, folder);
