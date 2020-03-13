@@ -223,6 +223,9 @@ public class FileCacheTest extends AbstractDataStoreCacheTest {
     @Test
     public void getDifferentConcurrent() throws Exception {
         LOG.info("Started getDifferentConcurrent");
+        
+        cache = FileCache.build(4 * 1024/* KB */, root, loader, null);
+        closer.register(cache);
 
         File f = createFile(0, loader, cache, folder);
         File f2 = createFile(1, loader, cache, folder);
