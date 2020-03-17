@@ -48,8 +48,9 @@ public class ElasticsearchIndexEditorProvider implements IndexEditorProvider {
                                            @NotNull NodeBuilder definition, @NotNull NodeState root,
                                            @NotNull IndexUpdateCallback callback) throws CommitFailedException {
         if (TYPE_ELASTICSEARCH.equals(type)) {
-            assert callback instanceof ContextAwareCallback : "callback instance not of type " +
-                    "ContextAwareCallback [" + callback + "]";
+            if (!(callback instanceof ContextAwareCallback)) {
+                throw new IllegalStateException("callback instance not of type ContextAwareCallback [" + callback + "]");
+            }
             IndexingContext indexingContext = ((ContextAwareCallback) callback).getIndexingContext();
 
             String indexPath = indexingContext.getIndexPath();
