@@ -33,6 +33,7 @@ import org.apache.jackrabbit.oak.query.AbstractQueryTest;
 import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
+import org.elasticsearch.Version;
 import org.junit.Assert;
 import org.junit.ClassRule;
 import org.junit.Test;
@@ -47,9 +48,10 @@ import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.MatcherAssert.assertThat;
 
 public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
+
     @ClassRule
     public static final ElasticsearchContainer ELASTIC =
-            new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:7.6.0");
+            new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:" + Version.CURRENT);
 
     @Override
     protected ContentRepository createRepository() {
