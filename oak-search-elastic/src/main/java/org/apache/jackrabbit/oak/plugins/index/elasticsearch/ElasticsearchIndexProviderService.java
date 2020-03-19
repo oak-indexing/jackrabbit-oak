@@ -35,11 +35,11 @@ import org.apache.jackrabbit.oak.plugins.index.elasticsearch.index.Elasticsearch
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.query.ElasticsearchIndexProvider;
 import org.apache.jackrabbit.oak.plugins.index.fulltext.PreExtractedTextProvider;
 import org.apache.jackrabbit.oak.plugins.index.search.ExtractedTextCache;
-import org.apache.jackrabbit.oak.plugins.index.search.TextExtractionStatsMBean;
 import org.apache.jackrabbit.oak.spi.query.QueryIndexProvider;
 import org.apache.jackrabbit.oak.spi.whiteboard.Registration;
 import org.apache.jackrabbit.oak.spi.whiteboard.Whiteboard;
 import org.apache.jackrabbit.oak.stats.StatisticsProvider;
+import org.jetbrains.annotations.NotNull;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceRegistration;
 import org.slf4j.Logger;
@@ -93,19 +93,19 @@ public class ElasticsearchIndexProviderService {
             value = ElasticsearchCoordinate.DEFAULT_SCHEME,
             label = "Elasticsearch connection scheme"
     )
-    private static final String PROP_ELASTICSEARCH_SCHEME = "elasticsearch.scheme";
+    private static final String PROP_ELASTICSEARCH_SCHEME = ElasticsearchCoordinate.SCHEME_PROP;
 
     @Property(
             value = ElasticsearchCoordinate.DEFAULT_HOST,
             label = "Elasticsearch connection host"
     )
-    private static final String PROP_ELASTICSEARCH_HOST = "elasticsearch.host";
+    private static final String PROP_ELASTICSEARCH_HOST = ElasticsearchCoordinate.HOST_PROP;
 
     @Property(
             intValue = ElasticsearchCoordinate.DEFAULT_PORT,
             label = "Elasticsearch connection port"
     )
-    private static final String PROP_ELASTICSEARCH_PORT = "elasticsearch.port";
+    private static final String PROP_ELASTICSEARCH_PORT = ElasticsearchCoordinate.PORT_PROP;
 
     @Property(
             label = "Local text extraction cache path",
@@ -241,7 +241,7 @@ public class ElasticsearchIndexProviderService {
 
     private ElasticsearchCoordinate getElasticsearchCoordinate(Map<String, ?> contextConfig) {
         // system properties have priority
-        ElasticsearchCoordinate coordinate = ElasticsearchCoordinate.build(System.getProperties().entrySet()
+        ElasticsearchCoordinate coordinate = build(System.getProperties().entrySet()
                 .stream()
                 .collect(Collectors.toMap(
                         e -> String.valueOf(e.getKey()),
@@ -250,9 +250,24 @@ public class ElasticsearchIndexProviderService {
         );
 
         if (coordinate == null) {
-            coordinate = ElasticsearchCoordinate.build(contextConfig);
+            coordinate = build(contextConfig);
         }
 
         return coordinate != null ? coordinate : ElasticsearchCoordinate.DEFAULT;
+    }
+
+    private ElasticsearchCoordinate build(@NotNull Map<String, ?> config) {
+        ElasticsearchCoordinate coordinate = null;
+        Object p = config.get(PROP_ELASTICSEARCH_PORT);
+        if (p != null) {
+            try {
+                Integer port = Integer.parseInt(p.toString());
+                coordinate = new ElasticsearchCoordinate((String) config.get(PROP_ELASTICSEARCH_SCHEME),
+                        (String) config.get(PROP_ELASTICSEARCH_HOST), port);
+            } catch (NumberFormatException nfe) {
+                LOG.warn("{} value ({}) cannot be parsed to a valid number", PROP_ELASTICSEARCH_PORT, p);
+            }
+        }
+        return coordinate;
     }
 }

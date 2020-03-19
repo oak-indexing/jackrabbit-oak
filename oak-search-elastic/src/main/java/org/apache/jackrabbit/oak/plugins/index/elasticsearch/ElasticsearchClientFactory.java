@@ -31,7 +31,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class ElasticsearchClientFactory implements Closeable {
     private static final Logger LOG = LoggerFactory.getLogger(ElasticsearchClientFactory.class);
 
-    public static final ElasticsearchClientFactory INSTANCE = new ElasticsearchClientFactory();
+    private static final ElasticsearchClientFactory INSTANCE = new ElasticsearchClientFactory();
 
     private final ConcurrentMap<ElasticsearchCoordinate, RestHighLevelClient> clientMap = new ConcurrentHashMap<>();
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
@@ -71,6 +71,7 @@ public class ElasticsearchClientFactory implements Closeable {
                     LOG.error("Error occurred while closing a connection", e);
                 }
             });
+            clientMap.clear();
         } finally {
             lock.writeLock().unlock();
         }

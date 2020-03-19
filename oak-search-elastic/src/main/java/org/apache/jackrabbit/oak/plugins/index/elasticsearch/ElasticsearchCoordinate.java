@@ -16,9 +16,6 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elasticsearch;
 
-import org.jetbrains.annotations.NotNull;
-
-import java.util.Map;
 import java.util.Objects;
 
 public class ElasticsearchCoordinate {
@@ -76,25 +73,5 @@ public class ElasticsearchCoordinate {
     @Override
     public String toString() {
         return getScheme() + "://" + getHost() + ":" + getPort();
-    }
-
-    public static ElasticsearchCoordinate build(@NotNull Map<String, ?> config) {
-        ElasticsearchCoordinate coordinate = null;
-        Object p = config.get(PORT_PROP);
-        if (p != null) {
-            try {
-                Integer port = Integer.parseInt(p.toString());
-                coordinate = build((String) config.get(SCHEME_PROP), (String) config.get(HOST_PROP), port);
-            } catch (NumberFormatException nfe) { /* ignore */ }
-        }
-        return coordinate;
-    }
-
-    private static ElasticsearchCoordinate build(String scheme, String host, Integer port) {
-        if (scheme == null || host == null || port == null) {
-            return null;
-        }
-
-        return new ElasticsearchCoordinate(scheme, host, port);
     }
 }
