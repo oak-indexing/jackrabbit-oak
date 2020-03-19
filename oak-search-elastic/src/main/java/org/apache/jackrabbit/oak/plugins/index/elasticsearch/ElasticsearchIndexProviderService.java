@@ -134,8 +134,8 @@ public class ElasticsearchIndexProviderService {
     private void activate(BundleContext bundleContext, Map<String, ?> config) {
         whiteboard = new OsgiWhiteboard(bundleContext);
 
-        initializeTextExtractionDir(bundleContext, config);
-        initializeExtractedTextCache(config, statisticsProvider);
+        //initializeTextExtractionDir(bundleContext, config);
+        //initializeExtractedTextCache(config, statisticsProvider);
 
         final ElasticsearchCoordinate coordinate = getElasticsearchCoordinate(config);
 
@@ -174,11 +174,11 @@ public class ElasticsearchIndexProviderService {
         Dictionary<String, Object> props = new Hashtable<>();
         props.put("type", ElasticsearchIndexConstants.TYPE_ELASTICSEARCH);
         regs.add(bundleContext.registerService(IndexEditorProvider.class.getName(), editorProvider, props));
-        oakRegs.add(registerMBean(whiteboard,
-                TextExtractionStatsMBean.class,
-                editorProvider.getExtractedTextCache().getStatsMBean(),
-                TextExtractionStatsMBean.TYPE,
-                "TextExtraction statistics"));
+//        oakRegs.add(registerMBean(whiteboard,
+//                TextExtractionStatsMBean.class,
+//                editorProvider.getExtractedTextCache().getStatsMBean(),
+//                TextExtractionStatsMBean.TYPE,
+//                "TextExtraction statistics"));
     }
 
     private void initializeExtractedTextCache(Map<String, ?> config, StatisticsProvider statisticsProvider) {
