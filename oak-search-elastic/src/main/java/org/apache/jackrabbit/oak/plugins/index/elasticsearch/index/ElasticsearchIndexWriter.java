@@ -16,7 +16,7 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elasticsearch.index;
 
-import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchCoordinate;
+import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchConnection;
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexDescriptor;
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
@@ -54,8 +54,8 @@ public class ElasticsearchIndexWriter implements FulltextIndexWriter<Elasticsear
 
     // TODO: use bulk API - https://www.elastic.co/guide/en/elasticsearch/client/java-api/current/java-docs-bulk-processor.html
     ElasticsearchIndexWriter(@NotNull IndexDefinition indexDefinition,
-                             @NotNull ElasticsearchCoordinate elasticsearchCoordinate) {
-        indexDescriptor = new ElasticsearchIndexDescriptor(indexDefinition, elasticsearchCoordinate);
+                             @NotNull ElasticsearchConnection elasticsearchConnection) {
+        indexDescriptor = new ElasticsearchIndexDescriptor(elasticsearchConnection, indexDefinition);
 
         // TODO: ES indexing put another bit delay before docs appear in search.
         // For test without "async" indexing, we can use following hack BUT those where we

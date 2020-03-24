@@ -37,16 +37,16 @@ public class ElasticsearchIndexDescriptor {
             .map(Object::toString)
             .collect(Collectors.joining("")));
 
-    private final ElasticsearchCoordinate coordinate;
+    private final ElasticsearchConnection connection;
     private final String indexName;
 
-    public ElasticsearchIndexDescriptor(IndexDefinition indexDefinition, @NotNull ElasticsearchCoordinate coordinate) {
-        this.coordinate = coordinate;
+    public ElasticsearchIndexDescriptor(@NotNull ElasticsearchConnection connection, IndexDefinition indexDefinition) {
+        this.connection = connection;
         this.indexName = getRemoteIndexName(indexDefinition);
     }
 
     public RestHighLevelClient getClient() {
-        return ElasticsearchClientFactory.getInstance().getClient(coordinate);
+        return connection.getClient();
     }
 
     public String getIndexName() {
@@ -55,7 +55,7 @@ public class ElasticsearchIndexDescriptor {
 
     @Override
     public int hashCode() {
-        return Objects.hash(coordinate, indexName);
+        return Objects.hash(connection, indexName);
     }
 
     @Override
@@ -63,7 +63,7 @@ public class ElasticsearchIndexDescriptor {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         ElasticsearchIndexDescriptor that = (ElasticsearchIndexDescriptor) o;
-        return coordinate.equals(that.coordinate) &&
+        return connection.equals(that.connection) &&
                 indexName.equals(that.indexName);
     }
 

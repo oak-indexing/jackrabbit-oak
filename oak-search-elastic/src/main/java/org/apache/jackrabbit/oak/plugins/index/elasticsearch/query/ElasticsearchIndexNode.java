@@ -16,7 +16,7 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elasticsearch.query;
 
-import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchCoordinate;
+import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchConnection;
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexDescriptor;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexNode;
@@ -32,10 +32,10 @@ public class ElasticsearchIndexNode implements IndexNode {
     private final ElasticsearchIndexDescriptor indexDescriptor;
 
     protected ElasticsearchIndexNode(@NotNull NodeState root, @NotNull String indexPath,
-                                     @NotNull ElasticsearchCoordinate elasticsearchCoordinate) {
+                                     @NotNull ElasticsearchConnection elasticsearchConnection) {
         final NodeState indexNS = NodeStateUtils.getNode(root, indexPath);
         this.indexDefinition = new ElasticsearchIndexDefinition(root, indexNS, indexPath);
-        this.indexDescriptor = new ElasticsearchIndexDescriptor(indexDefinition, elasticsearchCoordinate);
+        this.indexDescriptor = new ElasticsearchIndexDescriptor(elasticsearchConnection, indexDefinition);
     }
 
     @Override

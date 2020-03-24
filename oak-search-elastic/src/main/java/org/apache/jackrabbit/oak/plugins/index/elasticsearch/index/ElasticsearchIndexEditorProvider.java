@@ -21,7 +21,7 @@ import org.apache.jackrabbit.oak.plugins.index.ContextAwareCallback;
 import org.apache.jackrabbit.oak.plugins.index.IndexEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.IndexUpdateCallback;
 import org.apache.jackrabbit.oak.plugins.index.IndexingContext;
-import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchCoordinate;
+import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchConnection;
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.ExtractedTextCache;
 import org.apache.jackrabbit.oak.spi.commit.Editor;
@@ -34,12 +34,12 @@ import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.Elasticsearc
 
 public class ElasticsearchIndexEditorProvider implements IndexEditorProvider {
 
-    private final ElasticsearchCoordinate elasticsearchCoordinate;
+    private final ElasticsearchConnection elasticsearchConnection;
     private final ExtractedTextCache extractedTextCache;
 
-    public ElasticsearchIndexEditorProvider(@NotNull ElasticsearchCoordinate elasticsearchCoordinate,
+    public ElasticsearchIndexEditorProvider(@NotNull ElasticsearchConnection elasticsearchConnection,
                                             ExtractedTextCache extractedTextCache) {
-        this.elasticsearchCoordinate = elasticsearchCoordinate;
+        this.elasticsearchConnection = elasticsearchConnection;
         this.extractedTextCache = extractedTextCache != null ? extractedTextCache : new ExtractedTextCache(0, 0);
     }
 
@@ -57,7 +57,7 @@ public class ElasticsearchIndexEditorProvider implements IndexEditorProvider {
             ElasticsearchIndexDefinition indexDefinition =
                     new ElasticsearchIndexDefinition(root, definition.getNodeState(), indexPath);
 
-            ElasticsearchIndexWriterFactory writerFactory = new ElasticsearchIndexWriterFactory(elasticsearchCoordinate);
+            ElasticsearchIndexWriterFactory writerFactory = new ElasticsearchIndexWriterFactory(elasticsearchConnection);
 
             ElasticsearchIndexEditorContext context = new ElasticsearchIndexEditorContext(root,
                     definition, indexDefinition,

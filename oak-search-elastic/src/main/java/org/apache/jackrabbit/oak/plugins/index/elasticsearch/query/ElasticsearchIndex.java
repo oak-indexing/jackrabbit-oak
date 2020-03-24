@@ -16,7 +16,7 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elasticsearch.query;
 
-import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchCoordinate;
+import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchConnection;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexNode;
 import org.apache.jackrabbit.oak.plugins.index.search.SizeEstimator;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex;
@@ -45,11 +45,11 @@ public class ElasticsearchIndex extends FulltextIndex {
     // higher than some threshold below which the query should rather be answered by something else if possible
     private static final double MIN_COST = 100.1;
 
-    private final ElasticsearchCoordinate elasticsearchCoordinate;
+    private final ElasticsearchConnection elasticsearchConnection;
     private final NodeState root;
 
-    ElasticsearchIndex(@NotNull ElasticsearchCoordinate elasticsearchCoordinate, @NotNull NodeState root) {
-        this.elasticsearchCoordinate = elasticsearchCoordinate;
+    ElasticsearchIndex(@NotNull ElasticsearchConnection elasticsearchConnection, @NotNull NodeState root) {
+        this.elasticsearchConnection = elasticsearchConnection;
         this.root = root;
     }
 
@@ -85,7 +85,7 @@ public class ElasticsearchIndex extends FulltextIndex {
 
     @Override
     protected IndexNode acquireIndexNode(String indexPath) {
-        return new ElasticsearchIndexNode(root, indexPath, elasticsearchCoordinate);
+        return new ElasticsearchIndexNode(root, indexPath, elasticsearchConnection);
     }
 
     @Override

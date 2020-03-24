@@ -90,22 +90,22 @@ public class ElasticsearchIndexProviderService {
     private static final String PROP_PRE_EXTRACTED_TEXT_ALWAYS_USE = "alwaysUsePreExtractedCache";
 
     @Property(
-            value = ElasticsearchCoordinate.DEFAULT_SCHEME,
+            value = ElasticsearchConnection.DEFAULT_SCHEME,
             label = "Elasticsearch connection scheme"
     )
-    private static final String PROP_ELASTICSEARCH_SCHEME = ElasticsearchCoordinate.SCHEME_PROP;
+    private static final String PROP_ELASTICSEARCH_SCHEME = ElasticsearchConnection.SCHEME_PROP;
 
     @Property(
-            value = ElasticsearchCoordinate.DEFAULT_HOST,
+            value = ElasticsearchConnection.DEFAULT_HOST,
             label = "Elasticsearch connection host"
     )
-    private static final String PROP_ELASTICSEARCH_HOST = ElasticsearchCoordinate.HOST_PROP;
+    private static final String PROP_ELASTICSEARCH_HOST = ElasticsearchConnection.HOST_PROP;
 
     @Property(
-            intValue = ElasticsearchCoordinate.DEFAULT_PORT,
+            intValue = ElasticsearchConnection.DEFAULT_PORT,
             label = "Elasticsearch connection port"
     )
-    private static final String PROP_ELASTICSEARCH_PORT = ElasticsearchCoordinate.PORT_PROP;
+    private static final String PROP_ELASTICSEARCH_PORT = ElasticsearchConnection.PORT_PROP;
 
     @Property(
             label = "Local text extraction cache path",
@@ -130,6 +130,8 @@ public class ElasticsearchIndexProviderService {
     private Whiteboard whiteboard;
     private File textExtractionDir;
 
+    private ElasticsearchConnection elasticsearchConnection;
+
     @Activate
     private void activate(BundleContext bundleContext, Map<String, ?> config) {
         whiteboard = new OsgiWhiteboard(bundleContext);
@@ -137,10 +139,10 @@ public class ElasticsearchIndexProviderService {
         //initializeTextExtractionDir(bundleContext, config);
         //initializeExtractedTextCache(config, statisticsProvider);
 
-        final ElasticsearchCoordinate coordinate = getElasticsearchCoordinate(config);
+        elasticsearchConnection = getElasticsearchCoordinate(config);
 
-        registerIndexProvider(bundleContext, coordinate);
-        registerIndexEditor(bundleContext, coordinate);
+        registerIndexProvider(bundleContext);
+        registerIndexEditor(bundleContext);
     }
 
     @Deactivate
@@ -153,23 +155,23 @@ public class ElasticsearchIndexProviderService {
             reg.unregister();
         }
 
-        IOUtils.closeQuietly(ElasticsearchClientFactory.getInstance());
+        IOUtils.closeQuietly(elasticsearchConnection);
 
         if (extractedTextCache != null) {
             extractedTextCache.close();
         }
     }
 
-    private void registerIndexProvider(BundleContext bundleContext, ElasticsearchCoordinate coordinate) {
-        ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(coordinate);
+    private void registerIndexProvider(BundleContext bundleContext) {
+        ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(elasticsearchConnection);
 
         Dictionary<String, Object> props = new Hashtable<>();
         props.put("type", ElasticsearchIndexConstants.TYPE_ELASTICSEARCH);
         regs.add(bundleContext.registerService(QueryIndexProvider.class.getName(), indexProvider, props));
     }
 
-    private void registerIndexEditor(BundleContext bundleContext, ElasticsearchCoordinate coordinate) {
-        ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(coordinate, extractedTextCache);
+    private void registerIndexEditor(BundleContext bundleContext) {
+        ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(elasticsearchConnection, extractedTextCache);
 
         Dictionary<String, Object> props = new Hashtable<>();
         props.put("type", ElasticsearchIndexConstants.TYPE_ELASTICSEARCH);
@@ -239,9 +241,9 @@ public class ElasticsearchIndexProviderService {
         }
     }
 
-    private ElasticsearchCoordinate getElasticsearchCoordinate(Map<String, ?> contextConfig) {
+    private ElasticsearchConnection getElasticsearchCoordinate(Map<String, ?> contextConfig) {
         // system properties have priority
-        ElasticsearchCoordinate coordinate = build(System.getProperties().entrySet()
+        ElasticsearchConnection connection = build(System.getProperties().entrySet()
                 .stream()
                 .collect(Collectors.toMap(
                         e -> String.valueOf(e.getKey()),
@@ -249,20 +251,20 @@ public class ElasticsearchIndexProviderService {
                 )
         );
 
-        if (coordinate == null) {
-            coordinate = build(contextConfig);
+        if (connection == null) {
+            connection = build(contextConfig);
         }
 
-        return coordinate != null ? coordinate : ElasticsearchCoordinate.DEFAULT;
+        return connection != null ? connection : ElasticsearchConnection.defaultConnection.get();
     }
 
-    private ElasticsearchCoordinate build(@NotNull Map<String, ?> config) {
-        ElasticsearchCoordinate coordinate = null;
+    private ElasticsearchConnection build(@NotNull Map<String, ?> config) {
+        ElasticsearchConnection coordinate = null;
         Object p = config.get(PROP_ELASTICSEARCH_PORT);
         if (p != null) {
             try {
                 Integer port = Integer.parseInt(p.toString());
-                coordinate = new ElasticsearchCoordinate((String) config.get(PROP_ELASTICSEARCH_SCHEME),
+                coordinate = new ElasticsearchConnection((String) config.get(PROP_ELASTICSEARCH_SCHEME),
                         (String) config.get(PROP_ELASTICSEARCH_HOST), port);
             } catch (NumberFormatException nfe) {
                 LOG.warn("{} value ({}) cannot be parsed to a valid number", PROP_ELASTICSEARCH_PORT, p);

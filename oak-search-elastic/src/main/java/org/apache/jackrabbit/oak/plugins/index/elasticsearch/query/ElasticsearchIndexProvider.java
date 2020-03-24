@@ -16,7 +16,7 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elasticsearch.query;
 
-import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchCoordinate;
+import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchConnection;
 import org.apache.jackrabbit.oak.spi.query.QueryIndex;
 import org.apache.jackrabbit.oak.spi.query.QueryIndexProvider;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
@@ -26,14 +26,14 @@ import java.util.Collections;
 import java.util.List;
 
 public class ElasticsearchIndexProvider implements QueryIndexProvider {
-    private final ElasticsearchCoordinate elasticsearchCoordinate;
+    private final ElasticsearchConnection elasticsearchConnection;
 
-    public ElasticsearchIndexProvider(ElasticsearchCoordinate elasticsearchCoordinate) {
-        this.elasticsearchCoordinate = elasticsearchCoordinate;
+    public ElasticsearchIndexProvider(ElasticsearchConnection elasticsearchConnection) {
+        this.elasticsearchConnection = elasticsearchConnection;
     }
 
     @Override
     public @NotNull List<? extends QueryIndex> getQueryIndexes(NodeState nodeState) {
-        return Collections.singletonList(new ElasticsearchIndex(elasticsearchCoordinate, nodeState));
+        return Collections.singletonList(new ElasticsearchIndex(elasticsearchConnection, nodeState));
     }
 }

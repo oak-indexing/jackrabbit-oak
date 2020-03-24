@@ -55,10 +55,10 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
 
     @Override
     protected ContentRepository createRepository() {
-        ElasticsearchCoordinate coordinate = new ElasticsearchCoordinate(
-                ElasticsearchCoordinate.DEFAULT_SCHEME,
+        ElasticsearchConnection coordinate = new ElasticsearchConnection(
+                ElasticsearchConnection.DEFAULT_SCHEME,
                 ELASTIC.getContainerIpAddress(),
-                ELASTIC.getMappedPort(ElasticsearchCoordinate.DEFAULT_PORT)
+                ELASTIC.getMappedPort(ElasticsearchConnection.DEFAULT_PORT)
         );
         ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(coordinate,
                 new ExtractedTextCache(10 * FileUtils.ONE_MB, 100));
