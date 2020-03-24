@@ -21,10 +21,8 @@ import com.google.common.collect.Lists;
 import org.apache.jackrabbit.JcrConstants;
 import org.apache.jackrabbit.commons.JcrUtils;
 import org.apache.jackrabbit.oak.plugins.index.IndexConstants;
-import org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexConstants;
 import org.apache.jackrabbit.oak.plugins.index.property.OrderedIndex;
 import org.apache.jackrabbit.oak.plugins.index.property.PropertyIndexEditorProvider;
-import org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants;
 import org.apache.jackrabbit.oak.spi.nodetype.NodeTypeConstants;
 import org.jetbrains.annotations.Nullable;
 
@@ -298,7 +296,7 @@ public class OakIndexUtils {
      * @return the node just created
      * @throws RepositoryException the repository exception
      */
-    public static Node luceneIndexDefinition(Session session, String indexDefinitionName,
+    /*public static Node luceneIndexDefinition(Session session, String indexDefinitionName,
         String async, String[] propertyNames, String[] type,
         Map<String, Map<String, String>> orderedPropsMap, String persistencePath)
         throws RepositoryException {
@@ -354,5 +352,5 @@ public class OakIndexUtils {
         session.save();
 
         return indexDef;
-    }
+    }*/
 }

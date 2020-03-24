@@ -22,8 +22,8 @@ import com.google.common.collect.Lists;
 import org.apache.jackrabbit.commons.JcrUtils;
 import org.apache.jackrabbit.oak.spi.nodetype.NodeTypeConstants;
 import org.apache.jackrabbit.oak.scalability.benchmarks.ScalabilityBenchmark;
-import org.apache.jackrabbit.oak.scalability.suites.ScalabilityAbstractSuite;
-import org.apache.jackrabbit.oak.scalability.suites.ScalabilityAbstractSuite.ExecutionContext;
+import org.apache.jackrabbit.oak.scalability.ScalabilityAbstractSuite;
+import org.apache.jackrabbit.oak.scalability.ScalabilityAbstractSuite.ExecutionContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

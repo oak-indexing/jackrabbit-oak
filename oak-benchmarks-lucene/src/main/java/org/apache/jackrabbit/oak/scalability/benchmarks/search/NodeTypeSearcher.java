@@ -18,21 +18,26 @@
  */
 package org.apache.jackrabbit.oak.scalability.benchmarks.search;
 
-import org.apache.jackrabbit.oak.scalability.ScalabilityAbstractSuite;
-
-import javax.jcr.Credentials;
-import javax.jcr.Repository;
-import java.util.UUID;
+import javax.jcr.RepositoryException;
+import javax.jcr.query.Query;
+import javax.jcr.query.QueryManager;
+import org.apache.jackrabbit.oak.scalability.ScalabilityBlobSearchSuite;
+import org.apache.jackrabbit.oak.scalability.ScalabilityAbstractSuite.ExecutionContext;
+import org.jetbrains.annotations.NotNull;
 
 /**
- * Writes random paths concurrently with multiple readers/writers configured with {#WRITERS} and {#READERS}.
+ * Searches on the NodeType 
+ *
  */
-public class ConcurrentWriter extends ConcurrentReader {
+public class NodeTypeSearcher extends SearchScalabilityBenchmark {
+    
+    @SuppressWarnings("deprecation")
     @Override
-    public void execute(Repository repository, Credentials credentials, ScalabilityAbstractSuite.ExecutionContext context)
-        throws Exception {
-        Writer writer = new Writer(this.getClass().getSimpleName() + UUID.randomUUID(),
-            100, repository.login(credentials), context);
-        writer.process();
+    protected Query getQuery(@NotNull final QueryManager qm, ExecutionContext context) throws RepositoryException {
+        return qm.createQuery(
+                "/jcr:root/" + ((String) context.getMap().get(ScalabilityBlobSearchSuite.CTX_ROOT_NODE_NAME_PROP)) + "//element(*, "
+                        + context.getMap().get(ScalabilityBlobSearchSuite.CTX_FILE_NODE_TYPE_PROP) + ")",
+                Query.XPATH);
     }
 }
+

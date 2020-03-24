@@ -18,21 +18,26 @@
  */
 package org.apache.jackrabbit.oak.scalability.benchmarks.search;
 
+import javax.jcr.RepositoryException;
+import javax.jcr.query.Query;
+import javax.jcr.query.QueryManager;
 import org.apache.jackrabbit.oak.scalability.ScalabilityAbstractSuite;
-
-import javax.jcr.Credentials;
-import javax.jcr.Repository;
-import java.util.UUID;
+import org.jetbrains.annotations.NotNull;
 
 /**
- * Writes random paths concurrently with multiple readers/writers configured with {#WRITERS} and {#READERS}.
+ * Scalability test for facet query implementation
  */
-public class ConcurrentWriter extends ConcurrentReader {
+public class FacetSearcher extends SearchScalabilityBenchmark {
+
     @Override
-    public void execute(Repository repository, Credentials credentials, ScalabilityAbstractSuite.ExecutionContext context)
-        throws Exception {
-        Writer writer = new Writer(this.getClass().getSimpleName() + UUID.randomUUID(),
-            100, repository.login(credentials), context);
-        writer.process();
+    protected Query getQuery(@NotNull QueryManager qm, ScalabilityAbstractSuite.ExecutionContext context) throws RepositoryException {
+
+        final String statement = "select [jcr:path], [facet(jcr:primaryType)] from [nt:base] where native('lucene','*:*')";
+
+        LOG.debug("statement: {}", statement);
+
+        return qm.createQuery(statement, Query.JCR_SQL2);
     }
+
+
 }

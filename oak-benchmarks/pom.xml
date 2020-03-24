@@ -124,11 +124,6 @@
         </dependency>
         <dependency>
             <groupId>org.apache.jackrabbit</groupId>
-            <artifactId>oak-lucene</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.jackrabbit</groupId>
             <artifactId>oak-core</artifactId>
             <version>${project.version}</version>
         </dependency>
@@ -138,11 +133,16 @@
             <version>${project.version}</version>
             <classifier>tests</classifier>
         </dependency>
-        <dependency>
+        <!--<dependency>
+            <groupId>org.apache.jackrabbit</groupId>
+            <artifactId>oak-lucene</artifactId>
+            <version>${project.version}</version>
+        </dependency>-->
+        <!--<dependency>
             <groupId>org.apache.jackrabbit</groupId>
             <artifactId>oak-solr-core</artifactId>
             <version>${project.version}</version>
-        </dependency>
+        </dependency>-->
         <dependency>
             <groupId>org.apache.jackrabbit</groupId>
             <artifactId>oak-authorization-cug</artifactId>
@@ -178,6 +178,11 @@
             <artifactId>annotations</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.9</version>
+        </dependency>
+        <!--<dependency>
             <groupId>org.apache.solr</groupId>
             <artifactId>solr-core</artifactId>
             <version>${solr.version}</version>
@@ -199,7 +204,7 @@
                     <artifactId>commons-fileupload</artifactId>
                 </exclusion>
             </exclusions>
-        </dependency>
+        </dependency>-->
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-math</artifactId>
