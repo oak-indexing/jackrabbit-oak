@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.jackrabbit.oak.scalability;
+package org.apache.jackrabbit.oak.scalability.suites;
 
 import java.io.ByteArrayInputStream;
 import java.util.Calendar;
@@ -31,7 +31,9 @@ import org.apache.jackrabbit.oak.fixture.OakFixture;
 import org.apache.jackrabbit.oak.fixture.OakRepositoryFixture;
 import org.apache.jackrabbit.oak.fixture.RepositoryFixture;
 import org.apache.jackrabbit.oak.fixture.SegmentTarFixture;
+import org.apache.jackrabbit.oak.scalability.ScalabilitySuite;
 import org.apache.jackrabbit.oak.scalability.benchmarks.ScalabilityBenchmark;
+import org.apache.jackrabbit.oak.scalability.suites.ScalabilityAbstractSuite;
 
 /**
  * This suite test will set up a primary instance and a standby instance. It

@@ -40,8 +40,10 @@ import org.apache.jackrabbit.oak.scalability.benchmarks.search.OrderBySearcher;
 import org.apache.jackrabbit.oak.scalability.benchmarks.search.SplitOrderByKeysetPageSearcher;
 import org.apache.jackrabbit.oak.scalability.benchmarks.search.SplitOrderByOffsetPageSearcher;
 import org.apache.jackrabbit.oak.scalability.benchmarks.search.SplitOrderBySearcher;
+import org.apache.jackrabbit.oak.scalability.suites.ScalabilityBlobSearchSuite;
+import org.apache.jackrabbit.oak.scalability.suites.ScalabilityNodeRelationshipSuite;
+import org.apache.jackrabbit.oak.scalability.suites.ScalabilityNodeSuite;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 
 public class LuceneScalabilityRunner extends ScalabilityRunner {

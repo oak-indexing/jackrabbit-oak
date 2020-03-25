@@ -22,7 +22,7 @@ package org.apache.jackrabbit.oak.scalability.benchmarks.search;
 import javax.jcr.RepositoryException;
 import javax.jcr.query.QueryManager;
 
-import org.apache.jackrabbit.oak.scalability.ScalabilityAbstractSuite;
+import org.apache.jackrabbit.oak.scalability.suites.ScalabilityAbstractSuite;
 
 /**
  * Simulates offset pagination over the search {@link org.apache.jackrabbit.oak.scalability.benchmarks.search.MultiFilterSplitOrderBySearcher}

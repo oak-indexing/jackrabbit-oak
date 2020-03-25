@@ -18,9 +18,6 @@
  */
 package org.apache.jackrabbit.oak.scalability;
 
-import static java.util.Arrays.asList;
-
-import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.util.ArrayList;
@@ -43,6 +40,7 @@ import org.apache.jackrabbit.oak.fixture.JackrabbitRepositoryFixture;
 import org.apache.jackrabbit.oak.fixture.OakRepositoryFixture;
 import org.apache.jackrabbit.oak.fixture.RepositoryFixture;
 import org.apache.jackrabbit.oak.scalability.benchmarks.segment.standby.StandbyBulkTransferBenchmark;
+import org.apache.jackrabbit.oak.scalability.suites.ScalabilityStandbySuite;
 
 /**
  * Main class for running scalability/longevity tests.

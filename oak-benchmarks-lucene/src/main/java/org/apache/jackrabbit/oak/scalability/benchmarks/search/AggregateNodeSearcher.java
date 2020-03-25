@@ -31,8 +31,8 @@ import javax.jcr.query.QueryManager;
 import java.util.List;
 import java.util.Random;
 
-import org.apache.jackrabbit.oak.scalability.ScalabilityNodeRelationshipSuite;
-import org.apache.jackrabbit.oak.scalability.ScalabilityAbstractSuite.ExecutionContext;
+import org.apache.jackrabbit.oak.scalability.suites.ScalabilityNodeRelationshipSuite;
+import org.apache.jackrabbit.oak.scalability.suites.ScalabilityAbstractSuite.ExecutionContext;
 
 /**
  * Retrieves search property by iterating over nodes and then executes search using the retrieved

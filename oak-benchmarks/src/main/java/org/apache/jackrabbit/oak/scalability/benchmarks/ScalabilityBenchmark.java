@@ -22,7 +22,7 @@ import javax.jcr.Credentials;
 import javax.jcr.Repository;
 
 import org.apache.jackrabbit.oak.scalability.ScalabilitySuite;
-import org.apache.jackrabbit.oak.scalability.ScalabilityAbstractSuite.ExecutionContext;
+import org.apache.jackrabbit.oak.scalability.suites.ScalabilityAbstractSuite.ExecutionContext;
 
 
 /**

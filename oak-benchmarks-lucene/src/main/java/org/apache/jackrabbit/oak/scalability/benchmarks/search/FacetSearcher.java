@@ -21,7 +21,7 @@ package org.apache.jackrabbit.oak.scalability.benchmarks.search;
 import javax.jcr.RepositoryException;
 import javax.jcr.query.Query;
 import javax.jcr.query.QueryManager;
-import org.apache.jackrabbit.oak.scalability.ScalabilityAbstractSuite;
+import org.apache.jackrabbit.oak.scalability.suites.ScalabilityAbstractSuite;
 import org.jetbrains.annotations.NotNull;
 
 /**

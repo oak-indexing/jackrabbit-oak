@@ -28,8 +28,8 @@ import javax.jcr.query.Query;
 import javax.jcr.query.QueryManager;
 import javax.jcr.query.QueryResult;
 import javax.jcr.query.RowIterator;
-import org.apache.jackrabbit.oak.scalability.ScalabilityNodeSuite;
-import org.apache.jackrabbit.oak.scalability.ScalabilityAbstractSuite.ExecutionContext;
+import org.apache.jackrabbit.oak.scalability.suites.ScalabilityNodeSuite;
+import org.apache.jackrabbit.oak.scalability.suites.ScalabilityAbstractSuite.ExecutionContext;
 import org.jetbrains.annotations.NotNull;
 
 /**

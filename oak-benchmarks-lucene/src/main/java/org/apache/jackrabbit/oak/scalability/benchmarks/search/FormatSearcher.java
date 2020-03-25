@@ -24,8 +24,8 @@ import javax.jcr.query.QueryManager;
 
 import org.apache.jackrabbit.oak.benchmark.util.MimeType;
 import org.apache.jackrabbit.oak.spi.nodetype.NodeTypeConstants;
-import org.apache.jackrabbit.oak.scalability.ScalabilityBlobSearchSuite;
-import org.apache.jackrabbit.oak.scalability.ScalabilityAbstractSuite.ExecutionContext;
+import org.apache.jackrabbit.oak.scalability.suites.ScalabilityBlobSearchSuite;
+import org.apache.jackrabbit.oak.scalability.suites.ScalabilityAbstractSuite.ExecutionContext;
 
 /**
  * Searches on the file format/Mime type 

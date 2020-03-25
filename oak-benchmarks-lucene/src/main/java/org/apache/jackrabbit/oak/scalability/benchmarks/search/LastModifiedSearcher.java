@@ -23,8 +23,8 @@ import javax.jcr.query.Query;
 import javax.jcr.query.QueryManager;
 
 import org.apache.jackrabbit.oak.benchmark.util.Date;
-import org.apache.jackrabbit.oak.scalability.ScalabilityBlobSearchSuite;
-import org.apache.jackrabbit.oak.scalability.ScalabilityAbstractSuite.ExecutionContext;
+import org.apache.jackrabbit.oak.scalability.suites.ScalabilityBlobSearchSuite;
+import org.apache.jackrabbit.oak.scalability.suites.ScalabilityAbstractSuite.ExecutionContext;
 
 /**
  * perform searches using the {@code jcr:lastModified} and the provided timeframe

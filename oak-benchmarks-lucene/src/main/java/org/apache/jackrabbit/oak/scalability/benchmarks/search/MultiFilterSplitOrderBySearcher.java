@@ -23,9 +23,9 @@ import javax.jcr.Node;
 import javax.jcr.RepositoryException;
 import javax.jcr.query.*;
 
-import org.apache.jackrabbit.oak.scalability.ScalabilityBlobSearchSuite;
-import org.apache.jackrabbit.oak.scalability.ScalabilityNodeSuite;
-import org.apache.jackrabbit.oak.scalability.ScalabilityAbstractSuite.ExecutionContext;
+import org.apache.jackrabbit.oak.scalability.suites.ScalabilityBlobSearchSuite;
+import org.apache.jackrabbit.oak.scalability.suites.ScalabilityNodeSuite;
+import org.apache.jackrabbit.oak.scalability.suites.ScalabilityAbstractSuite.ExecutionContext;
 import org.jetbrains.annotations.NotNull;
 
 /**

@@ -18,7 +18,7 @@
  */
 package org.apache.jackrabbit.oak.scalability.benchmarks.search;
 
-import org.apache.jackrabbit.oak.scalability.ScalabilityAbstractSuite;
+import org.apache.jackrabbit.oak.scalability.suites.ScalabilityAbstractSuite;
 
 import javax.jcr.Credentials;
 import javax.jcr.Repository;
