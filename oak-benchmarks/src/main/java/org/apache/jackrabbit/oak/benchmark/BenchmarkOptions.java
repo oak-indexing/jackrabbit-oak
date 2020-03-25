@@ -21,10 +21,8 @@ package org.apache.jackrabbit.oak.benchmark;
 
 
 import joptsimple.OptionParser;
-import joptsimple.OptionSet;
 import joptsimple.OptionSpec;
 import org.apache.jackrabbit.oak.benchmark.authorization.AceCreationTest;
-import org.apache.jackrabbit.oak.run.cli.OptionsBean;
 import org.apache.jackrabbit.oak.security.authorization.composite.CompositeAuthorizationConfiguration;
 import org.apache.jackrabbit.oak.spi.xml.ImportBehavior;
 
@@ -33,7 +31,6 @@ import static org.apache.jackrabbit.oak.benchmark.ReadDeepTreeTest.DEFAULT_ITEMS
 import static org.apache.jackrabbit.oak.benchmark.ReadDeepTreeTest.DEFAULT_REPEATED_READ;
 
 import java.io.File;
-import java.util.Set;
 
 public class BenchmarkOptions {
 
@@ -41,6 +38,62 @@ public class BenchmarkOptions {
     private final OptionSpec<String> host;
     private final OptionSpec<Integer> port;
     private final OptionSpec<String> dbName;
+    private final OptionSpec<String> mongouri;
+    private final OptionSpec<Boolean> dropDBAfterTest;
+    private final OptionSpec<String> rdbjdbcuri;
+    private final OptionSpec<String> rdbjdbcuser;
+    private final OptionSpec<String> rdbjdbcpasswd;
+    private final OptionSpec<String> rdbjdbctableprefix;
+    private final OptionSpec<String> azureConnectionString;
+    private final OptionSpec<String> azureContainerName;
+    private final OptionSpec<String> azureRootPath;
+    private final OptionSpec<Boolean> mmap;
+    private final OptionSpec<Integer> cache;
+    private final OptionSpec<Integer> fdsCache;
+    private final OptionSpec<File> wikipedia;
+    private final OptionSpec<Long> expiration;
+    private final OptionSpec<Boolean> metrics;
+    private final OptionSpec<Boolean> withStorage;
+    private final OptionSpec<String> withServer;
+    private final OptionSpec<Boolean> runAsAdmin;
+    private final OptionSpec<String> runAsUser;
+    private final OptionSpec<Boolean> runWithToken;
+    private final OptionSpec<Integer> noIterations;
+    private final OptionSpec<Boolean> luceneIndexOnFS;
+    private final OptionSpec<Integer> numberOfGroups;
+    private final OptionSpec<Integer> queryMaxCount;
+    private final OptionSpec<Boolean> declaredMembership;
+    private final OptionSpec<Integer> numberOfInitialAce;
+    private final OptionSpec<Boolean> nestedGroups;
+    private final OptionSpec<String> compositionType;
+    private final OptionSpec<String> autoMembership;
+    private final OptionSpec<Integer> roundtripDelay;
+    private final OptionSpec<Boolean> transientWrites;
+    private final OptionSpec<Integer> vgcMaxAge;
+    private final OptionSpec<Boolean> coldUseDataStore;
+    private final OptionSpec<Boolean> coldShareDataStore;
+    private final OptionSpec<Boolean> entriesForEachPrincipal;
+    private final OptionSpec<Integer> coldSyncInterval;
+    private final OptionSpec<Boolean> dynamicMembership;
+    private final OptionSpec<Boolean> reverseOrder;
+    private final OptionSpec<String> supportedPaths;
+    private final OptionSpec<Boolean> setScope;
+    private final OptionSpec<Integer> numberOfUsers;
+    private final OptionSpec<Boolean> flatStructure;
+    private final OptionSpec<Boolean> randomUser;
+    private final OptionSpec<File> csvFile;
+    private final OptionSpec<Boolean> report;
+    private final OptionSpec<Integer> concurrency;
+    private final OptionSpec<Integer> repeatedRead;
+    private final OptionSpec<Integer> itemsToRead;
+    private final OptionSpec<String> importBehavior;
+    private final OptionSpec<Integer> batchSize;
+    private final OptionSpec<Boolean> coldOneShotRun;
+    private final OptionSpec<Boolean> coldSecure;
+    private final OptionSpec<?> verbose;
+    private final OptionSpec<String> nonOption;
+    private final OptionSpec<?> help;
+    private final OptionSpec<Boolean> useAggregationFilter;
 
     public OptionSpec<File> getBase() {
         return base;
@@ -281,63 +334,6 @@ public class BenchmarkOptions {
     public OptionSpec<Boolean> getUseAggregationFilter() {
         return useAggregationFilter;
     }
-
-    private final OptionSpec<String> mongouri;
-    private final OptionSpec<Boolean> dropDBAfterTest;
-    private final OptionSpec<String> rdbjdbcuri;
-    private final OptionSpec<String> rdbjdbcuser;
-    private final OptionSpec<String> rdbjdbcpasswd;
-    private final OptionSpec<String> rdbjdbctableprefix;
-    private final OptionSpec<String> azureConnectionString;
-    private final OptionSpec<String> azureContainerName;
-    private final OptionSpec<String> azureRootPath;
-    private final OptionSpec<Boolean> mmap;
-    private final OptionSpec<Integer> cache;
-    private final OptionSpec<Integer> fdsCache;
-    private final OptionSpec<File> wikipedia;
-    private final OptionSpec<Long> expiration;
-    private final OptionSpec<Boolean> metrics;
-    private final OptionSpec<Boolean> withStorage;
-    private final OptionSpec<String> withServer;
-    private final OptionSpec<Boolean> runAsAdmin;
-    private final OptionSpec<String> runAsUser;
-    private final OptionSpec<Boolean> runWithToken;
-    private final OptionSpec<Integer> noIterations;
-    private final OptionSpec<Boolean> luceneIndexOnFS;
-    private final OptionSpec<Integer> numberOfGroups;
-    private final OptionSpec<Integer> queryMaxCount;
-    private final OptionSpec<Boolean> declaredMembership;
-    private final OptionSpec<Integer> numberOfInitialAce;
-    private final OptionSpec<Boolean> nestedGroups;
-    private final OptionSpec<String> compositionType;
-    private final OptionSpec<String> autoMembership;
-    private final OptionSpec<Integer> roundtripDelay;
-    private final OptionSpec<Boolean> transientWrites;
-    private final OptionSpec<Integer> vgcMaxAge;
-    private final OptionSpec<Boolean> coldUseDataStore;
-    private final OptionSpec<Boolean> coldShareDataStore;
-    private final OptionSpec<Boolean> entriesForEachPrincipal;
-    private final OptionSpec<Integer> coldSyncInterval;
-    private final OptionSpec<Boolean> dynamicMembership;
-    private final OptionSpec<Boolean> reverseOrder;
-    private final OptionSpec<String> supportedPaths;
-    private final OptionSpec<Boolean> setScope;
-    private final OptionSpec<Integer> numberOfUsers;
-    private final OptionSpec<Boolean> flatStructure;
-    private final OptionSpec<Boolean> randomUser;
-    private final OptionSpec<File> csvFile;
-    private final OptionSpec<Boolean> report;
-    private final OptionSpec<Integer> concurrency;
-    private final OptionSpec<Integer> repeatedRead;
-    private final OptionSpec<Integer> itemsToRead;
-    private final OptionSpec<String> importBehavior;
-    private final OptionSpec<Integer> batchSize;
-    private final OptionSpec<Boolean> coldOneShotRun;
-    private final OptionSpec<Boolean> coldSecure;
-    private final OptionSpec<?> verbose;
-    private final OptionSpec<String> nonOption;
-    private final OptionSpec<?> help;
-    private final OptionSpec<Boolean> useAggregationFilter;
 
 
     public BenchmarkOptions(OptionParser parser) {

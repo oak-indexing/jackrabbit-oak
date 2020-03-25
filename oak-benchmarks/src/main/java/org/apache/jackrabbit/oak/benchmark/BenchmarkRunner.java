@@ -62,8 +62,6 @@ import org.apache.jackrabbit.oak.stats.StatisticsProvider;
 public class BenchmarkRunner {
 
     private static final int MB = 1024 * 1024;
-    private static final String NAME = "benchmarkrunner";
-    private static final String summary = "Provides benchmark runner management operations";
 
     protected static List<Benchmark> allBenchmarks = Lists.newArrayList();
     protected static StatisticsProvider statsProvider = null;

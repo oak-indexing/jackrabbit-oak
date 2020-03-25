@@ -41,6 +41,14 @@ public class ScalabilityOptions {
     private final OptionSpec<Integer> cache;
     private final OptionSpec<Integer> fdsCache;
     private final OptionSpec<Boolean> withStorage;
+    private final OptionSpec<Integer> coldSyncInterval;
+    private final OptionSpec<Boolean> coldUseDataStore;
+    private final OptionSpec<Boolean> coldShareDataStore;
+    private final OptionSpec<Boolean> coldOneShotRun;
+    private final OptionSpec<Boolean> coldSecure;
+    private final OptionSpec<?> help;
+    private final OptionSpec<String> nonOption;
+    private final OptionSpec<File> csvFile;
 
     public OptionSpec<Integer> getColdSyncInterval() {
         return coldSyncInterval;
@@ -125,15 +133,6 @@ public class ScalabilityOptions {
     public OptionSpec<File> getCsvFile() {
         return csvFile;
     }
-
-    private final OptionSpec<Integer> coldSyncInterval;
-    private final OptionSpec<Boolean> coldUseDataStore;
-    private final OptionSpec<Boolean> coldShareDataStore;
-    private final OptionSpec<Boolean> coldOneShotRun;
-    private final OptionSpec<Boolean> coldSecure;
-    private final OptionSpec<?> help;
-    private final OptionSpec<String> nonOption;
-    private final OptionSpec<File> csvFile;
 
 
 
