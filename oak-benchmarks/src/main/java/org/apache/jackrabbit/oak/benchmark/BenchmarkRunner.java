@@ -66,6 +66,7 @@ public class BenchmarkRunner {
     private static final String summary = "Provides benchmark runner management operations";
 
     protected static List<Benchmark> allBenchmarks = Lists.newArrayList();
+    protected static StatisticsProvider statsProvider = null;
 
     private static OptionParser parser = new OptionParser();
     protected static BenchmarkOptions benchmarkOptions = null;
@@ -73,12 +74,11 @@ public class BenchmarkRunner {
     private static boolean initFlag = false;
 
 
-
     public static void main(String[] args) throws Exception {
 
         initOptionSet(args);
 
-        if(options.has(benchmarkOptions.getHelp())){
+        if (options.has(benchmarkOptions.getHelp())) {
             parser.printHelpOn(System.out);
             System.exit(0);
         }
@@ -92,9 +92,10 @@ public class BenchmarkRunner {
             uri = "mongodb://" + benchmarkOptions.getHost().value(options) + ":"
                     + benchmarkOptions.getPort().value(options) + "/" + db;
         }
-        StatisticsProvider statsProvider = options.has(benchmarkOptions.getMetrics()) ? getStatsProvider() : StatisticsProvider.NOOP;
+
+        statsProvider = options.has(benchmarkOptions.getMetrics()) ? getStatsProvider() : StatisticsProvider.NOOP;
         int cacheSize = benchmarkOptions.getCache().value(options);
-        RepositoryFixture[] allFixtures = new RepositoryFixture[] {
+        RepositoryFixture[] allFixtures = new RepositoryFixture[]{
                 new JackrabbitRepositoryFixture(benchmarkOptions.getBase().value(options), cacheSize),
                 OakRepositoryFixture.getMemoryNS(cacheSize * MB),
                 OakRepositoryFixture.getMongo(uri,
@@ -375,11 +376,8 @@ public class BenchmarkRunner {
                                 benchmarkOptions.getNumberOfGroups().value(options),
                                 benchmarkOptions.getNestedGroups().value(options),
                                 benchmarkOptions.getNumberOfUsers().value(options)),
-
-                        /*new FullTextSearchTest(
-                                wikipedia.value(options),
-                                flatStructure.value(options),
-                                report.value(options), withStorage.value(options)),*/
+                        // TODO - remove this from here and implement runner in oak-benchmarks-solr
+                        // (Not high priority now - do it after elastic implementation)
                         /*new FullTextSolrSearchTest(
                                 benchmarkOptions.getWikipedia().value(options),
                                 benchmarkOptions.getFlatStructure().value(options),
@@ -390,14 +388,6 @@ public class BenchmarkRunner {
                                 benchmarkOptions.getQueryMaxCount().value(options), benchmarkOptions.getSetScope().value(options),
                                 benchmarkOptions.getDeclaredMembership().value(options),
                                 benchmarkOptions.getRunAsAdmin().value(options)),
-                        /*new LucenePropertyFullTextTest(
-                                benchmarkOptions.getWikipedia().value(options),
-                                benchmarkOptions.getFlatStructure().value(options),
-                                benchmarkOptions.getReport().value(options), benchmarkOptions.getWithStorage().value(options)),
-                        new LucenePropertyFTSeparated(
-                                benchmarkOptions.getWikipedia().value(options),
-                                benchmarkOptions.getFlatStructure().value(options),
-                                benchmarkOptions.getReport().value(options), benchmarkOptions.getWithStorage().value(options)),*/
                         new ReplicaCrashResilienceTest(),
 
                         // benchmarks for oak-auth-external
@@ -422,8 +412,6 @@ public class BenchmarkRunner {
                                 benchmarkOptions.getNumberOfGroups().value(options), benchmarkOptions.getExpiration().value(options),
                                 benchmarkOptions.getRoundtripDelay().value(options)),
                         new ListIdentitiesTest(benchmarkOptions.getNumberOfUsers().value(options)),
-
-                        //new HybridIndexTest(benchmarkOptions.getBase().value(options), statsProvider),
                         new BundlingNodeTest(),
                         new PersistentCacheTest(statsProvider),
                         new StringWriteTest(),
@@ -504,7 +492,7 @@ public class BenchmarkRunner {
     }
 
     protected static void initOptionSet(String[] args) throws IOException {
-        if(!initFlag) {
+        if (!initFlag) {
             benchmarkOptions = new BenchmarkOptions(parser);
             options = parser.parse(args);
             initFlag = true;
@@ -530,9 +518,15 @@ public class BenchmarkRunner {
         return tmp.toString();
     }
 
-    private static MetricStatisticsProvider getStatsProvider(){
-        ScheduledExecutorService executorService = MoreExecutors.getExitingScheduledExecutorService(
-                (ScheduledThreadPoolExecutor) Executors.newScheduledThreadPool(1));
-        return new MetricStatisticsProvider(null, executorService);
+    protected static StatisticsProvider getStatsProvider() {
+        if (statsProvider == null) {
+            ScheduledExecutorService executorService = MoreExecutors.getExitingScheduledExecutorService(
+                    (ScheduledThreadPoolExecutor) Executors.newScheduledThreadPool(1));
+
+            return new MetricStatisticsProvider(null, executorService);
+        } else {
+            return statsProvider;
+        }
+
     }
 }

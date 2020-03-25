@@ -33,7 +33,6 @@ import org.apache.jackrabbit.oak.fixture.RepositoryFixture;
 import org.apache.jackrabbit.oak.fixture.SegmentTarFixture;
 import org.apache.jackrabbit.oak.scalability.ScalabilitySuite;
 import org.apache.jackrabbit.oak.scalability.benchmarks.ScalabilityBenchmark;
-import org.apache.jackrabbit.oak.scalability.suites.ScalabilityAbstractSuite;
 
 /**
  * This suite test will set up a primary instance and a standby instance. It

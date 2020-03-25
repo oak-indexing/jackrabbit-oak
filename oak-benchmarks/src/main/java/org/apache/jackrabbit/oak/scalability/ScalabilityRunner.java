@@ -58,66 +58,6 @@ public class ScalabilityRunner {
 
     public static void main(String[] args) throws Exception {
         initOptionSet(args);
-        /*OptionSpec<File> base = parser.accepts("base", "Base directory")
-                .withRequiredArg().ofType(File.class)
-                .defaultsTo(new File("target"));
-        OptionSpec<String> host = parser.accepts("host", "MongoDB host")
-                .withRequiredArg().defaultsTo("localhost");
-        OptionSpec<Integer> port = parser.accepts("port", "MongoDB port")
-                .withRequiredArg().ofType(Integer.class).defaultsTo(27017);
-        OptionSpec<String> dbName = parser.accepts("db", "MongoDB database")
-                .withRequiredArg();
-        OptionSpec<Boolean> dropDBAfterTest =
-                parser.accepts("dropDBAfterTest",
-                        "Whether to drop the MongoDB database after the test")
-                        .withOptionalArg().ofType(Boolean.class).defaultsTo(true);
-        OptionSpec<String> rdbjdbcuri = parser.accepts("rdbjdbcuri", "RDB JDBC URI")
-            .withOptionalArg().defaultsTo("jdbc:h2:./target/benchmark");
-        OptionSpec<String> rdbjdbcuser = parser.accepts("rdbjdbcuser", "RDB JDBC user")
-            .withOptionalArg().defaultsTo("");
-        OptionSpec<String> rdbjdbcpasswd = parser.accepts("rdbjdbcpasswd", "RDB JDBC password")
-            .withOptionalArg().defaultsTo("");
-        OptionSpec<String> rdbjdbctableprefix = parser.accepts("rdbjdbctableprefix", "RDB JDBC table prefix")
-            .withOptionalArg().defaultsTo("");
-        OptionSpec<Boolean> mmap = parser.accepts("mmap", "TarMK memory mapping")
-                .withOptionalArg().ofType(Boolean.class)
-                .defaultsTo("64".equals(System.getProperty("sun.arch.data.model")));
-        OptionSpec<Integer> cache = parser.accepts("cache", "cache size (MB)")
-                .withRequiredArg().ofType(Integer.class).defaultsTo(100);
-        OptionSpec<Integer> fdsCache = parser.accepts("blobCache", "cache size (MB)")
-                .withRequiredArg().ofType(Integer.class).defaultsTo(32);
-        OptionSpec<Boolean> withStorage = parser
-                .accepts("storage", "Index storage enabled").withOptionalArg()
-                .ofType(Boolean.class);
-        OptionSpec<File> csvFile =
-                parser.accepts("csvFile", "File to write a CSV version of the benchmark data.")
-                        .withOptionalArg().ofType(File.class);
-        OptionSpec<Integer> coldSyncInterval = parser.accepts("coldSyncInterval", "interval between sync cycles in sec (Segment-Tar-Cold only)")
-                .withRequiredArg().ofType(Integer.class).defaultsTo(5);
-        OptionSpec<Boolean> coldUseDataStore = parser
-                .accepts("useDataStore",
-                        "Whether to use a datastore in the cold standby topology (Segment-Tar-Cold only)")
-                .withOptionalArg().ofType(Boolean.class)
-                .defaultsTo(Boolean.TRUE);
-        OptionSpec<Boolean> coldShareDataStore = parser
-                .accepts("shareDataStore",
-                        "Whether to share the datastore for primary and standby in the cold standby topology (Segment-Tar-Cold only)")
-                .withOptionalArg().ofType(Boolean.class)
-                .defaultsTo(Boolean.FALSE);
-        OptionSpec<Boolean> coldOneShotRun = parser
-                .accepts("oneShotRun",
-                        "Whether to do a continuous sync between client and server or sync only once (Segment-Tar-Cold only)")
-                .withOptionalArg().ofType(Boolean.class)
-                .defaultsTo(Boolean.TRUE);
-        OptionSpec<Boolean> coldSecure = parser
-                .accepts("secure",
-                        "Whether to enable secure communication between primary and standby in the cold standby topology (Segment-Tar-Cold only)")
-                .withOptionalArg().ofType(Boolean.class)
-                .defaultsTo(Boolean.FALSE);
-        
-        OptionSpec<?> help = parser.acceptsAll(asList("h", "?", "help"), "show help").forHelp();
-        OptionSpec<String> nonOption = parser.nonOptions();*/
-
         OptionSet options = parser.parse(args);
 
         if (options.has(scalabilityOptions.getHelp())) {
@@ -184,40 +124,6 @@ public class ScalabilityRunner {
                                 .addBenchmarks(new StandbyBulkTransferBenchmark()
                                 )
                 )));
-
-        /*ScalabilitySuite[] allSuites =
-                new ScalabilitySuite[] {
-                        new ScalabilityBlobSearchSuite(withStorage.value(options))
-                                .addBenchmarks(new FullTextSearcher(),
-                                        new NodeTypeSearcher(),
-                                        new FormatSearcher(),
-                                        new FacetSearcher(),
-                                        new LastModifiedSearcher(Date.LAST_2_HRS),
-                                        new LastModifiedSearcher(Date.LAST_24_HRS),
-                                        new LastModifiedSearcher(Date.LAST_7_DAYS),
-                                        new LastModifiedSearcher(Date.LAST_MONTH),
-                                        new LastModifiedSearcher(Date.LAST_YEAR),
-                                        new OrderByDate()),
-                        new ScalabilityNodeSuite(withStorage.value(options))
-                                .addBenchmarks(new OrderBySearcher(),
-                                        new SplitOrderBySearcher(),
-                                        new OrderByOffsetPageSearcher(),
-                                        new SplitOrderByOffsetPageSearcher(),
-                                        new OrderByKeysetPageSearcher(),
-                                        new SplitOrderByKeysetPageSearcher(),
-                                        new MultiFilterOrderBySearcher(),
-                                        new MultiFilterSplitOrderBySearcher(),
-                                        new MultiFilterOrderByOffsetPageSearcher(),
-                                        new MultiFilterSplitOrderByOffsetPageSearcher(),
-                                        new MultiFilterOrderByKeysetPageSearcher(),
-                                        new MultiFilterSplitOrderByKeysetPageSearcher(),
-                                        new ConcurrentReader(),
-                                        new ConcurrentWriter()),
-                        new ScalabilityNodeRelationshipSuite(withStorage.value(options))
-                                .addBenchmarks(new AggregateNodeSearcher()),
-                        new ScalabilityStandbySuite()
-                                .addBenchmarks(new StandbyBulkTransferBenchmark())
-                };*/
 
         Set<String> argset = Sets.newHashSet(scalabilityOptions.getNonOption().values(options));
         List<RepositoryFixture> fixtures = Lists.newArrayList();

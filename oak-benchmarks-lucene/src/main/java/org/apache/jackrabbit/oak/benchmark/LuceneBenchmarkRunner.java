@@ -17,12 +17,15 @@
 package org.apache.jackrabbit.oak.benchmark;
 
 
+import org.apache.jackrabbit.oak.stats.StatisticsProvider;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 
 public class LuceneBenchmarkRunner extends BenchmarkRunner {
 
     public static void main(String[] args) throws Exception {
+        statsProvider = options.has(benchmarkOptions.getMetrics()) ? getStatsProvider() : StatisticsProvider.NOOP;
         initOptionSet(args);
         BenchmarkRunner.addToBenchMarkList(new ArrayList<>(
                 Arrays.asList(
@@ -30,7 +33,16 @@ public class LuceneBenchmarkRunner extends BenchmarkRunner {
                                 benchmarkOptions.getWikipedia().value(options),
                                 benchmarkOptions.getFlatStructure().value(options),
                                 benchmarkOptions.getReport().value(options),
-                                benchmarkOptions.getWithStorage().value(options))
+                                benchmarkOptions.getWithStorage().value(options)),
+                        new LucenePropertyFullTextTest(
+                                benchmarkOptions.getWikipedia().value(options),
+                                benchmarkOptions.getFlatStructure().value(options),
+                                benchmarkOptions.getReport().value(options), benchmarkOptions.getWithStorage().value(options)),
+                        new LucenePropertyFTSeparated(
+                                benchmarkOptions.getWikipedia().value(options),
+                                benchmarkOptions.getFlatStructure().value(options),
+                                benchmarkOptions.getReport().value(options), benchmarkOptions.getWithStorage().value(options)),
+                        new HybridIndexTest(benchmarkOptions.getBase().value(options), statsProvider)
                 )
         ));
 
