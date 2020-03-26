@@ -16,6 +16,7 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elasticsearch;
 
+import com.github.dockerjava.api.DockerClient;
 import org.apache.commons.io.FileUtils;
 import org.apache.jackrabbit.oak.InitialContentHelper;
 import org.apache.jackrabbit.oak.Oak;
@@ -33,30 +34,54 @@ import org.apache.jackrabbit.oak.query.AbstractQueryTest;
 import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
+import org.elasticsearch.Version;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.testcontainers.DockerClientFactory;
+import org.testcontainers.elasticsearch.ElasticsearchContainer;
 
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.Set;
 
-import static com.google.common.collect.ImmutableSet.of;
-import static org.apache.derby.vti.XmlVTI.asList;
+import static java.util.Collections.singletonList;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NAME;
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROPDEF_PROP_NODE_NAME;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assume.assumeNotNull;
 
 public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ElasticsearchPropertyIndexTest.class);
+
     @Rule
-    public ElasticsearchManagementRule esMgmt = new ElasticsearchManagementRule();
+    public final ElasticsearchContainer elastic =
+            new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:" + Version.CURRENT);
+
+    @BeforeClass
+    public static void beforeMethod() {
+        DockerClient client = null;
+        try {
+            client = DockerClientFactory.instance().client();
+        } catch (Exception e) {
+            LOG.warn("Docker is not available, ElasticsearchPropertyIndexTest will be skipped");
+        }
+        assumeNotNull(client);
+    }
 
     @Override
     protected ContentRepository createRepository() {
-        ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(esMgmt,
-                new ExtractedTextCache(10* FileUtils.ONE_MB, 100));
-        ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(esMgmt);
+        ElasticsearchConnection coordinate = new ElasticsearchConnection(
+                ElasticsearchConnection.DEFAULT_SCHEME,
+                elastic.getContainerIpAddress(),
+                elastic.getMappedPort(ElasticsearchConnection.DEFAULT_PORT)
+        );
+        ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(coordinate,
+                new ExtractedTextCache(10 * FileUtils.ONE_MB, 100));
+        ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(coordinate);
 
         // remove all indexes to avoid cost competition (essentially a TODO for fixing cost ES cost estimation)
         NodeBuilder builder = InitialContentHelper.INITIAL_CONTENT.builder();
@@ -81,8 +106,8 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
 
     @Test
     public void indexSelection() throws Exception {
-        setIndex("test1", createIndex(of("propa", "propb")));
-        setIndex("test2", createIndex(of("propc")));
+        setIndex("test1", createIndex("propa", "propb"));
+        setIndex("test2", createIndex("propc"));
 
         Tree test = root.getTree("/").addChild("test");
         test.addChild("a").setProperty("propa", "foo");
@@ -96,16 +121,16 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
         assertThat(explain(propaQuery), containsString("elasticsearch:test1"));
         assertThat(explain("select [jcr:path] from [nt:base] where [propc] = 'foo'"), containsString("elasticsearch:test2"));
 
-        assertQuery(propaQuery, asList("/test/a", "/test/b"));
-        assertQuery("select [jcr:path] from [nt:base] where [propa] = 'foo2'", asList("/test/c"));
-        assertQuery("select [jcr:path] from [nt:base] where [propc] = 'foo'", asList("/test/d"));
+        assertQuery(propaQuery, Arrays.asList("/test/a", "/test/b"));
+        assertQuery("select [jcr:path] from [nt:base] where [propa] = 'foo2'", singletonList("/test/c"));
+        assertQuery("select [jcr:path] from [nt:base] where [propc] = 'foo'", singletonList("/test/d"));
     }
 
     //OAK-3825
     @Test
-    public void nodeNameViaPropDefinition() throws Exception{
+    public void nodeNameViaPropDefinition() throws Exception {
         //make index
-        IndexDefinitionBuilder builder = createIndex(Collections.EMPTY_SET);
+        IndexDefinitionBuilder builder = createIndex();
         builder.includedPaths("/test")
                 .evaluatePathRestrictions()
                 .indexRule("nt:base")
@@ -126,19 +151,19 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
         String explanation = explain(propabQuery);
         Assert.assertThat(explanation, containsString("elasticsearch:test1(/oak:index/test1) "));
         Assert.assertThat(explanation, containsString("{\"term\":{\":nodeName\":{\"value\":\"foo\","));
-        assertQuery(propabQuery, Arrays.asList("/test/foo"));
-        assertQuery(queryPrefix + "LOCALNAME() = 'bar'", Arrays.asList("/test/sc/bar"));
-        assertQuery(queryPrefix + "LOCALNAME() LIKE 'foo'", Arrays.asList("/test/foo"));
-        assertQuery(queryPrefix + "LOCALNAME() LIKE 'camel%'", Arrays.asList("/test/camelCase"));
+        assertQuery(propabQuery, singletonList("/test/foo"));
+        assertQuery(queryPrefix + "LOCALNAME() = 'bar'", singletonList("/test/sc/bar"));
+        assertQuery(queryPrefix + "LOCALNAME() LIKE 'foo'", singletonList("/test/foo"));
+        assertQuery(queryPrefix + "LOCALNAME() LIKE 'camel%'", singletonList("/test/camelCase"));
 
-        assertQuery(queryPrefix + "NAME() = 'bar'", Arrays.asList("/test/sc/bar"));
-        assertQuery(queryPrefix + "NAME() LIKE 'foo'", Arrays.asList("/test/foo"));
-        assertQuery(queryPrefix + "NAME() LIKE 'camel%'", Arrays.asList("/test/camelCase"));
+        assertQuery(queryPrefix + "NAME() = 'bar'", singletonList("/test/sc/bar"));
+        assertQuery(queryPrefix + "NAME() LIKE 'foo'", singletonList("/test/foo"));
+        assertQuery(queryPrefix + "NAME() LIKE 'camel%'", singletonList("/test/camelCase"));
     }
 
     @Test
-    public void emptyIndex() throws Exception{
-        setIndex("test1", createIndex(of("propa", "propb")));
+    public void emptyIndex() throws Exception {
+        setIndex("test1", createIndex("propa", "propb"));
         root.commit();
 
         Tree test = root.getTree("/").addChild("test");
@@ -151,7 +176,7 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
 
     @Test
     public void propertyExistenceQuery() throws Exception {
-        setIndex("test1", createIndex(of("propa", "propb")));
+        setIndex("test1", createIndex("propa", "propb"));
 
         Tree test = root.getTree("/").addChild("test");
         test.addChild("a").setProperty("propa", "a");
@@ -162,11 +187,12 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
         assertQuery("select [jcr:path] from [nt:base] where propa is not null", Arrays.asList("/test/a", "/test/b"));
     }
 
-    private static IndexDefinitionBuilder createIndex(Set<String> propNames) {
+    private static IndexDefinitionBuilder createIndex(String... propNames) {
         IndexDefinitionBuilder builder = new ElasticsearchIndexDefinitionBuilder().noAsync();
         IndexDefinitionBuilder.IndexRule indexRule = builder.indexRule("nt:base");
-        propNames.forEach(propName -> indexRule.property(propName).propertyIndex());
-
+        for (String propName : propNames) {
+            indexRule.property(propName).propertyIndex();
+        }
         return builder;
     }
 
@@ -174,7 +200,7 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
         builder.build(root.getTree("/").addChild(INDEX_DEFINITIONS_NAME).addChild(idxName));
     }
 
-    private String explain(String query){
+    private String explain(String query) {
         String explain = "explain " + query;
         return executeQuery(explain, "JCR-SQL2").get(0);
     }
