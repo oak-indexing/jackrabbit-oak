@@ -27,7 +27,7 @@ public class LuceneBenchmarkRunner extends BenchmarkRunner {
     public static void main(String[] args) throws Exception {
         statsProvider = options.has(benchmarkOptions.getMetrics()) ? getStatsProvider() : StatisticsProvider.NOOP;
         initOptionSet(args);
-        BenchmarkRunner.addToBenchMarkList(new ArrayList<>(
+        BenchmarkRunner.addToBenchMarkList(
                 Arrays.asList(
                         new LuceneFullTextSearchTest(
                                 benchmarkOptions.getWikipedia().value(options),
@@ -44,7 +44,7 @@ public class LuceneBenchmarkRunner extends BenchmarkRunner {
                                 benchmarkOptions.getReport().value(options), benchmarkOptions.getWithStorage().value(options)),
                         new HybridIndexTest(benchmarkOptions.getBase().value(options), statsProvider)
                 )
-        ));
+        );
 
         BenchmarkRunner.main(args);
     }

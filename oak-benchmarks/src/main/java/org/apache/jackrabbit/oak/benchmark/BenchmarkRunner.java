@@ -137,8 +137,7 @@ public class BenchmarkRunner {
                         benchmarkOptions.getDropDBAfterTest().value(options))
         };
 
-        addToBenchMarkList(new ArrayList<Benchmark>(
-                Arrays.asList(
+        addToBenchMarkList(Arrays.asList(
                         new OrderedIndexQueryOrderedIndexTest(),
                         new OrderedIndexQueryStandardIndexTest(),
                         new OrderedIndexQueryNoIndexTest(),
@@ -420,7 +419,7 @@ public class BenchmarkRunner {
                         new GetURITest(),
                         new ISO8601FormatterTest()
                 )
-        ));
+        );
 
 
         Set<String> argset = Sets.newHashSet(benchmarkOptions.getNonOption().values(options));

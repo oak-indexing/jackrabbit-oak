@@ -118,12 +118,12 @@ public class ScalabilityRunner {
                         scalabilityOptions.getFdsCache().value(options), -1)
         };
 
-        addToScalabilitySuiteList(new ArrayList<ScalabilitySuite>(
+        addToScalabilitySuiteList(
                 Arrays.asList(
                         new ScalabilityStandbySuite()
                                 .addBenchmarks(new StandbyBulkTransferBenchmark()
                                 )
-                )));
+                ));
 
         Set<String> argset = Sets.newHashSet(scalabilityOptions.getNonOption().values(options));
         List<RepositoryFixture> fixtures = Lists.newArrayList();

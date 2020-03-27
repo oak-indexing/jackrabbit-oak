@@ -27,7 +27,7 @@ import static java.util.Arrays.copyOfRange;
 public class LuceneMain {
 
     private static final Modes MODES = new Modes(ImmutableMap.<String, Command>of(
-            "benchmark", new BenchMarkLuceneCommand(),
+            "benchmark", new BenchmarkLuceneCommand(),
             "scalability", new ScalabilityCommand()
     ));
 
@@ -35,7 +35,7 @@ public class LuceneMain {
         // Prevent instantiation.
     }
 
-    public static void main(String args[]) throws Exception{
+    public static void main(String[] args) throws Exception {
 
         Utils.printProductInfo(
                 args,

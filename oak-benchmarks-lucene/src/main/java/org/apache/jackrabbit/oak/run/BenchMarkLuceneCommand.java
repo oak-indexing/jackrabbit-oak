@@ -20,7 +20,7 @@ package org.apache.jackrabbit.oak.run;
 import org.apache.jackrabbit.oak.benchmark.LuceneBenchmarkRunner;
 import org.apache.jackrabbit.oak.run.commons.Command;
 
-public class BenchMarkLuceneCommand implements Command {
+public class BenchmarkLuceneCommand implements Command {
 
     @Override
     public void execute(String... args) throws Exception {
