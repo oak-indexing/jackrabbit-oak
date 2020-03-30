@@ -63,7 +63,6 @@ public class ElasticsearchIndexDefinition extends IndexDefinition implements Ela
 
     private String getRemoteIndexName() {
         // TODO: implement advanced remote index name strategy that takes into account multiple tenants and re-index process
-        String suffix = String.valueOf(getReindexCount());
         return getESSafeIndexName(getIndexPath() + "-" + getReindexCount());
     }
 
@@ -101,7 +100,7 @@ public class ElasticsearchIndexDefinition extends IndexDefinition implements Ela
     public static class Builder extends IndexDefinition.Builder {
         @Override
         public ElasticsearchIndexDefinition build() {
-            return (ElasticsearchIndexDefinition)super.build();
+            return (ElasticsearchIndexDefinition) super.build();
         }
 
         @Override

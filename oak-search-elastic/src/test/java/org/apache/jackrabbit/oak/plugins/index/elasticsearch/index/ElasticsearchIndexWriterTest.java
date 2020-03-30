@@ -49,7 +49,7 @@ public class ElasticsearchIndexWriterTest {
     private ElasticsearchIndexWriter indexWriter;
 
     @Before
-    public void setup() {
+    public void setUp() {
         MockitoAnnotations.initMocks(this);
         when(indexDefinitionMock.getElasticsearchIndexName()).thenReturn("test-index");
         indexWriter = new ElasticsearchIndexWriter(elasticsearchConnectionMock, indexDefinitionMock, bulkProcessorMock);
@@ -89,7 +89,7 @@ public class ElasticsearchIndexWriterTest {
         ArgumentCaptor<IndexRequest> acIndexRequest = ArgumentCaptor.forClass(IndexRequest.class);
         verify(bulkProcessorMock, times(2)).add(acIndexRequest.capture());
         ArgumentCaptor<DeleteRequest> acDeleteRequest = ArgumentCaptor.forClass(DeleteRequest.class);
-        verify(bulkProcessorMock,times(2)).add(acDeleteRequest.capture());
+        verify(bulkProcessorMock, times(2)).add(acDeleteRequest.capture());
     }
 
 }

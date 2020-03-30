@@ -56,7 +56,7 @@ public class ElasticsearchIndexWriter implements FulltextIndexWriter<Elasticsear
     private final ElasticsearchConnection elasticsearchConnection;
     private final ElasticsearchIndexDefinition indexDefinition;
 
-    private BulkProcessor bulkProcessor;
+    private final BulkProcessor bulkProcessor;
 
     protected ElasticsearchIndexWriter(@NotNull ElasticsearchConnection elasticsearchConnection,
                                        @NotNull ElasticsearchIndexDefinition indexDefinition) {
