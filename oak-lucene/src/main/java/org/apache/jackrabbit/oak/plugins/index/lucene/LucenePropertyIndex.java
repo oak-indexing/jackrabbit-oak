@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -196,6 +197,9 @@ public class LucenePropertyIndex extends FulltextIndex {
     private static boolean NON_LAZY = Boolean.getBoolean("oak.lucene.nonLazyIndex");
     public final static String OLD_FACET_PROVIDER_CONFIG_NAME = "oak.lucene.oldFacetProvider";
     private final static boolean OLD_FACET_PROVIDER = Boolean.getBoolean(OLD_FACET_PROVIDER_CONFIG_NAME);
+    public final static String CACHE_FACET_RESULTS_NAME = "oak.lucene.cacheFacetResults";
+    private final static boolean CACHE_FACET_RESULTS =
+            Boolean.parseBoolean(System.getProperty(CACHE_FACET_RESULTS_NAME, "true"));
 
     private static double MIN_COST = 2.1;
 
@@ -219,6 +223,11 @@ public class LucenePropertyIndex extends FulltextIndex {
     private final PostingsHighlighter postingsHighlighter = new PostingsHighlighter();
 
     private final IndexAugmentorFactory augmentorFactory;
+
+    static {
+        LOG.info(OLD_FACET_PROVIDER_CONFIG_NAME + " = " + OLD_FACET_PROVIDER);
+        LOG.info(CACHE_FACET_RESULTS_NAME + " = " + CACHE_FACET_RESULTS);
+    }
 
     public LucenePropertyIndex(IndexTracker tracker) {
         this(tracker, ScorerProviderFactory.DEFAULT);
@@ -730,7 +739,7 @@ public class LucenePropertyIndex extends FulltextIndex {
     protected String getType() {
         return TYPE_LUCENE;
     }
-    
+
     @Override
     protected boolean filterReplacedIndexes() {
         return tracker.getMountInfoProvider().hasNonDefaultMounts();
@@ -1579,6 +1588,7 @@ public class LucenePropertyIndex extends FulltextIndex {
         private final Query query;
         private final IndexPlan plan;
         private final SecureFacetConfiguration config;
+        private final Map<String, List<Facet>> cachedResults = new HashMap<>();
 
         DelayedLuceneFacetProvider(LucenePropertyIndex index, Query query, IndexPlan plan, SecureFacetConfiguration config) {
             this.index = index;
@@ -1589,6 +1599,19 @@ public class LucenePropertyIndex extends FulltextIndex {
 
         @Override
         public List<Facet> getFacets(int numberOfFacets, String columnName) throws IOException {
+            if (!CACHE_FACET_RESULTS) {
+                return getFacetsUncached(numberOfFacets, columnName);
+            }
+            String cacheKey = columnName + "/" + numberOfFacets;
+            if (cachedResults.containsKey(cacheKey)) {
+                return cachedResults.get(cacheKey);
+            }
+            List<Facet> result = getFacetsUncached(numberOfFacets, columnName);
+            cachedResults.put(cacheKey, result);
+            return result;
+        }
+
+        private List<Facet> getFacetsUncached(int numberOfFacets, String columnName) throws IOException {
             LuceneIndexNode indexNode = index.acquireIndexNode(plan);
             try {
                 IndexSearcher searcher = indexNode.getSearcher();
@@ -1600,7 +1623,7 @@ public class LucenePropertyIndex extends FulltextIndex {
                     if (topChildren != null) {
                         for (LabelAndValue lav : topChildren.labelValues) {
                             res.add(new Facet(
-                                lav.label, lav.value.intValue()
+                                    lav.label, lav.value.intValue()
                             ));
                         }
                         return res.build();
