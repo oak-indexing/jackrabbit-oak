@@ -33,7 +33,6 @@ public class ElasticsearchIndexWriterFactory implements FulltextIndexWriterFacto
     @Override
     public ElasticsearchIndexWriter newInstance(IndexDefinition definition, NodeBuilder definitionBuilder, boolean reindex) {
         if (!(definition instanceof ElasticsearchIndexDefinition)) {
-            new Exception().printStackTrace();
             throw new IllegalArgumentException("IndexDefinition must be of type ElasticsearchIndexDefinition " +
                     "instead of " + definition.getClass().getName());
         }
