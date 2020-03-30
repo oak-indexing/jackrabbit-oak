@@ -198,10 +198,11 @@ public class LucenePropertyIndex extends FulltextIndex {
     public final static String OLD_FACET_PROVIDER_CONFIG_NAME = "oak.lucene.oldFacetProvider";
     private final static boolean OLD_FACET_PROVIDER = Boolean.getBoolean(OLD_FACET_PROVIDER_CONFIG_NAME);
     public final static String CACHE_FACET_RESULTS_NAME = "oak.lucene.cacheFacetResults";
-    private final static boolean CACHE_FACET_RESULTS =
+    private final boolean CACHE_FACET_RESULTS =
             Boolean.parseBoolean(System.getProperty(CACHE_FACET_RESULTS_NAME, "true"));
 
     private static double MIN_COST = 2.1;
+    private static boolean FLAG_CACHE_FACET_RESULTS_CHANGE = true;
 
     private static final Logger LOG = LoggerFactory
         .getLogger(LucenePropertyIndex.class);
@@ -224,11 +225,6 @@ public class LucenePropertyIndex extends FulltextIndex {
 
     private final IndexAugmentorFactory augmentorFactory;
 
-    static {
-        LOG.info(OLD_FACET_PROVIDER_CONFIG_NAME + " = " + OLD_FACET_PROVIDER);
-        LOG.info(CACHE_FACET_RESULTS_NAME + " = " + CACHE_FACET_RESULTS);
-    }
-
     public LucenePropertyIndex(IndexTracker tracker) {
         this(tracker, ScorerProviderFactory.DEFAULT);
     }
@@ -241,6 +237,15 @@ public class LucenePropertyIndex extends FulltextIndex {
         this.tracker = tracker;
         this.scorerProviderFactory = factory;
         this.augmentorFactory = augmentorFactory;
+        logConfigsOnce();
+    }
+
+    private void logConfigsOnce() {
+        if (FLAG_CACHE_FACET_RESULTS_CHANGE) {
+            LOG.info(OLD_FACET_PROVIDER_CONFIG_NAME + " = " + OLD_FACET_PROVIDER);
+            LOG.info(CACHE_FACET_RESULTS_NAME + " = " + CACHE_FACET_RESULTS);
+            FLAG_CACHE_FACET_RESULTS_CHANGE = false;
+        }
     }
 
     @Override
@@ -1583,7 +1588,7 @@ public class LucenePropertyIndex extends FulltextIndex {
         return Iterators.concat(propIndex.iterator(), itr);
     }
 
-    static class DelayedLuceneFacetProvider implements FacetProvider {
+    class DelayedLuceneFacetProvider implements FacetProvider {
         private final LucenePropertyIndex index;
         private final Query query;
         private final IndexPlan plan;
@@ -1600,12 +1605,15 @@ public class LucenePropertyIndex extends FulltextIndex {
         @Override
         public List<Facet> getFacets(int numberOfFacets, String columnName) throws IOException {
             if (!CACHE_FACET_RESULTS) {
+                LOG.trace(CACHE_FACET_RESULTS_NAME + " = " + CACHE_FACET_RESULTS + " getting uncached results for columnName = " + columnName);
                 return getFacetsUncached(numberOfFacets, columnName);
             }
             String cacheKey = columnName + "/" + numberOfFacets;
             if (cachedResults.containsKey(cacheKey)) {
+                LOG.trace("columnName = " + columnName + " returning Facet Data from cache.");
                 return cachedResults.get(cacheKey);
             }
+            LOG.trace("columnName = " + columnName + " facet Data not present in cache...");
             List<Facet> result = getFacetsUncached(numberOfFacets, columnName);
             cachedResults.put(cacheKey, result);
             return result;
