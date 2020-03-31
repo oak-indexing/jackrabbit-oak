@@ -35,7 +35,7 @@ import java.util.WeakHashMap;
 import java.util.function.Predicate;
 
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.TYPE_PROPERTY_NAME;
-import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexConstants.TYPE_ELASTICSEARCH;
+import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexDefinition.TYPE_ELASTICSEARCH;
 
 public class ElasticsearchIndex extends FulltextIndex {
     private static final Predicate<NodeState> ELASTICSEARCH_INDEX_DEFINITION_PREDICATE =

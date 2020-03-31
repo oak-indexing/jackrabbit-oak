@@ -29,7 +29,24 @@ import java.util.stream.StreamSupport;
 import static org.apache.jackrabbit.oak.plugins.index.search.util.ConfigUtil.getOptionalValue;
 import static org.elasticsearch.common.Strings.INVALID_FILENAME_CHARS;
 
-public class ElasticsearchIndexDefinition extends IndexDefinition implements ElasticsearchIndexConstants {
+public class ElasticsearchIndexDefinition extends IndexDefinition {
+
+    public static final String TYPE_ELASTICSEARCH = "elasticsearch";
+
+    public static final String BULK_ACTIONS = "bulkActions";
+    public static final int BULK_ACTIONS_DEFAULT = 250;
+
+    public static final String BULK_SIZE_BYTES = "bulkSizeBytes";
+    public static final long BULK_SIZE_BYTES_DEFAULT = 2_097_152; // 2MB
+
+    public static final String BULK_FLUSH_INTERVAL_MS = "bulkFlushIntervalMs";
+    public static final long BULK_FLUSH_INTERVAL_MS_DEFAULT = 3000;
+
+    public static final String BULK_RETRIES = "bulkRetries";
+    public static final int BULK_RETRIES_DEFAULT = 3;
+
+    public static final String BULK_RETRIES_BACKOFF = "bulkRetriesBackoff";
+    public static final long BULK_RETRIES_BACKOFF_DEFAULT = 200;
 
     private static final int MAX_NAME_LENGTH = 255;
 

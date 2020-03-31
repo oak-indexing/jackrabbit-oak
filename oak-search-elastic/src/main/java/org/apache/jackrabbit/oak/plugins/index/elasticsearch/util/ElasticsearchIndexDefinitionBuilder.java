@@ -18,7 +18,7 @@ package org.apache.jackrabbit.oak.plugins.index.elasticsearch.util;
 
 import org.apache.jackrabbit.oak.plugins.index.search.util.IndexDefinitionBuilder;
 
-import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexConstants.TYPE_ELASTICSEARCH;
+import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexDefinition.TYPE_ELASTICSEARCH;
 
 public class ElasticsearchIndexDefinitionBuilder extends IndexDefinitionBuilder {
     @Override
