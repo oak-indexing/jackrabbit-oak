@@ -23,7 +23,7 @@ import org.apache.jackrabbit.oak.plugins.index.search.spi.editor.FulltextIndexWr
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.jetbrains.annotations.NotNull;
 
-public class ElasticsearchIndexWriterFactory implements FulltextIndexWriterFactory<ElasticsearchDocument> {
+class ElasticsearchIndexWriterFactory implements FulltextIndexWriterFactory<ElasticsearchDocument> {
     private final ElasticsearchConnection elasticsearchConnection;
 
     ElasticsearchIndexWriterFactory(@NotNull ElasticsearchConnection elasticsearchConnection) {

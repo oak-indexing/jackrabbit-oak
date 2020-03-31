@@ -29,7 +29,8 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 
-public class ElasticsearchIndexEditorContext extends FulltextIndexEditorContext<ElasticsearchDocument> {
+class ElasticsearchIndexEditorContext extends FulltextIndexEditorContext<ElasticsearchDocument> {
+
     ElasticsearchIndexEditorContext(NodeState root,
                                     NodeBuilder definition, @Nullable IndexDefinition indexDefinition,
                                     IndexUpdateCallback updateCallback,

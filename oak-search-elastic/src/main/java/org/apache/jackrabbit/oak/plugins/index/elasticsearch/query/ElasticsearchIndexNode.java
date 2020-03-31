@@ -25,12 +25,12 @@ import org.apache.jackrabbit.oak.spi.state.NodeStateUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class ElasticsearchIndexNode implements IndexNode {
+class ElasticsearchIndexNode implements IndexNode {
 
     private final ElasticsearchConnection elasticsearchConnection;
     private final ElasticsearchIndexDefinition indexDefinition;
 
-    protected ElasticsearchIndexNode(@NotNull NodeState root, @NotNull String indexPath,
+    ElasticsearchIndexNode(@NotNull NodeState root, @NotNull String indexPath,
                                      @NotNull ElasticsearchConnection elasticsearchConnection) {
         final NodeState indexNS = NodeStateUtils.getNode(root, indexPath);
         this.indexDefinition = new ElasticsearchIndexDefinition(root, indexNS, indexPath);

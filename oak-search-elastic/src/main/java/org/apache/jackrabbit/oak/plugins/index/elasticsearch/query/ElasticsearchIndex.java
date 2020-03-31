@@ -37,7 +37,7 @@ import java.util.function.Predicate;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.TYPE_PROPERTY_NAME;
 import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexDefinition.TYPE_ELASTICSEARCH;
 
-public class ElasticsearchIndex extends FulltextIndex {
+class ElasticsearchIndex extends FulltextIndex {
     private static final Predicate<NodeState> ELASTICSEARCH_INDEX_DEFINITION_PREDICATE =
             state -> TYPE_ELASTICSEARCH.equals(state.getString(TYPE_PROPERTY_NAME));
     private static final Map<String, LMSEstimator> estimators = new WeakHashMap<>();
@@ -48,7 +48,7 @@ public class ElasticsearchIndex extends FulltextIndex {
     private final ElasticsearchConnection elasticsearchConnection;
     private final NodeState root;
 
-    protected ElasticsearchIndex(@NotNull ElasticsearchConnection elasticsearchConnection, @NotNull NodeState root) {
+    ElasticsearchIndex(@NotNull ElasticsearchConnection elasticsearchConnection, @NotNull NodeState root) {
         this.elasticsearchConnection = elasticsearchConnection;
         this.root = root;
     }

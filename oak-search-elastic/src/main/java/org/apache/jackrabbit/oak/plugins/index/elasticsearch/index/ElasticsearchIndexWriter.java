@@ -50,7 +50,7 @@ import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.index.Elasti
 import static org.elasticsearch.common.xcontent.ToXContent.EMPTY_PARAMS;
 import static org.elasticsearch.common.xcontent.XContentFactory.jsonBuilder;
 
-public class ElasticsearchIndexWriter implements FulltextIndexWriter<ElasticsearchDocument> {
+class ElasticsearchIndexWriter implements FulltextIndexWriter<ElasticsearchDocument> {
     private static final Logger LOG = LoggerFactory.getLogger(ElasticsearchIndexWriter.class);
 
     private final ElasticsearchConnection elasticsearchConnection;
@@ -58,7 +58,7 @@ public class ElasticsearchIndexWriter implements FulltextIndexWriter<Elasticsear
 
     private final BulkProcessor bulkProcessor;
 
-    protected ElasticsearchIndexWriter(@NotNull ElasticsearchConnection elasticsearchConnection,
+    ElasticsearchIndexWriter(@NotNull ElasticsearchConnection elasticsearchConnection,
                                        @NotNull ElasticsearchIndexDefinition indexDefinition) {
         this.elasticsearchConnection = elasticsearchConnection;
         this.indexDefinition = indexDefinition;
@@ -66,7 +66,7 @@ public class ElasticsearchIndexWriter implements FulltextIndexWriter<Elasticsear
     }
 
     @TestOnly
-    protected ElasticsearchIndexWriter(@NotNull ElasticsearchConnection elasticsearchConnection,
+    ElasticsearchIndexWriter(@NotNull ElasticsearchConnection elasticsearchConnection,
                                        @NotNull ElasticsearchIndexDefinition indexDefinition,
                                        @NotNull BulkProcessor bulkProcessor) {
         this.elasticsearchConnection = elasticsearchConnection;

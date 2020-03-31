@@ -26,7 +26,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 
-public class ElasticsearchSearcher {
+class ElasticsearchSearcher {
     private final ElasticsearchIndexNode indexNode;
 
     ElasticsearchSearcher(@NotNull ElasticsearchIndexNode indexNode) {

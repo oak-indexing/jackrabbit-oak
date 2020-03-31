@@ -26,7 +26,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 
-public class ElasticsearchIndexStatistics implements IndexStatistics {
+class ElasticsearchIndexStatistics implements IndexStatistics {
     private final ElasticsearchConnection elasticsearchConnection;
 
     ElasticsearchIndexStatistics(@NotNull ElasticsearchConnection elasticsearchConnection) {
