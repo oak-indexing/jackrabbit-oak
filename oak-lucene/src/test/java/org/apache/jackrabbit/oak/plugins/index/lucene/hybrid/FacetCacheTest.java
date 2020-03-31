@@ -19,6 +19,7 @@
 
 package org.apache.jackrabbit.oak.plugins.index.lucene.hybrid;
 
+import ch.qos.logback.classic.Level;
 import org.apache.jackrabbit.oak.InitialContent;
 import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.api.ContentRepository;
@@ -26,6 +27,7 @@ import org.apache.jackrabbit.oak.api.Tree;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.commons.concurrent.ExecutorCloser;
+import org.apache.jackrabbit.oak.commons.junit.LogCustomizer;
 import org.apache.jackrabbit.oak.jcr.Jcr;
 import org.apache.jackrabbit.oak.plugins.index.AsyncIndexUpdate;
 import org.apache.jackrabbit.oak.plugins.index.counter.NodeCounterEditorProvider;
@@ -56,6 +58,7 @@ import org.apache.jackrabbit.oak.stats.Clock;
 import org.apache.jackrabbit.oak.stats.StatisticsProvider;
 import org.jetbrains.annotations.Nullable;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
@@ -72,6 +75,7 @@ import javax.jcr.query.QueryResult;
 import javax.jcr.query.RowIterator;
 import java.io.File;
 import java.io.IOException;
+import java.util.List;
 import java.util.Properties;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
@@ -83,10 +87,12 @@ import static com.google.common.util.concurrent.MoreExecutors.sameThreadExecutor
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROP_FACETS;
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.STATISTICAL_FACET_SAMPLE_SIZE_DEFAULT;
 import static org.apache.jackrabbit.oak.spi.mount.Mounts.defaultMountInfoProvider;
+import static org.hamcrest.CoreMatchers.containsString;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
-public class DelayedFacetReadTest extends AbstractQueryTest {
+public class FacetCacheTest extends AbstractQueryTest {
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder(new File("target"));
 
@@ -114,11 +120,6 @@ public class DelayedFacetReadTest extends AbstractQueryTest {
     @After
     public void tearDown() throws IOException {
         luceneIndexProvider.close();
-        try {
-            thread.join();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
         new ExecutorCloser(executorService).close();
         nrtIndexFactory.close();
         // restore original system properties i.e. before test started
@@ -183,18 +184,14 @@ public class DelayedFacetReadTest extends AbstractQueryTest {
         }
     }
 
-    /*
-        This test's counter part is MultithreadedOldLuceneFacetProviderReadFailureTest which test old implementation having race condition on index reader opening
-        and closing. The test in MultithreadedOldLuceneFacetProviderReadFailureTest is marked as ignored but can be tested on demand.
-     */
     @Test
-    public void facet() throws Exception {
-        // Explicitly setting following configs to run DelayedLuceneFacetProvider and a thread sleep of 50 ms in refresh readers. Refer: OAK-8898
-        System.setProperty(LucenePropertyIndex.OLD_FACET_PROVIDER_CONFIG_NAME, "false");
-        // The variable is static final so once set it remains same for all tests and which will lead to slow execution
-        // of other tests as this add a sleep of specified milliseconds in refresh reader method in LuceneIndexNodeManager.
-       // System.setProperty(LuceneIndexNodeManager.OLD_FACET_PROVIDER_TEST_FAILURE_SLEEP_INSTRUMENT_NAME, "40");
-        Thread.currentThread().setName("main");
+    public void cachedFacetTest() throws Exception {
+        LogCustomizer custom = LogCustomizer
+                .forLogger(
+                        LucenePropertyIndex.class.getName())
+                .enable(Level.TRACE).create();
+        System.setProperty(LucenePropertyIndex.CACHE_FACET_RESULTS_NAME, "true");
+        System.setProperty(LuceneIndexNodeManager.OLD_FACET_PROVIDER_TEST_FAILURE_SLEEP_INSTRUMENT_NAME, "40");
         String idxName = "hybridtest";
         Tree idx = createIndex(root.getTree("/"), idxName);
         TestUtil.enableIndexingMode(idx, FulltextIndexConstants.IndexingMode.NRT);
@@ -203,47 +200,86 @@ public class DelayedFacetReadTest extends AbstractQueryTest {
         jcr = new Jcr(oak);
         jcrRepo = jcr.createRepository();
         createSmallDataset(0);
-        clock.waitUntil(clock.getTime() + REFRESH_DELTA + 1);
         root.commit();
         runAsyncIndex();
-        createSmallDataset(2);
-        clock.waitUntil(clock.getTime() + REFRESH_DELTA + 1);
-        root.commit();
         Session anonSession = jcrRepo.login(new GuestCredentials());
         qm = anonSession.getWorkspace().getQueryManager();
-        Query q = qm.createQuery("SELECT [rep:facet(foo)] FROM [nt:base] WHERE [cons] = 'val'", SQL2);
-        QueryResult qr = q.execute();
 
-        thread = new Thread(new Runnable() {
-            public void run() {
-                Thread.currentThread().setName("branch");
-                Query q = null;
-                try {
-                    clock.waitUntil(clock.getTime() + REFRESH_DELTA + 1);
-                    q = qm.createQuery("SELECT [rep:facet(foo)] FROM [nt:base] WHERE [cons] = 'val'", SQL2);
-                    QueryResult qr = q.execute();
-                } catch (RepositoryException | InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
-        });
-        thread.start();
         try {
-            RowIterator it = qr.getRows();
+            custom.starting();
+            Query q = qm.createQuery("SELECT [rep:facet(foo)] FROM [nt:base] WHERE [cons] = 'val'", SQL2);
+            QueryResult qr = q.execute();
+
+            RowIterator it;
+            try {
+                it = qr.getRows();
+            } catch (Exception e) {
+                throw e;
+            }
+            List<String> logs = custom.getLogs();
+            assertThat("Log should contain ", logs.toString(),
+                    containsString("facet Data not present in cache..."));
+
             String firstColumnName = qr.getColumnNames()[0];
             if (it.hasNext()) {
                 Value v = it.nextRow().getValue(firstColumnName);
             }
-        } catch (Exception e) {
-            e.printStackTrace();
-            throw e;
+            assertThat("Log should contain ", logs.toString(),
+                    containsString("returning Facet Data from cache"));
+        } finally {
+            custom.finished();
+        }
+    }
+
+
+    @Test
+    public void unCachedFacetTest() throws Exception {
+        LogCustomizer custom = LogCustomizer
+                .forLogger(
+                        LucenePropertyIndex.class.getName())
+                .enable(Level.TRACE).create();
+        System.setProperty(LucenePropertyIndex.CACHE_FACET_RESULTS_NAME, "false");
+        System.setProperty(LuceneIndexNodeManager.OLD_FACET_PROVIDER_TEST_FAILURE_SLEEP_INSTRUMENT_NAME, "40");
+        String idxName = "hybridtest";
+        Tree idx = createIndex(root.getTree("/"), idxName);
+        TestUtil.enableIndexingMode(idx, FulltextIndexConstants.IndexingMode.NRT);
+        setTraversalEnabled(false);
+        root.commit();
+        jcr = new Jcr(oak);
+        jcrRepo = jcr.createRepository();
+        createSmallDataset(0);
+        root.commit();
+        runAsyncIndex();
+        Session anonSession = jcrRepo.login(new GuestCredentials());
+        qm = anonSession.getWorkspace().getQueryManager();
+
+        try {
+            custom.starting();
+            Query q = qm.createQuery("SELECT [rep:facet(foo)] FROM [nt:base] WHERE [cons] = 'val'", SQL2);
+            QueryResult qr = q.execute();
+
+            RowIterator it;
+            try {
+                it = qr.getRows();
+            } catch (Exception e) {
+                throw e;
+            }
+            List<String> logs = custom.getLogs();
+            String firstColumnName = qr.getColumnNames()[0];
+            if (it.hasNext()) {
+                Value v = it.nextRow().getValue(firstColumnName);
+            }
+            assertThat("Log should contain ", logs.toString(),
+                    containsString(LucenePropertyIndex.CACHE_FACET_RESULTS_NAME + " = " + false + " getting uncached results for columnName = "));
+        } finally {
+            custom.finished();
         }
     }
 
     private void runAsyncIndex() {
-        AsyncIndexUpdate async = (AsyncIndexUpdate) WhiteboardUtils.getService(wb, Runnable.class, new com.google.common.base.Predicate<Runnable>() {
+        AsyncIndexUpdate async = (AsyncIndexUpdate) WhiteboardUtils.getService(wb, Runnable.class, new Predicate<Runnable>() {
             @Override
-            public boolean apply(@Nullable Runnable input) {
+            public boolean test(@Nullable Runnable input) {
                 return input instanceof AsyncIndexUpdate;
             }
         });
@@ -278,4 +314,5 @@ public class DelayedFacetReadTest extends AbstractQueryTest {
         idxBuilder.build(idxTree);
         return idxTree;
     }
+
 }
