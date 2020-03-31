@@ -73,6 +73,8 @@ public abstract class AbstractTest<T> extends Benchmark implements CSVResultGene
     private static final long WARMUP = TimeUnit.SECONDS.toMillis(Long.getLong("warmup", 5));
 
     private static final long RUNTIME = TimeUnit.SECONDS.toMillis(Long.getLong("runtime", 60));
+
+    private static final boolean SKIP_WARMPUP = Boolean.getBoolean("skipWarmup");
     
     private static final boolean PROFILE = Boolean.getBoolean("profile");
     
@@ -215,16 +217,18 @@ public abstract class AbstractTest<T> extends Benchmark implements CSVResultGene
         setUp(repository, CREDENTIALS);
         try {
             
-            // Run a few iterations to warm up the system
-            long warmupEnd = System.currentTimeMillis() + WARMUP;
-            boolean stop = false;
-            while (System.currentTimeMillis() < warmupEnd && !stop) {
-                if (!stop) {
-                    // we want to execute this at lease once. after that we consider the
-                    // `haltRequested` flag.
-                    stop = haltRequested;
+            if (!SKIP_WARMPUP) {
+                // Run a few iterations to warm up the system
+                long warmupEnd = System.currentTimeMillis() + WARMUP;
+                boolean stop = false;
+                while (System.currentTimeMillis() < warmupEnd && !stop) {
+                    if (!stop) {
+                        // we want to execute this at lease once. after that we consider the
+                        // `haltRequested` flag.
+                        stop = haltRequested;
+                    }
+                    execute();
                 }
-                execute();
             }
 
             if (concurrencyLevels == null || concurrencyLevels.isEmpty()) {
@@ -374,9 +378,10 @@ public abstract class AbstractTest<T> extends Benchmark implements CSVResultGene
         beforeTest();
         try {
             long start = System.currentTimeMillis();
-            // System.out.println("execute " + this);
             runTest();
-            return System.currentTimeMillis() - start;
+            long timeTaken = System.currentTimeMillis() - start;
+            LOG.trace("Time taken for test iteration run - " + timeTaken);
+            return timeTaken;
         } finally {
             afterTest();
         }

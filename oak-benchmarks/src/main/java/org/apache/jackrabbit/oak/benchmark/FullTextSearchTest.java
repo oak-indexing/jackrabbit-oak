@@ -41,9 +41,12 @@ import javax.jcr.query.RowIterator;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.jackrabbit.oak.benchmark.wikipedia.WikipediaImport;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class FullTextSearchTest extends AbstractTest<FullTextSearchTest.TestContext> {
 
+    private static final Logger LOG = LoggerFactory.getLogger(FullTextSearchTest.class);
     /**
      * Pattern used to find words and other searchable tokens within the
      * imported Wikipedia pages.
@@ -131,18 +134,26 @@ public class FullTextSearchTest extends AbstractTest<FullTextSearchTest.TestCont
     @SuppressWarnings("deprecation")
     @Override
     protected void runTest(TestContext ec)  throws Exception {
+        LOG.trace("Starting test execution");
         QueryManager qm = ec.session.getWorkspace().getQueryManager();
         // TODO verify why "order by jcr:score()" accounts for what looks
         // like > 20% of the perf lost in Collections.sort
         for (String word : ec.words) {
-            Query q = qm.createQuery("//*[jcr:contains(@text, '" + word + "')] ", Query.XPATH);
+            String query = "//*[jcr:contains(@text, '" + word + "')] ";
+            Query q = qm.createQuery(query, Query.XPATH);
             QueryResult r = q.execute();
             RowIterator it = r.getRows();
-            for (int rows = 0; it.hasNext() && rows < maxRowsToFetch; rows++) {
-                Node n = it.nextRow().getNode();
-                ec.hash += n.getProperty("text").getString().hashCode();
-                ec.hash += n.getProperty("title").getString().hashCode();
+            if (!it.hasNext()) {
+                LOG.warn("No results found for the query - " + query);
+            } else {
+                for (int rows = 0; it.hasNext() && rows < maxRowsToFetch; rows++) {
+                    Node n = it.nextRow().getNode();
+                    LOG.trace("Result found for fulltext search on word " + word + "on path " + n.getPath());
+                    ec.hash += n.getProperty("text").getString().hashCode();
+                    ec.hash += n.getProperty("title").getString().hashCode();
+                }
             }
+
         }
     }
 
