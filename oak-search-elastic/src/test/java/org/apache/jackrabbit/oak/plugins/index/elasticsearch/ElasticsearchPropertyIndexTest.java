@@ -47,6 +47,7 @@ import java.util.Arrays;
 
 import static java.util.Collections.singletonList;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NAME;
+import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexDefinition.BULK_FLUSH_INTERVAL_MS_DEFAULT;
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROPDEF_PROP_NODE_NAME;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -125,7 +126,7 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
             assertQuery(propaQuery, Arrays.asList("/test/a", "/test/b"));
             assertQuery("select [jcr:path] from [nt:base] where [propa] = 'foo2'", singletonList("/test/c"));
             assertQuery("select [jcr:path] from [nt:base] where [propc] = 'foo'", singletonList("/test/d"));
-        }, 10000);
+        }, BULK_FLUSH_INTERVAL_MS_DEFAULT * 3);
     }
 
     //OAK-3825
@@ -164,7 +165,7 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
             assertQuery(queryPrefix + "NAME() = 'bar'", singletonList("/test/sc/bar"));
             assertQuery(queryPrefix + "NAME() LIKE 'foo'", singletonList("/test/foo"));
             assertQuery(queryPrefix + "NAME() LIKE 'camel%'", singletonList("/test/camelCase"));
-        }, 10000);
+        }, BULK_FLUSH_INTERVAL_MS_DEFAULT * 3);
     }
 
     @Test
@@ -178,7 +179,7 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
         root.commit();
 
         assertEventually(() -> assertThat(explain("select [jcr:path] from [nt:base] where [propa] = 'foo'"),
-                containsString("elasticsearch:test1")), 10000);
+                containsString("elasticsearch:test1")), BULK_FLUSH_INTERVAL_MS_DEFAULT * 3);
     }
 
     @Test
@@ -192,7 +193,7 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
         root.commit();
 
         assertEventually(() -> assertQuery("select [jcr:path] from [nt:base] where propa is not null",
-                Arrays.asList("/test/a", "/test/b")), 10000);
+                Arrays.asList("/test/a", "/test/b")), BULK_FLUSH_INTERVAL_MS_DEFAULT * 3);
     }
 
     private static IndexDefinitionBuilder createIndex(String... propNames) {
