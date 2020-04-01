@@ -32,20 +32,33 @@ import org.apache.jackrabbit.oak.spi.commit.Observer;
 import org.apache.jackrabbit.oak.spi.query.QueryIndexProvider;
 
 import javax.jcr.Repository;
+import javax.jcr.query.Query;
 import java.io.File;
 import java.io.IOException;
 
 import static com.google.common.collect.ImmutableSet.of;
 
-/*
-Similar to {@Link LuceneFullTextSearchTest}. The only diff being this doesn't configure a global full text index
- */
-public class LuceneFullTextNotGlobalSearchTest extends SearchTest {
+public class LucenePropertySearchTest extends SearchTest {
 
     private final boolean disableCopyOnRead = Boolean.getBoolean("disableCopyOnRead");
 
-    public LuceneFullTextNotGlobalSearchTest(File dump, boolean flat, boolean doReport, Boolean storageEnabled) {
+    public LucenePropertySearchTest(File dump, boolean flat, boolean doReport, Boolean storageEnabled) {
         super(dump, flat, doReport, storageEnabled);
+    }
+
+    @Override
+    protected String getQuery(String word) {
+        return "SELECT * FROM [nt:base] WHERE [text] = '" + word + "'";
+    }
+
+    @Override
+    protected String queryType() {
+        return Query.JCR_SQL2;
+    }
+
+    @Override
+    protected boolean isFullTextSearch() {
+        return false;
     }
 
     @Override
@@ -59,7 +72,7 @@ public class LuceneFullTextNotGlobalSearchTest extends SearchTest {
                             .with((Observer) provider)
                             .with(new LuceneIndexEditorProvider())
                             .with(new PropertyFullTextTest.FullTextPropertyInitialiser("luceneText", of("text"),
-                                    LuceneIndexConstants.TYPE_LUCENE).nodeScope().analyzed());
+                                    LuceneIndexConstants.TYPE_LUCENE));
                     return new Jcr(oak);
                 }
             });

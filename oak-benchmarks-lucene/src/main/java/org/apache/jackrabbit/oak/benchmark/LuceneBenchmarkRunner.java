@@ -45,6 +45,10 @@ public class LuceneBenchmarkRunner extends BenchmarkRunner {
                         new LuceneFullTextNotGlobalSearchTest(benchmarkOptions.getWikipedia().value(options),
                                 benchmarkOptions.getFlatStructure().value(options),
                                 benchmarkOptions.getReport().value(options),
+                                benchmarkOptions.getWithStorage().value(options)),
+                        new LucenePropertySearchTest(benchmarkOptions.getWikipedia().value(options),
+                                benchmarkOptions.getFlatStructure().value(options),
+                                benchmarkOptions.getReport().value(options),
                                 benchmarkOptions.getWithStorage().value(options))
                 )
         );

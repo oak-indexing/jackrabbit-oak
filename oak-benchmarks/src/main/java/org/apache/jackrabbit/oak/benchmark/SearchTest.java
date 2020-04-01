@@ -44,9 +44,9 @@ import org.apache.jackrabbit.oak.benchmark.wikipedia.WikipediaImport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class FullTextSearchTest extends AbstractTest<FullTextSearchTest.TestContext> {
+public class SearchTest extends AbstractTest<SearchTest.TestContext> {
 
-    private static final Logger LOG = LoggerFactory.getLogger(FullTextSearchTest.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SearchTest.class);
     /**
      * Pattern used to find words and other searchable tokens within the
      * imported Wikipedia pages.
@@ -64,7 +64,7 @@ public class FullTextSearchTest extends AbstractTest<FullTextSearchTest.TestCont
 
     private int count = 0;
 
-    private int maxRowsToFetch = Integer.getInteger("maxRowsToFetch",100);
+    private int maxRowsToFetch = Integer.getInteger("maxRowsToFetch", 100);
 
     private TestContext defaultContext;
 
@@ -77,7 +77,7 @@ public class FullTextSearchTest extends AbstractTest<FullTextSearchTest.TestCont
 
     protected File indexCopierDir;
 
-    public FullTextSearchTest(File dump, boolean flat, boolean doReport, Boolean storageEnabled) {
+    public SearchTest(File dump, boolean flat, boolean doReport, Boolean storageEnabled) {
         this.importer = new WikipediaImport(dump, flat, doReport) {
             @Override
             protected void pageAdded(String title, String text) {
@@ -87,14 +87,19 @@ public class FullTextSearchTest extends AbstractTest<FullTextSearchTest.TestCont
                         && text != null) {
                     List<String> words = newArrayList();
 
-                    Matcher matcher = WORD_PATTERN.matcher(text);
-                    while (matcher.find()) {
-                        words.add(matcher.group());
+                    if(isFullTextSearch()) {
+                        Matcher matcher = WORD_PATTERN.matcher(text);
+                        while (matcher.find()) {
+                            words.add(matcher.group());
+                        }
+
+                        if (!words.isEmpty()) {
+                            sampleSet.add(words.get(words.size() / 2));
+                        }
+                    } else {
+                        sampleSet.add(text);
                     }
 
-                    if (!words.isEmpty()) {
-                        sampleSet.add(words.get(words.size() / 2));
-                    }
                 }
             }
         };
@@ -133,14 +138,14 @@ public class FullTextSearchTest extends AbstractTest<FullTextSearchTest.TestCont
 
     @SuppressWarnings("deprecation")
     @Override
-    protected void runTest(TestContext ec)  throws Exception {
+    protected void runTest(TestContext ec) throws Exception {
         LOG.trace("Starting test execution");
         QueryManager qm = ec.session.getWorkspace().getQueryManager();
         // TODO verify why "order by jcr:score()" accounts for what looks
         // like > 20% of the perf lost in Collections.sort
         for (String word : ec.words) {
-            String query = "//*[jcr:contains(@text, '" + word + "')] ";
-            Query q = qm.createQuery(query, Query.XPATH);
+            String query = getQuery(word);
+            Query q = qm.createQuery(query, queryType());
             QueryResult r = q.execute();
             RowIterator it = r.getRows();
             if (!it.hasNext()) {
@@ -155,6 +160,21 @@ public class FullTextSearchTest extends AbstractTest<FullTextSearchTest.TestCont
             }
 
         }
+    }
+
+    protected String queryType() {
+        return Query.XPATH;
+    }
+
+    protected String getQuery(String word) {
+        return "//*[jcr:contains(@text, '" + word + "')] ";
+    }
+
+    // Override this in extending class to return false if
+    // test needs to query on property equality
+    // List for words to query upon would be formed accordingly.
+    protected boolean isFullTextSearch() {
+        return true;
     }
 
     class TestContext {
@@ -172,7 +192,7 @@ public class FullTextSearchTest extends AbstractTest<FullTextSearchTest.TestCont
         return words;
     }
 
-    private File createTemporaryFolder(File parentFolder){
+    private File createTemporaryFolder(File parentFolder) {
         File createdFolder = null;
         try {
             createdFolder = File.createTempFile("oak", "", parentFolder);

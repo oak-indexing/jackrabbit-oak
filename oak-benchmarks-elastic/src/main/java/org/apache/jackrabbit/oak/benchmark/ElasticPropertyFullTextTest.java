@@ -20,6 +20,7 @@ package org.apache.jackrabbit.oak.benchmark;
 import org.apache.commons.io.FileUtils;
 import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.benchmark.util.ElasticGlobalInitializer;
+import org.apache.jackrabbit.oak.benchmark.wikipedia.WikipediaImport;
 import org.apache.jackrabbit.oak.fixture.JcrCreator;
 import org.apache.jackrabbit.oak.fixture.OakRepositoryFixture;
 import org.apache.jackrabbit.oak.fixture.RepositoryFixture;
@@ -37,12 +38,39 @@ import java.io.File;
 
 import static com.google.common.collect.ImmutableSet.of;
 
+/**
+ * <p>
+ * Perform a benchmark on how long it takes for an ingested item to be available in a Elastic
+ * Property index when indexed in conjunction with a Global full-text Elastic (same thread). It makes
+ * use of the {@link WikipediaImport} to use a Wikipedia dump for content injestion.
+ * <p>
+ * Extend this class in lucene and elastic benchmarks and override the createRepository method to include respective
+ * Index Editor providers.
+ * </p>
+ * <p>
+ * Suggested dump:
+ * <a href="https://dumps.wikimedia.org/enwiki/20150403/enwiki-20150403-pages-articles.xml.bz2">https://dumps.wikimedia.org/enwiki/20150403/enwiki-20150403-pages-articles.xml.bz2</a>
+ * </p>
+ * <p>
+ * Usage example:
+ * </p>
+ * <p>
+ * <pre>
+ * java -Druntime=900 -Dlogback.configurationFile=logback-benchmark.xml \
+ *      -jar ~/.m2/repository/org/apache/jackrabbit/oak-run/1.4-SNAPSHOT/oak-run-1.4-SNAPSHOT.jar \
+ *      benchmark --wikipedia enwiki-20150403-pages-articles.xml.bz2 \
+ *      --base ~/tmp/oak/ <Test Extending this class></> Oak-Tar Oak-Mongo
+ * </pre>
+ * <p>
+ * it will run the benchmark for 15 minutes against TarNS and MongoNS.
+ * </p>
+ */
 public class ElasticPropertyFullTextTest extends PropertyFullTextTest {
+
     private static final Logger LOG = LoggerFactory.getLogger(ElasticPropertyFullTextTest.class);
-    Boolean storageEnabled;
     private String currentFixtureName;
     private ElasticsearchConnection coordinate;
-    private final String ELASTIC_GLOBAL_INDEX = "elastaicGlobal";
+    private final String ELASTIC_GLOBAL_INDEX = "elasticGlobal";
 
     @Override
     public String getCurrentFixtureName() {

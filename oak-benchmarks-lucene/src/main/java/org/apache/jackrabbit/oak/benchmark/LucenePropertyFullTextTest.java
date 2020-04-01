@@ -60,7 +60,6 @@ import org.slf4j.LoggerFactory;
  */
 public class LucenePropertyFullTextTest extends PropertyFullTextTest {
     private static final Logger LOG = LoggerFactory.getLogger(LucenePropertyFullTextTest.class);
-    Boolean storageEnabled;
     private String currentFixtureName;
 
     @Override

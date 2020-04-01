@@ -179,6 +179,13 @@ public class WikipediaImport extends Benchmark {
                     }
                     Node page = parent.addNode(name);
                     page.setProperty("title", title);
+                    // Some wikipedia stub dumps have blank text tags
+                    // So simply set the text value to title here
+                    // Useful for local runs where people might
+                    // want to run just with wiki dump stubs
+                    if ("".equals(text) || text == null) {
+                        text = "Text for " + title;
+                    }
                     page.setProperty("text", text);
                     code += title.hashCode();
                     code += text.hashCode();

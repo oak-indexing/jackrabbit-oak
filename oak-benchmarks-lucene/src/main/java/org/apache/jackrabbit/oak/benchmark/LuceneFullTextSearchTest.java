@@ -35,7 +35,7 @@ import javax.jcr.Repository;
 import java.io.File;
 import java.io.IOException;
 
-public class LuceneFullTextSearchTest extends FullTextSearchTest {
+public class LuceneFullTextSearchTest extends SearchTest {
 
     private final boolean disableCopyOnRead = Boolean.getBoolean("disableCopyOnRead");
 

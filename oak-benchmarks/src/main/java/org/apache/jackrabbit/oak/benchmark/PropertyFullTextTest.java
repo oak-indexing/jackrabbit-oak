@@ -62,7 +62,7 @@ import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConsta
  * Perform a benchmark on how long it takes for an ingested item to be available in a Lucene
  * Property index when indexed in conjunction with a Global full-text lucene (same thread). It makes
  * use of the {@link WikipediaImport} to use a Wikipedia dump for content injestion.
- *
+ * <p>
  * Extend this class in lucene and elastic benchmarks and override the createRepository method to include respective
  * Index Editor providers.
  * </p>
@@ -93,7 +93,6 @@ public class PropertyFullTextTest extends AbstractTest<PropertyFullTextTest.Test
     Boolean storageEnabled;
     String currentFixtureName, currentTest;
 
-
     public String getCurrentFixtureName() {
         return currentFixtureName;
     }
@@ -101,9 +100,6 @@ public class PropertyFullTextTest extends AbstractTest<PropertyFullTextTest.Test
     public String getCurrentTest() {
         return currentTest;
     }
-
-
-
 
     public PropertyFullTextTest(final File dump,
                                 final boolean flat,
@@ -136,9 +132,9 @@ public class PropertyFullTextTest extends AbstractTest<PropertyFullTextTest.Test
         public FullTextPropertyInitialiser(@NotNull final String name,
                                            @NotNull final Set<String> properties,
                                            @NotNull final String type) {
-            this.name = checkNotNull(name);
-            this.properties = checkNotNull(properties);
-            this.type = checkNotNull(type);
+            this.name = name;
+            this.properties = properties;
+            this.type = type;
             this.async = false;
             this.nodeScope = false;
             this.analyzed = false;
@@ -299,7 +295,7 @@ public class PropertyFullTextTest extends AbstractTest<PropertyFullTextTest.Test
         // persisted state.
         ec.session.refresh(true);
         QueryManager qm = ec.session.getWorkspace().getQueryManager();
-        Query q = qm.createQuery("SELECT * FROM [nt:base] WHERE [title] = '"+ec.title+"'" , Query.JCR_SQL2);
+        Query q = qm.createQuery("SELECT * FROM [nt:base] WHERE [title] = '" + ec.title + "'", Query.JCR_SQL2);
         LOG.trace("statement: {} - title: {}", q.getStatement(), ec.title);
         RowIterator rows = q.execute().getRows();
         if (rows.hasNext()) {

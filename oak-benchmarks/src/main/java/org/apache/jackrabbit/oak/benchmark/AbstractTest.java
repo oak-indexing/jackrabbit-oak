@@ -222,11 +222,9 @@ public abstract class AbstractTest<T> extends Benchmark implements CSVResultGene
                 long warmupEnd = System.currentTimeMillis() + WARMUP;
                 boolean stop = false;
                 while (System.currentTimeMillis() < warmupEnd && !stop) {
-                    if (!stop) {
-                        // we want to execute this at lease once. after that we consider the
-                        // `haltRequested` flag.
-                        stop = haltRequested;
-                    }
+                    // we want to execute this at lease once. after that we consider the
+                    // `haltRequested` flag.
+                    stop = haltRequested;
                     execute();
                 }
             }
@@ -327,11 +325,9 @@ public abstract class AbstractTest<T> extends Benchmark implements CSVResultGene
             long runtimeEnd = System.currentTimeMillis() + RUNTIME;
             boolean stop = false;
             while (System.currentTimeMillis() < runtimeEnd && !stop) {
-                if (!stop) {
-                    // we want to execute this at lease once. after that we consider the
-                    // `haltRequested` flag.
-                    stop = haltRequested;
-                }
+                // we want to execute this at lease once. after that we consider the
+                // `haltRequested` flag.
+                stop = haltRequested;
                 statistics.addValue(execute());
             }
 

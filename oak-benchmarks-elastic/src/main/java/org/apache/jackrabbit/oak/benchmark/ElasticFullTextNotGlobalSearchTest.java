@@ -38,7 +38,7 @@ import java.io.File;
 
 import static com.google.common.collect.ImmutableSet.of;
 
-public class ElasticFullTextNotGlobalSearchTest extends FullTextSearchTest {
+public class ElasticFullTextNotGlobalSearchTest extends SearchTest {
 
     private ElasticsearchConnection coordinate;
 
