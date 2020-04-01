@@ -277,9 +277,9 @@ public class FacetCacheTest extends AbstractQueryTest {
     }
 
     private void runAsyncIndex() {
-        AsyncIndexUpdate async = (AsyncIndexUpdate) WhiteboardUtils.getService(wb, Runnable.class, new Predicate<Runnable>() {
+        AsyncIndexUpdate async = (AsyncIndexUpdate) WhiteboardUtils.getService(wb, Runnable.class, new com.google.common.base.Predicate<Runnable>() {
             @Override
-            public boolean test(@Nullable Runnable input) {
+            public boolean apply(@Nullable Runnable input) {
                 return input instanceof AsyncIndexUpdate;
             }
         });
