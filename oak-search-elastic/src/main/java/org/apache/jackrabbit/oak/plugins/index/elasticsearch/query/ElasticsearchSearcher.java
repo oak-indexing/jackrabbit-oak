@@ -40,7 +40,7 @@ class ElasticsearchSearcher {
                 .storedField(FieldNames.PATH)
                 .size(batchSize);
 
-        SearchRequest request = new SearchRequest(indexNode.getDefinition().getElasticsearchIndexName())
+        SearchRequest request = new SearchRequest(indexNode.getDefinition().getRemoteIndexName())
                 .source(searchSourceBuilder);
 
         return indexNode.getConnection().getClient().search(request, RequestOptions.DEFAULT);

@@ -55,7 +55,7 @@ public class ElasticsearchIndexDefinition extends IndexDefinition {
             .map(Object::toString)
             .collect(Collectors.joining("")));
 
-    private final String elasticsearchIndexName;
+    private final String remoteIndexName;
 
     public final int bulkActions;
     public final long bulkSizeBytes;
@@ -65,7 +65,7 @@ public class ElasticsearchIndexDefinition extends IndexDefinition {
 
     public ElasticsearchIndexDefinition(NodeState root, NodeState defn, String indexPath) {
         super(root, getIndexDefinitionState(defn), determineIndexFormatVersion(defn), determineUniqueId(defn), indexPath);
-        this.elasticsearchIndexName = getRemoteIndexName();
+        this.remoteIndexName = setupIndexName();
 
         this.bulkActions = getOptionalValue(defn, BULK_ACTIONS, BULK_ACTIONS_DEFAULT);
         this.bulkSizeBytes = getOptionalValue(defn, BULK_SIZE_BYTES, BULK_SIZE_BYTES_DEFAULT);
@@ -74,11 +74,16 @@ public class ElasticsearchIndexDefinition extends IndexDefinition {
         this.bulkRetriesBackoff = getOptionalValue(defn, BULK_RETRIES_BACKOFF, BULK_RETRIES_BACKOFF_DEFAULT);
     }
 
-    public String getElasticsearchIndexName() {
-        return elasticsearchIndexName;
+    /**
+     * Returns the index identifier on the Elasticsearch cluster. Notice this can be different from the value returned
+     * from {@code getIndexName}.
+     * @return the Elasticsearch index identifier
+     */
+    public String getRemoteIndexName() {
+        return remoteIndexName;
     }
 
-    private String getRemoteIndexName() {
+    private String setupIndexName() {
         // TODO: implement advanced remote index name strategy that takes into account multiple tenants and re-index process
         return getESSafeIndexName(getIndexPath() + "-" + getReindexCount());
     }

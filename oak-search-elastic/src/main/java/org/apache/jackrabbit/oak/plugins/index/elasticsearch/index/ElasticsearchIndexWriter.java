@@ -89,7 +89,7 @@ class ElasticsearchIndexWriter implements FulltextIndexWriter<ElasticsearchDocum
 
     @Override
     public void updateDocument(String path, ElasticsearchDocument doc) throws IOException {
-        IndexRequest request = new IndexRequest(indexDefinition.getElasticsearchIndexName())
+        IndexRequest request = new IndexRequest(indexDefinition.getRemoteIndexName())
                 .id(pathToId(path))
                 .source(doc.build(), XContentType.JSON);
         bulkProcessor.add(request);
@@ -97,7 +97,7 @@ class ElasticsearchIndexWriter implements FulltextIndexWriter<ElasticsearchDocum
 
     @Override
     public void deleteDocuments(String path) throws IOException {
-        DeleteRequest request = new DeleteRequest(indexDefinition.getElasticsearchIndexName())
+        DeleteRequest request = new DeleteRequest(indexDefinition.getRemoteIndexName())
                 .id(pathToId(path));
         bulkProcessor.add(request);
     }
@@ -112,7 +112,7 @@ class ElasticsearchIndexWriter implements FulltextIndexWriter<ElasticsearchDocum
     // TODO: we need to check if the index already exists and in that case we have to figure out if there are
     // "breaking changes" in the index definition
     protected void provisionIndex() throws IOException {
-        CreateIndexRequest request = new CreateIndexRequest(indexDefinition.getElasticsearchIndexName());
+        CreateIndexRequest request = new CreateIndexRequest(indexDefinition.getRemoteIndexName());
 
         // provision settings
         request.settings(Settings.builder()
@@ -153,7 +153,7 @@ class ElasticsearchIndexWriter implements FulltextIndexWriter<ElasticsearchDocum
         CreateIndexResponse response = elasticsearchConnection.getClient().indices().create(request, RequestOptions.DEFAULT);
 
         LOG.info("Updated settings for index {} = {}. Response acknowledged: {}",
-                indexDefinition.getElasticsearchIndexName(), requestMsg, response.isAcknowledged());
+                indexDefinition.getRemoteIndexName(), requestMsg, response.isAcknowledged());
     }
 
     private static class OakBulkProcessorLister implements BulkProcessor.Listener {
