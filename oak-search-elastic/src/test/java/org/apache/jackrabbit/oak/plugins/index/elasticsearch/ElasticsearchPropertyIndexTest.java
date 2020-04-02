@@ -126,7 +126,7 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
             assertQuery(propaQuery, Arrays.asList("/test/a", "/test/b"));
             assertQuery("select [jcr:path] from [nt:base] where [propa] = 'foo2'", singletonList("/test/c"));
             assertQuery("select [jcr:path] from [nt:base] where [propc] = 'foo'", singletonList("/test/d"));
-        }, BULK_FLUSH_INTERVAL_MS_DEFAULT * 3);
+        });
     }
 
     //OAK-3825
@@ -165,7 +165,7 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
             assertQuery(queryPrefix + "NAME() = 'bar'", singletonList("/test/sc/bar"));
             assertQuery(queryPrefix + "NAME() LIKE 'foo'", singletonList("/test/foo"));
             assertQuery(queryPrefix + "NAME() LIKE 'camel%'", singletonList("/test/camelCase"));
-        }, BULK_FLUSH_INTERVAL_MS_DEFAULT * 3);
+        });
     }
 
     @Test
@@ -179,7 +179,7 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
         root.commit();
 
         assertEventually(() -> assertThat(explain("select [jcr:path] from [nt:base] where [propa] = 'foo'"),
-                containsString("elasticsearch:test1")), BULK_FLUSH_INTERVAL_MS_DEFAULT * 3);
+                containsString("elasticsearch:test1")));
     }
 
     @Test
@@ -193,7 +193,7 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
         root.commit();
 
         assertEventually(() -> assertQuery("select [jcr:path] from [nt:base] where propa is not null",
-                Arrays.asList("/test/a", "/test/b")), BULK_FLUSH_INTERVAL_MS_DEFAULT * 3);
+                Arrays.asList("/test/a", "/test/b")));
     }
 
     private static IndexDefinitionBuilder createIndex(String... propNames) {
@@ -212,6 +212,10 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
     private String explain(String query) {
         String explain = "explain " + query;
         return executeQuery(explain, "JCR-SQL2").get(0);
+    }
+
+    private static void assertEventually(Runnable r) {
+        assertEventually(r, BULK_FLUSH_INTERVAL_MS_DEFAULT * 3);
     }
 
     private static void assertEventually(Runnable r, long timeoutMillis) {
