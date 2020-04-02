@@ -40,6 +40,8 @@ import org.apache.jackrabbit.commons.JcrUtils;
 import org.apache.jackrabbit.oak.benchmark.Benchmark;
 import org.apache.jackrabbit.oak.fixture.RepositoryFixture;
 import org.apache.jackrabbit.util.Text;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class WikipediaImport extends Benchmark {
 
@@ -48,6 +50,10 @@ public class WikipediaImport extends Benchmark {
     private final boolean doReport;
 
     private final boolean flat;
+
+    private static final int BATCH_COUNT = 1000;
+
+    private static final Logger LOG = LoggerFactory.getLogger(WikipediaImport.class);
     
     /**
      * Used in {@link #importWikipedia(Session)}. If set to true it will stop the loop for the
@@ -190,7 +196,7 @@ public class WikipediaImport extends Benchmark {
                     code += title.hashCode();
                     code += text.hashCode();
                     count++;
-                    if (count % 1000 == 0) {
+                    if (count % getBatchCount() == 0) {
                         batchDone(session, start, count);
                     }
 
@@ -221,10 +227,16 @@ public class WikipediaImport extends Benchmark {
             System.out.format(
                     "Added %d pages in %d seconds (%.2fms/page)%n",
                     count, millis / 1000, (double) millis / count);
+            LOG.trace("Saved session and Added {} pages in {} seconds ({}ms/page)",
+                    count, millis / 1000, (double) millis / count);
         }
     }
 
     protected void pageAdded(String title, String text) {
+    }
+
+    protected int getBatchCount() {
+        return BATCH_COUNT;
     }
 
     private class Traversal {

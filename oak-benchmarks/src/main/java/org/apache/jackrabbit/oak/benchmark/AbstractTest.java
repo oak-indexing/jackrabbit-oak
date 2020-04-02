@@ -620,6 +620,7 @@ public abstract class AbstractTest<T> extends Benchmark implements CSVResultGene
      */
     protected Session loginWriter() {
         try {
+            LOG.trace("Creating new session");
             Session session = repository.login(credentials);
             synchronized (sessions) {
                 sessions.add(session);

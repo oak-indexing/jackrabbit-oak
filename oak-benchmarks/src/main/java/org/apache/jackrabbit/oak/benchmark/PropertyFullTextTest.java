@@ -92,6 +92,10 @@ public class PropertyFullTextTest extends AbstractTest<PropertyFullTextTest.Test
     private boolean benchmarkCompleted, importerCompleted;
     Boolean storageEnabled;
     String currentFixtureName, currentTest;
+    /*
+    Reference to the count of pages ingested and committed to repo by WikiPediaImport
+     */
+    private AtomicReference<Integer> count = new AtomicReference<Integer>();
 
     public String getCurrentFixtureName() {
         return currentFixtureName;
@@ -108,9 +112,22 @@ public class PropertyFullTextTest extends AbstractTest<PropertyFullTextTest.Test
         this.importer = new WikipediaImport(dump, flat, doReport) {
 
             @Override
+            protected int getBatchCount() {
+                return 1000;
+            }
+
+            @Override
             protected void pageAdded(String title, String text) {
-                LOG.trace("Setting title: {}", title);
-                lastTitle.set(title);
+                count.set(count.get() == null ? 1 : count.get()  + 1);
+                // We save session in batches of 1000 in wiki import
+                // So doesn't make sense to change the last set title before that
+                // because then we might be querying on a title for a node that hasn't
+                // yet been committed.
+                if (count.get() % getBatchCount() == 0) {
+                    LOG.trace("Setting title: {}, current page count {}", title, count.get());
+                    lastTitle.set(title);
+                }
+
             }
         };
         this.storageEnabled = storageEnabled;
@@ -211,6 +228,7 @@ public class PropertyFullTextTest extends AbstractTest<PropertyFullTextTest.Test
         final String title;
 
         public TestContext(@NotNull final String title) {
+            LOG.trace("Setting title - {} for test context", title);
             this.title = checkNotNull(title);
         }
     }
