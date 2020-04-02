@@ -156,12 +156,12 @@ public class PropertyFullTextTest extends AbstractTest<PropertyFullTextTest.Test
         }
 
         private boolean isAlreadyThere(final @NotNull NodeBuilder root) {
-            return checkNotNull(root).hasChildNode(INDEX_DEFINITIONS_NAME) &&
+            return root.hasChildNode(INDEX_DEFINITIONS_NAME) &&
                     root.getChildNode(INDEX_DEFINITIONS_NAME).hasChildNode(name);
         }
 
         @Override
-        public void initialize(final NodeBuilder builder) {
+        public void initialize(final @NotNull NodeBuilder builder) {
             if (!isAlreadyThere(builder)) {
                 Tree t = TreeFactory.createTree(builder.child(INDEX_DEFINITIONS_NAME));
                 t.setProperty("jcr:primaryType", "nt:unstructured", NAME);
