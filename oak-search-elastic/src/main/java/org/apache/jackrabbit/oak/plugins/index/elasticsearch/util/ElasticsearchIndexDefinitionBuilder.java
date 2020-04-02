@@ -20,6 +20,9 @@ import org.apache.jackrabbit.oak.plugins.index.search.util.IndexDefinitionBuilde
 
 import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexDefinition.TYPE_ELASTICSEARCH;
 
+/**
+ * Utility class to create Elasticsearch Index Definitions along with the relevant node structure.
+ */
 public class ElasticsearchIndexDefinitionBuilder extends IndexDefinitionBuilder {
     @Override
     protected String getIndexType() {

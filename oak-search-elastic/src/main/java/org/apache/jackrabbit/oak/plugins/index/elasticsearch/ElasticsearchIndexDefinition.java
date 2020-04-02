@@ -37,7 +37,7 @@ public class ElasticsearchIndexDefinition extends IndexDefinition {
     public static final int BULK_ACTIONS_DEFAULT = 250;
 
     public static final String BULK_SIZE_BYTES = "bulkSizeBytes";
-    public static final long BULK_SIZE_BYTES_DEFAULT = 2_097_152; // 2MB
+    public static final long BULK_SIZE_BYTES_DEFAULT = 2 * 1024 * 1024; // 2MB
 
     public static final String BULK_FLUSH_INTERVAL_MS = "bulkFlushIntervalMs";
     public static final long BULK_FLUSH_INTERVAL_MS_DEFAULT = 3000;
@@ -119,6 +119,10 @@ public class ElasticsearchIndexDefinition extends IndexDefinition {
         return suggestedIndexName.replaceAll(INVALID_CHARS_REGEX, "").toLowerCase();
     }
 
+    /**
+     * Class to help with {@link ElasticsearchIndexDefinition} creation.
+     * The built object represents the index definition only without the node structure.
+     */
     public static class Builder extends IndexDefinition.Builder {
         @Override
         public ElasticsearchIndexDefinition build() {
