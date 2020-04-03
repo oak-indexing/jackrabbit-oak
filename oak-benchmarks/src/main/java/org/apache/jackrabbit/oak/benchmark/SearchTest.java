@@ -33,7 +33,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import javax.jcr.Node;
-import javax.jcr.Repository;
 import javax.jcr.Session;
 import javax.jcr.query.Query;
 import javax.jcr.query.QueryManager;
@@ -41,21 +40,13 @@ import javax.jcr.query.QueryResult;
 import javax.jcr.query.RowIterator;
 
 import org.apache.commons.io.FileUtils;
-import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.benchmark.wikipedia.WikipediaImport;
-import org.apache.jackrabbit.oak.fixture.JcrCreator;
-import org.apache.jackrabbit.oak.fixture.OakRepositoryFixture;
-import org.apache.jackrabbit.oak.fixture.RepositoryFixture;
-import org.apache.jackrabbit.oak.jcr.Jcr;
-import org.apache.jackrabbit.oak.plugins.index.lucene.IndexCopier;
-import org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexEditorProvider;
-import org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexProvider;
-import org.apache.jackrabbit.oak.plugins.index.lucene.util.LuceneInitializerHelper;
-import org.apache.jackrabbit.oak.spi.commit.Observer;
-import org.apache.jackrabbit.oak.spi.query.QueryIndexProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-public class FullTextSearchTest extends AbstractTest<FullTextSearchTest.TestContext> {
+public class SearchTest extends AbstractTest<SearchTest.TestContext> {
 
+    private static final Logger LOG = LoggerFactory.getLogger(SearchTest.class);
     /**
      * Pattern used to find words and other searchable tokens within the
      * imported Wikipedia pages.
@@ -65,8 +56,6 @@ public class FullTextSearchTest extends AbstractTest<FullTextSearchTest.TestCont
 
     private int maxSampleSize = 100;
 
-    private final boolean disableCopyOnRead = Boolean.getBoolean("disableCopyOnRead");
-
     private final WikipediaImport importer;
 
     private final Set<String> sampleSet = newHashSet();
@@ -75,7 +64,7 @@ public class FullTextSearchTest extends AbstractTest<FullTextSearchTest.TestCont
 
     private int count = 0;
 
-    private int maxRowsToFetch = Integer.getInteger("maxRowsToFetch",100);
+    private int maxRowsToFetch = Integer.getInteger("maxRowsToFetch", 100);
 
     private TestContext defaultContext;
 
@@ -84,11 +73,11 @@ public class FullTextSearchTest extends AbstractTest<FullTextSearchTest.TestCont
      */
     protected Boolean storageEnabled;
 
-    private ExecutorService executorService = Executors.newFixedThreadPool(2);
+    protected ExecutorService executorService = Executors.newFixedThreadPool(2);
 
-    private File indexCopierDir;
+    protected File indexCopierDir;
 
-    public FullTextSearchTest(File dump, boolean flat, boolean doReport, Boolean storageEnabled) {
+    public SearchTest(File dump, boolean flat, boolean doReport, Boolean storageEnabled) {
         this.importer = new WikipediaImport(dump, flat, doReport) {
             @Override
             protected void pageAdded(String title, String text) {
@@ -98,14 +87,19 @@ public class FullTextSearchTest extends AbstractTest<FullTextSearchTest.TestCont
                         && text != null) {
                     List<String> words = newArrayList();
 
-                    Matcher matcher = WORD_PATTERN.matcher(text);
-                    while (matcher.find()) {
-                        words.add(matcher.group());
+                    if(isFullTextSearch()) {
+                        Matcher matcher = WORD_PATTERN.matcher(text);
+                        while (matcher.find()) {
+                            words.add(matcher.group());
+                        }
+
+                        if (!words.isEmpty()) {
+                            sampleSet.add(words.get(words.size() / 2));
+                        }
+                    } else {
+                        sampleSet.add(text);
                     }
 
-                    if (!words.isEmpty()) {
-                        sampleSet.add(words.get(words.size() / 2));
-                    }
                 }
             }
         };
@@ -144,20 +138,43 @@ public class FullTextSearchTest extends AbstractTest<FullTextSearchTest.TestCont
 
     @SuppressWarnings("deprecation")
     @Override
-    protected void runTest(TestContext ec)  throws Exception {
+    protected void runTest(TestContext ec) throws Exception {
+        LOG.trace("Starting test execution");
         QueryManager qm = ec.session.getWorkspace().getQueryManager();
         // TODO verify why "order by jcr:score()" accounts for what looks
         // like > 20% of the perf lost in Collections.sort
         for (String word : ec.words) {
-            Query q = qm.createQuery("//*[jcr:contains(@text, '" + word + "')] ", Query.XPATH);
+            String query = getQuery(word);
+            Query q = qm.createQuery(query, queryType());
             QueryResult r = q.execute();
             RowIterator it = r.getRows();
-            for (int rows = 0; it.hasNext() && rows < maxRowsToFetch; rows++) {
-                Node n = it.nextRow().getNode();
-                ec.hash += n.getProperty("text").getString().hashCode();
-                ec.hash += n.getProperty("title").getString().hashCode();
+            if (!it.hasNext()) {
+                LOG.warn("No results found for the query - " + query);
+            } else {
+                for (int rows = 0; it.hasNext() && rows < maxRowsToFetch; rows++) {
+                    Node n = it.nextRow().getNode();
+                    LOG.trace("Result found for fulltext search on word " + word + "on path " + n.getPath());
+                    ec.hash += n.getProperty("text").getString().hashCode();
+                    ec.hash += n.getProperty("title").getString().hashCode();
+                }
             }
+
         }
+    }
+
+    protected String queryType() {
+        return Query.XPATH;
+    }
+
+    protected String getQuery(String word) {
+        return "//*[jcr:contains(@text, '" + word + "')] ";
+    }
+
+    // Override this in extending class to return false if
+    // test needs to query on property equality
+    // List for words to query upon would be formed accordingly.
+    protected boolean isFullTextSearch() {
+        return true;
     }
 
     class TestContext {
@@ -175,37 +192,7 @@ public class FullTextSearchTest extends AbstractTest<FullTextSearchTest.TestCont
         return words;
     }
 
-    @Override
-    protected Repository[] createRepository(RepositoryFixture fixture) throws Exception {
-        if (fixture instanceof OakRepositoryFixture) {
-            return ((OakRepositoryFixture) fixture).setUpCluster(1, new JcrCreator() {
-                @Override
-                public Jcr customize(Oak oak) {
-                    LuceneIndexProvider provider = createLuceneIndexProvider();
-                    oak.with((QueryIndexProvider) provider)
-                            .with((Observer) provider)
-                            .with(new LuceneIndexEditorProvider())
-                            .with(new LuceneInitializerHelper("luceneGlobal", storageEnabled));
-                    return new Jcr(oak);
-                }
-            });
-        }
-        return super.createRepository(fixture);
-    }
-
-    private LuceneIndexProvider createLuceneIndexProvider() {
-        if (!disableCopyOnRead) {
-            try {
-                IndexCopier copier = new IndexCopier(executorService, indexCopierDir, true);
-                return new LuceneIndexProvider(copier);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        }
-        return new LuceneIndexProvider();
-    }
-
-    private File createTemporaryFolder(File parentFolder){
+    private File createTemporaryFolder(File parentFolder) {
         File createdFolder = null;
         try {
             createdFolder = File.createTempFile("oak", "", parentFolder);
