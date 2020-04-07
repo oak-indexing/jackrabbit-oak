@@ -360,7 +360,7 @@ public class LuceneIndexProviderService {
     private AsyncIndexesSizeStatsUpdate asyncIndexesSizeStatsUpdate;
 
     @Activate
-    private void activate(BundleContext bundleContext, Map<String, ?> config) throws  IOException {
+    private void activate(BundleContext bundleContext, Map<String, ?> config) throws IOException {
         asyncIndexesSizeStatsUpdate = new AsyncIndexesSizeStatsUpdateImpl(
                 PropertiesUtil.toLong(config.get(LUCENE_INDEX_STATS_UPDATE_INTERVAL),
                         LUCENE_INDEX_STATS_UPDATE_INTERVAL_DEFAULT) * 1000); // convert seconds to millis
