@@ -17,6 +17,7 @@
 package org.apache.jackrabbit.oak.plugins.index.elasticsearch.query;
 
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchConnection;
+import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexStatistics;
 import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.core.CountRequest;
@@ -28,14 +29,17 @@ import java.io.IOException;
 
 class ElasticsearchIndexStatistics implements IndexStatistics {
     private final ElasticsearchConnection elasticsearchConnection;
+    private final ElasticsearchIndexDefinition indexDefinition;
 
-    ElasticsearchIndexStatistics(@NotNull ElasticsearchConnection elasticsearchConnection) {
+    ElasticsearchIndexStatistics(@NotNull ElasticsearchConnection elasticsearchConnection,
+                                 @NotNull ElasticsearchIndexDefinition indexDefinition) {
         this.elasticsearchConnection = elasticsearchConnection;
+        this.indexDefinition = indexDefinition;
     }
 
     @Override
     public int numDocs() {
-        CountRequest countRequest = new CountRequest();
+        CountRequest countRequest = new CountRequest(indexDefinition.getRemoteIndexName());
         countRequest.query(QueryBuilders.matchAllQuery());
         try {
             CountResponse count = elasticsearchConnection.getClient().count(countRequest, RequestOptions.DEFAULT);
@@ -48,7 +52,7 @@ class ElasticsearchIndexStatistics implements IndexStatistics {
 
     @Override
     public int getDocCountFor(String key) {
-        CountRequest countRequest = new CountRequest();
+        CountRequest countRequest = new CountRequest(indexDefinition.getRemoteIndexName());
         countRequest.query(QueryBuilders.existsQuery(key));
         try {
             CountResponse count = elasticsearchConnection.getClient().count(countRequest, RequestOptions.DEFAULT);
