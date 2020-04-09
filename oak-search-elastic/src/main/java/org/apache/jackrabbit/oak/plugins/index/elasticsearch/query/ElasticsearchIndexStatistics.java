@@ -16,9 +16,12 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elasticsearch.query;
 
+import com.google.common.base.Ticker;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListenableFutureTask;
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchConnection;
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexStatistics;
@@ -28,94 +31,115 @@ import org.elasticsearch.client.core.CountResponse;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.jetbrains.annotations.TestOnly;
 
 import java.io.IOException;
 import java.util.Objects;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
 
 /**
  * Cache-based {@code IndexStatistics} implementation providing statistics for Elasticsearch reducing
  * network operations.
- *
- * Statistic values expire after 10 minutes but are refreshed in background when accessed after 1 minute.
+ * <p>
+ * By default, statistic values expire after 10 minutes but are refreshed in background when accessed after 1 minute.
  */
 class ElasticsearchIndexStatistics implements IndexStatistics {
 
-    private static final Logger LOG = LoggerFactory.getLogger(ElasticsearchIndexStatistics.class);
+    private static final LoadingCache<CountRequestDescriptor, Integer> DEFAULT_STATS_CACHE =
+            setupCache(10000, 10L, 1L, null);
 
-    private static final LoadingCache<CountRequestDescriptor, Integer> STATS_CACHE;
+    private final ElasticsearchConnection elasticsearchConnection;
+    private final ElasticsearchIndexDefinition indexDefinition;
+    private final LoadingCache<CountRequestDescriptor, Integer> statsCache;
 
-    static {
+    ElasticsearchIndexStatistics(@NotNull ElasticsearchConnection elasticsearchConnection,
+                                 @NotNull ElasticsearchIndexDefinition indexDefinition) {
+        this(elasticsearchConnection, indexDefinition, DEFAULT_STATS_CACHE);
+    }
 
-        final Function<CountRequestDescriptor, Integer> count = (CountRequestDescriptor crd) -> {
-            CountRequest countRequest = new CountRequest(crd.indexName);
-            if (crd.fieldName != null) {
-                countRequest.query(QueryBuilders.existsQuery(crd.fieldName));
-            } else {
-                countRequest.query(QueryBuilders.matchAllQuery());
-            }
+    @TestOnly
+    ElasticsearchIndexStatistics(@NotNull ElasticsearchConnection elasticsearchConnection,
+                                 @NotNull ElasticsearchIndexDefinition indexDefinition,
+                                 @NotNull LoadingCache<CountRequestDescriptor, Integer> statsCache) {
+        this.elasticsearchConnection = elasticsearchConnection;
+        this.indexDefinition = indexDefinition;
+        this.statsCache = statsCache;
+    }
 
-            try {
-                CountResponse response = crd.connection.getClient().count(countRequest, RequestOptions.DEFAULT);
-                return (int) response.getCount();
-            } catch (IOException e) {
-                LOG.warn("Unable to retrieve statistics for index " + crd.indexName, e);
-                return 100000;
-            }
-        };
+    /**
+     * Returns the approximate number of documents for the remote index bound to the {@code ElasticsearchIndexDefinition}.
+     */
+    @Override
+    public int numDocs() {
+        return statsCache.getUnchecked(
+                new CountRequestDescriptor(elasticsearchConnection, indexDefinition.getRemoteIndexName(), null)
+        );
+    }
 
-        STATS_CACHE = CacheBuilder.newBuilder()
-                .maximumSize(10000)
-                .refreshAfterWrite(1L, TimeUnit.MINUTES) // https://github.com/google/guava/wiki/CachesExplained#refresh
-                .expireAfterWrite(10L, TimeUnit.MINUTES)
+    /**
+     * Returns the approximate number of documents for the {@code field} in the remote index bound to the
+     * {@code ElasticsearchIndexDefinition}.
+     */
+    @Override
+    public int getDocCountFor(String field) {
+        return statsCache.getUnchecked(
+                new CountRequestDescriptor(elasticsearchConnection, indexDefinition.getRemoteIndexName(), field)
+        );
+    }
+
+    static LoadingCache<CountRequestDescriptor, Integer> setupCache(long maxSize, long expireMin, long refreshMin,
+                                                                    @Nullable Ticker ticker) {
+        CacheBuilder<Object, Object> cacheBuilder = CacheBuilder.newBuilder()
+                .maximumSize(maxSize)
+                .expireAfterWrite(expireMin, TimeUnit.MINUTES)
+                // https://github.com/google/guava/wiki/CachesExplained#refresh
+                .refreshAfterWrite(refreshMin, TimeUnit.MINUTES);
+        if (ticker != null) {
+            cacheBuilder.ticker(ticker);
+        }
+        return cacheBuilder
                 .build(new CacheLoader<CountRequestDescriptor, Integer>() {
                     @Override
-                    public Integer load(CountRequestDescriptor countRequestDescriptor) {
-                        return count.apply(countRequestDescriptor);
+                    public Integer load(CountRequestDescriptor countRequestDescriptor) throws IOException {
+                        return count(countRequestDescriptor);
+                    }
+
+                    @Override
+                    public ListenableFuture<Integer> reload(CountRequestDescriptor crd, Integer oldValue) {
+                        ListenableFutureTask<Integer> task = ListenableFutureTask.create(() -> count(crd));
+                        Executors.newSingleThreadExecutor().execute(task);
+                        return task;
                     }
                 });
     }
 
-    private final ElasticsearchConnection elasticsearchConnection;
-    private final ElasticsearchIndexDefinition indexDefinition;
+    private static int count(CountRequestDescriptor crd) throws IOException {
+        CountRequest countRequest = new CountRequest(crd.index);
+        if (crd.field != null) {
+            countRequest.query(QueryBuilders.existsQuery(crd.field));
+        } else {
+            countRequest.query(QueryBuilders.matchAllQuery());
+        }
 
-    ElasticsearchIndexStatistics(@NotNull ElasticsearchConnection elasticsearchConnection,
-                                 @NotNull ElasticsearchIndexDefinition indexDefinition) {
-        this.elasticsearchConnection = elasticsearchConnection;
-        this.indexDefinition = indexDefinition;
+        CountResponse response = crd.connection.getClient().count(countRequest, RequestOptions.DEFAULT);
+        return (int) response.getCount();
     }
 
-    @Override
-    public int numDocs() {
-        return STATS_CACHE.getUnchecked(
-                new CountRequestDescriptor(elasticsearchConnection, indexDefinition.getRemoteIndexName(), null)
-        );
-    }
-
-    @Override
-    public int getDocCountFor(String key) {
-        return STATS_CACHE.getUnchecked(
-                new CountRequestDescriptor(elasticsearchConnection, indexDefinition.getRemoteIndexName(), null)
-        );
-    }
-
-    private static class CountRequestDescriptor {
+    static class CountRequestDescriptor {
 
         @NotNull
         final ElasticsearchConnection connection;
         @NotNull
-        final String indexName;
+        final String index;
         @Nullable
-        final String fieldName;
+        final String field;
 
         public CountRequestDescriptor(@NotNull ElasticsearchConnection connection,
-                                      @NotNull String indexName, @Nullable String fieldName) {
+                                      @NotNull String index, @Nullable String field) {
             this.connection = connection;
-            this.indexName = indexName;
-            this.fieldName = fieldName;
+            this.index = index;
+            this.field = field;
         }
 
         @Override
@@ -123,13 +147,13 @@ class ElasticsearchIndexStatistics implements IndexStatistics {
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
             CountRequestDescriptor that = (CountRequestDescriptor) o;
-            return indexName.equals(that.indexName) &&
-                    Objects.equals(fieldName, that.fieldName);
+            return index.equals(that.index) &&
+                    Objects.equals(field, that.field);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(indexName, fieldName);
+            return Objects.hash(index, field);
         }
     }
 }
