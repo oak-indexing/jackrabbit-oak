@@ -28,12 +28,15 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
-import org.mockito.stubbing.Answer;
 
+import java.io.IOException;
 import java.time.Duration;
 
+import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchTestUtils.assertEventually;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.fail;
+import static org.mockito.AdditionalAnswers.answersWithDelay;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -42,8 +45,6 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 public class ElasticsearchIndexStatisticsTest {
-
-    private ElasticsearchIndexStatistics indexStatistics;
 
     @Mock
     private ElasticsearchConnection elasticsearchConnectionMock;
@@ -63,7 +64,8 @@ public class ElasticsearchIndexStatisticsTest {
 
     @Test
     public void defaultIndexStatistics() {
-        indexStatistics = new ElasticsearchIndexStatistics(elasticsearchConnectionMock, indexDefinitionMock);
+        ElasticsearchIndexStatistics indexStatistics =
+                new ElasticsearchIndexStatistics(elasticsearchConnectionMock, indexDefinitionMock);
         assertNotNull(indexStatistics);
     }
 
@@ -72,16 +74,15 @@ public class ElasticsearchIndexStatisticsTest {
         MutableTicker ticker = new MutableTicker();
         LoadingCache<ElasticsearchIndexStatistics.CountRequestDescriptor, Integer> cache =
                 ElasticsearchIndexStatistics.setupCache(100, 10, 1, ticker);
-        indexStatistics = new ElasticsearchIndexStatistics(elasticsearchConnectionMock, indexDefinitionMock, cache);
+        ElasticsearchIndexStatistics indexStatistics =
+                new ElasticsearchIndexStatistics(elasticsearchConnectionMock, indexDefinitionMock, cache);
 
         CountResponse countResponse = mock(CountResponse.class);
         when(countResponse.getCount()).thenReturn(100L);
+
+        // simulate some delay when invoking elastic
         when(elasticClientMock.count(any(CountRequest.class), any(RequestOptions.class)))
-                .then((Answer<CountResponse>) invocationOnMock -> {
-                    // simulate some delay
-                    Thread.sleep(250);
-                    return countResponse;
-                });
+                .then(answersWithDelay(250, i -> countResponse));
 
         // cache miss, read data from elastic
         assertEquals(100, indexStatistics.numDocs());
@@ -98,11 +99,16 @@ public class ElasticsearchIndexStatisticsTest {
         ticker.tick(Duration.ofMinutes(2));
         // old value is returned, read fresh data from elastic in background
         assertEquals(100, indexStatistics.numDocs());
-        // make sure data from elastic is returned
-        Thread.sleep(500);
-        verify(elasticClientMock, times(2)).count(any(CountRequest.class), any(RequestOptions.class));
-        // cache hit, latest value returned
-        assertEquals(1000, indexStatistics.numDocs());
+
+        assertEventually(() -> {
+            try {
+                verify(elasticClientMock, times(2)).count(any(CountRequest.class), any(RequestOptions.class));
+            } catch (IOException e) {
+                fail(e.getMessage());
+            }
+            // cache hit, latest value returned
+            assertEquals(1000, indexStatistics.numDocs());
+        }, 500);
         verifyNoMoreInteractions(elasticClientMock);
 
         // index count changes in elastic
