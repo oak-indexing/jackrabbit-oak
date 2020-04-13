@@ -21,6 +21,8 @@ package org.apache.jackrabbit.oak.plugins.index.elasticsearch;
 import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -30,6 +32,8 @@ import static org.apache.jackrabbit.oak.plugins.index.search.util.ConfigUtil.get
 import static org.elasticsearch.common.Strings.INVALID_FILENAME_CHARS;
 
 public class ElasticsearchIndexDefinition extends IndexDefinition {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ElasticsearchIndexDefinition.class);
 
     public static final String TYPE_ELASTICSEARCH = "elasticsearch";
 
@@ -62,11 +66,14 @@ public class ElasticsearchIndexDefinition extends IndexDefinition {
     public final long bulkFlushIntervalMs;
     public final int bulkRetries;
     public final long bulkRetriesBackoff;
+    private final String indexPrefix;
 
-    public ElasticsearchIndexDefinition(NodeState root, NodeState defn, String indexPath) {
+    public ElasticsearchIndexDefinition(NodeState root, NodeState defn, String indexPath, String indexPrefix) {
         super(root, getIndexDefinitionState(defn), determineIndexFormatVersion(defn), determineUniqueId(defn), indexPath);
+        this.indexPrefix = indexPrefix;
         this.remoteIndexName = setupIndexName();
-
+        LOG.info("Got indexPrefix " + indexPrefix);
+        LOG.info("Got remoteIndexName " + remoteIndexName);
         this.bulkActions = getOptionalValue(defn, BULK_ACTIONS, BULK_ACTIONS_DEFAULT);
         this.bulkSizeBytes = getOptionalValue(defn, BULK_SIZE_BYTES, BULK_SIZE_BYTES_DEFAULT);
         this.bulkFlushIntervalMs = getOptionalValue(defn, BULK_FLUSH_INTERVAL_MS, BULK_FLUSH_INTERVAL_MS_DEFAULT);
@@ -85,7 +92,7 @@ public class ElasticsearchIndexDefinition extends IndexDefinition {
 
     private String setupIndexName() {
         // TODO: implement advanced remote index name strategy that takes into account multiple tenants and re-index process
-        return getESSafeIndexName(getIndexPath() + "-" + getReindexCount());
+        return getESSafeIndexName((indexPrefix != null ? indexPrefix + "-" : "")+ getIndexPath() + "-" + getReindexCount());
     }
 
     /**
@@ -124,6 +131,13 @@ public class ElasticsearchIndexDefinition extends IndexDefinition {
      * The built object represents the index definition only without the node structure.
      */
     public static class Builder extends IndexDefinition.Builder {
+
+        private final String indexPrefix;
+
+        public Builder(String indexPrefix) {
+            this.indexPrefix = indexPrefix;
+        }
+
         @Override
         public ElasticsearchIndexDefinition build() {
             return (ElasticsearchIndexDefinition) super.build();
@@ -137,7 +151,7 @@ public class ElasticsearchIndexDefinition extends IndexDefinition {
 
         @Override
         protected IndexDefinition createInstance(NodeState indexDefnStateToUse) {
-            return new ElasticsearchIndexDefinition(root, indexDefnStateToUse, indexPath);
+            return new ElasticsearchIndexDefinition(root, indexDefnStateToUse, indexPath, indexPrefix);
         }
     }
 }

@@ -89,6 +89,14 @@ public class ElasticsearchIndexProviderService {
     )
     private static final String PROP_PRE_EXTRACTED_TEXT_ALWAYS_USE = "alwaysUsePreExtractedCache";
 
+    private static final String PROP_INDEX_PREFIX_DEFAULT = "";
+    @Property(
+            value = PROP_INDEX_PREFIX_DEFAULT,
+            label = "Index prefix",
+            description = "Prefix to be added to name of each elastic search index"
+    )
+    private static final String PROP_INDEX_PREFIX = "indexPrefix";
+
     @Property(
             value = ElasticsearchConnection.DEFAULT_SCHEME,
             label = "Elasticsearch connection scheme"
@@ -131,6 +139,7 @@ public class ElasticsearchIndexProviderService {
     private File textExtractionDir;
 
     private ElasticsearchConnection elasticsearchConnection;
+    private String indexPrefix;
 
     @Activate
     private void activate(BundleContext bundleContext, Map<String, ?> config) {
@@ -140,6 +149,8 @@ public class ElasticsearchIndexProviderService {
         //initializeExtractedTextCache(config, statisticsProvider);
 
         elasticsearchConnection = getElasticsearchCoordinate(config);
+        indexPrefix = PropertiesUtil.toString(config.get(PROP_INDEX_PREFIX), PROP_INDEX_PREFIX_DEFAULT);
+        LOG.info("Got indexPrefix=" + indexPrefix);
 
         registerIndexProvider(bundleContext);
         registerIndexEditor(bundleContext);
@@ -163,7 +174,7 @@ public class ElasticsearchIndexProviderService {
     }
 
     private void registerIndexProvider(BundleContext bundleContext) {
-        ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(elasticsearchConnection);
+        ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(elasticsearchConnection, indexPrefix);
 
         Dictionary<String, Object> props = new Hashtable<>();
         props.put("type", ElasticsearchIndexDefinition.TYPE_ELASTICSEARCH);
@@ -171,7 +182,7 @@ public class ElasticsearchIndexProviderService {
     }
 
     private void registerIndexEditor(BundleContext bundleContext) {
-        ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(elasticsearchConnection, extractedTextCache);
+        ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(elasticsearchConnection, extractedTextCache, indexPrefix);
 
         Dictionary<String, Object> props = new Hashtable<>();
         props.put("type", ElasticsearchIndexDefinition.TYPE_ELASTICSEARCH);

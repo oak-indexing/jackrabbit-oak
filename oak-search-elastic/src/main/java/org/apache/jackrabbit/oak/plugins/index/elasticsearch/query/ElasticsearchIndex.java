@@ -47,10 +47,12 @@ class ElasticsearchIndex extends FulltextIndex {
 
     private final ElasticsearchConnection elasticsearchConnection;
     private final NodeState root;
+    private final String indexPrefix;
 
-    ElasticsearchIndex(@NotNull ElasticsearchConnection elasticsearchConnection, @NotNull NodeState root) {
+    ElasticsearchIndex(@NotNull ElasticsearchConnection elasticsearchConnection, @NotNull NodeState root, String indexPrefix) {
         this.elasticsearchConnection = elasticsearchConnection;
         this.root = root;
+        this.indexPrefix = indexPrefix;
     }
 
     @Override
@@ -85,7 +87,7 @@ class ElasticsearchIndex extends FulltextIndex {
 
     @Override
     protected IndexNode acquireIndexNode(String indexPath) {
-        return new ElasticsearchIndexNode(root, indexPath, elasticsearchConnection);
+        return new ElasticsearchIndexNode(root, indexPath, elasticsearchConnection, indexPrefix);
     }
 
     @Override
