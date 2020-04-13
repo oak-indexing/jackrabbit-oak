@@ -70,10 +70,8 @@ public class ElasticsearchIndexDefinition extends IndexDefinition {
 
     public ElasticsearchIndexDefinition(NodeState root, NodeState defn, String indexPath, String indexPrefix) {
         super(root, getIndexDefinitionState(defn), determineIndexFormatVersion(defn), determineUniqueId(defn), indexPath);
-        this.indexPrefix = indexPrefix;
+        this.indexPrefix = indexPrefix != null ? indexPrefix : "";
         this.remoteIndexName = setupIndexName();
-        LOG.info("Got indexPrefix " + indexPrefix);
-        LOG.info("Got remoteIndexName " + remoteIndexName);
         this.bulkActions = getOptionalValue(defn, BULK_ACTIONS, BULK_ACTIONS_DEFAULT);
         this.bulkSizeBytes = getOptionalValue(defn, BULK_SIZE_BYTES, BULK_SIZE_BYTES_DEFAULT);
         this.bulkFlushIntervalMs = getOptionalValue(defn, BULK_FLUSH_INTERVAL_MS, BULK_FLUSH_INTERVAL_MS_DEFAULT);
@@ -92,7 +90,7 @@ public class ElasticsearchIndexDefinition extends IndexDefinition {
 
     private String setupIndexName() {
         // TODO: implement advanced remote index name strategy that takes into account multiple tenants and re-index process
-        return getESSafeIndexName((indexPrefix != null ? indexPrefix + "-" : "")+ getIndexPath() + "-" + getReindexCount());
+        return getESSafeIndexName(indexPrefix + getIndexPath() + "-" + getReindexCount());
     }
 
     /**
