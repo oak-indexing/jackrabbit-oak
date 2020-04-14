@@ -42,12 +42,23 @@ import java.util.concurrent.TimeUnit;
  * Cache-based {@code IndexStatistics} implementation providing statistics for Elasticsearch reducing
  * network operations.
  * <p>
- * By default, statistic values expire after 10 minutes but are refreshed in background when accessed after 1 minute.
+ * By default, the cache can contain a max of 10000 entries, statistic values expire after 10 minutes but are refreshed
+ * in background when accessed after 1 minute. These values can be overwritten with the following system properties:
+ *
+ * <ul>
+ *     <li>{@code oak.elastic.statsMaxSize}</li>
+ *     <li>{@code oak.elastic.statsExpireMin}</li>
+ *     <li>{@code oak.elastic.statsRefreshMin}</li>
+ * </ul>
  */
 class ElasticsearchIndexStatistics implements IndexStatistics {
 
+    private static final Long MAX_SIZE = Long.getLong("oak.elastic.statsMaxSize", 10000);
+    private static final Long EXPIRE_MIN = Long.getLong("oak.elastic.statsExpireMin", 10);
+    private static final Long REFRESH_MIN = Long.getLong("oak.elastic.statsRefreshMin", 1);
+
     private static final LoadingCache<CountRequestDescriptor, Integer> DEFAULT_STATS_CACHE =
-            setupCache(10000, 10L, 1L, null);
+            setupCache(MAX_SIZE, EXPIRE_MIN, REFRESH_MIN, null);
 
     private final ElasticsearchConnection elasticsearchConnection;
     private final ElasticsearchIndexDefinition indexDefinition;
