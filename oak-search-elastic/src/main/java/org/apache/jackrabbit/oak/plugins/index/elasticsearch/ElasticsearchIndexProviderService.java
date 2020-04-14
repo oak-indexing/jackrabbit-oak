@@ -108,6 +108,16 @@ public class ElasticsearchIndexProviderService {
     private static final String PROP_ELASTICSEARCH_PORT = ElasticsearchConnection.PORT_PROP;
 
     @Property(
+            label = "Elasticsearch API key ID"
+    )
+    private static final String PROP_ELASTICSEARCH_API_KEY_ID = ElasticsearchConnection.API_KEY_ID_PROP;
+
+    @Property(
+            label = "Elasticsearch API key secret"
+    )
+    private static final String PROP_ELASTICSEARCH_API_KEY_SECRET = ElasticsearchConnection.API_KEY_SECRET_PROP;
+
+    @Property(
             label = "Local text extraction cache path",
             description = "Local file system path where text extraction cache stores/load entries to recover from timed out operation"
     )
@@ -263,9 +273,13 @@ public class ElasticsearchIndexProviderService {
         Object p = config.get(PROP_ELASTICSEARCH_PORT);
         if (p != null) {
             try {
-                Integer port = Integer.parseInt(p.toString());
-                coordinate = new ElasticsearchConnection((String) config.get(PROP_ELASTICSEARCH_SCHEME),
-                        (String) config.get(PROP_ELASTICSEARCH_HOST), port);
+                coordinate = new ElasticsearchConnection(
+                        (String) config.get(PROP_ELASTICSEARCH_SCHEME),
+                        (String) config.get(PROP_ELASTICSEARCH_HOST),
+                        Integer.parseInt(p.toString()),
+                        (String) config.get(PROP_ELASTICSEARCH_API_KEY_ID),
+                        (String) config.get(PROP_ELASTICSEARCH_API_KEY_SECRET)
+                );
             } catch (NumberFormatException nfe) {
                 LOG.warn("{} value ({}) cannot be parsed to a valid number", PROP_ELASTICSEARCH_PORT, p);
             }
