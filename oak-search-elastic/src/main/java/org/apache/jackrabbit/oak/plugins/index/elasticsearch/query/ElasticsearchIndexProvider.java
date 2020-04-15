@@ -27,7 +27,6 @@ import java.util.List;
 
 public class ElasticsearchIndexProvider implements QueryIndexProvider {
     private final ElasticsearchConnection elasticsearchConnection;
-    protected volatile QueryIndex.NodeAggregator aggregator = null;
 
     public ElasticsearchIndexProvider(ElasticsearchConnection elasticsearchConnection) {
         this.elasticsearchConnection = elasticsearchConnection;
@@ -38,12 +37,4 @@ public class ElasticsearchIndexProvider implements QueryIndexProvider {
         return Collections.singletonList(new ElasticsearchIndex(elasticsearchConnection, nodeState));
     }
 
-    public void setAggregator(QueryIndex.NodeAggregator aggregator) {
-        this.aggregator = aggregator;
-    }
-
-    public ElasticsearchIndexProvider with(QueryIndex.NodeAggregator analyzer) {
-        this.setAggregator(analyzer);
-        return this;
-    }
 }

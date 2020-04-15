@@ -101,8 +101,7 @@ public class ElasticIndexAggregationNtFileTest extends AbstractQueryTest {
         ElasticsearchConnection coordinate = new ElasticsearchConnection(
                 ElasticsearchConnection.DEFAULT_SCHEME,
                 elastic.getContainerIpAddress(),
-                elastic.getMappedPort(ElasticsearchConnection.DEFAULT_PORT)
-        );
+                elastic.getMappedPort(ElasticsearchConnection.DEFAULT_PORT));
 
         ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(coordinate,
                 new ExtractedTextCache(10 * FileUtils.ONE_MB, 100));
@@ -189,10 +188,6 @@ public class ElasticIndexAggregationNtFileTest extends AbstractQueryTest {
         includeNtFileContent.setProperty(FulltextIndexConstants.AGG_RELATIVE_NODE, true);
         includeNtFileContent.setProperty(FulltextIndexConstants.AGG_PATH, "jcr:content/renditions/dam.text.txt/jcr:content");
         root.commit();
-    }
-
-    private static QueryIndex.NodeAggregator getNodeAggregator() {
-        return new SimpleNodeAggregator();
     }
 
     @Test
