@@ -26,7 +26,6 @@ import org.apache.jackrabbit.oak.api.ContentRepository;
 import org.apache.jackrabbit.oak.api.Root;
 import org.apache.jackrabbit.oak.api.Tree;
 import org.apache.jackrabbit.oak.api.Type;
-import org.apache.jackrabbit.oak.plugins.index.aggregate.SimpleNodeAggregator;
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.index.ElasticsearchIndexEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.query.ElasticsearchIndexProvider;
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.util.ElasticsearchIndexDefinitionBuilder;
@@ -181,7 +180,7 @@ public class ElasticIndexAggregationNtFileTest extends AbstractQueryTest {
     @Override
     protected void createTestIndexNode() throws Exception {
         Tree index = root.getTree("/");
-        Tree indexDefn = createTestIndexNode(index, ElasticsearchIndexConstants.TYPE_ELASTICSEARCH);
+        Tree indexDefn = createTestIndexNode(index, ElasticsearchIndexDefinition.TYPE_ELASTICSEARCH);
         indexDefn.setProperty(FulltextIndexConstants.COMPAT_MODE, IndexFormatVersion.V2.getVersion());
         Tree includeNtFileContent = indexDefn.addChild(FulltextIndexConstants.AGGREGATES)
                 .addChild(NT_TEST_ASSET).addChild("include10");
