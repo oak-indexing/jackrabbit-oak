@@ -36,5 +36,4 @@ public class ElasticsearchIndexProvider implements QueryIndexProvider {
     public @NotNull List<? extends QueryIndex> getQueryIndexes(NodeState nodeState) {
         return Collections.singletonList(new ElasticsearchIndex(elasticsearchConnection, nodeState));
     }
-
 }
