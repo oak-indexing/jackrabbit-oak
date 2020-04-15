@@ -21,8 +21,6 @@ package org.apache.jackrabbit.oak.plugins.index.elasticsearch;
 import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -32,8 +30,6 @@ import static org.apache.jackrabbit.oak.plugins.index.search.util.ConfigUtil.get
 import static org.elasticsearch.common.Strings.INVALID_FILENAME_CHARS;
 
 public class ElasticsearchIndexDefinition extends IndexDefinition {
-
-    private static final Logger LOG = LoggerFactory.getLogger(ElasticsearchIndexDefinition.class);
 
     public static final String TYPE_ELASTICSEARCH = "elasticsearch";
 
