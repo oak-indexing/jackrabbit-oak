@@ -49,7 +49,9 @@ public class ElasticsearchConnection implements Closeable {
     protected static final String PORT_PROP = "elasticsearch.port";
     protected static final int DEFAULT_PORT = 9200;
     protected static final String API_KEY_ID_PROP = "elasticsearch.apiKeyId";
+    protected static final String DEFAULT_API_KEY_ID = "";
     protected static final String API_KEY_SECRET_PROP = "elasticsearch.apiKeySecret";
+    protected static final String DEFAULT_API_KEY_SECRET = "";
 
     protected static final Supplier<ElasticsearchConnection> defaultConnection = () ->
             new ElasticsearchConnection(DEFAULT_SCHEME, DEFAULT_HOST, DEFAULT_PORT);
@@ -113,12 +115,13 @@ public class ElasticsearchConnection implements Closeable {
             synchronized (this) {
                 if (client == null) {
                     RestClientBuilder builder = RestClient.builder(new HttpHost(host, port, scheme));
-                    if (apiKeyId != null && apiKeySecret != null) {
+                    if (apiKeyId != null && !apiKeyId.isEmpty() &&
+                            apiKeySecret != null && !apiKeySecret.isEmpty()) {
                         String apiKeyAuth = Base64.getEncoder().encodeToString(
                                 (apiKeyId + ":" + apiKeySecret).getBytes(StandardCharsets.UTF_8)
                         );
-                        Header[] defaultHeaders = new Header[]{new BasicHeader("Authorization", "ApiKey " + apiKeyAuth)};
-                        builder.setDefaultHeaders(defaultHeaders);
+                        Header[] headers = new Header[]{new BasicHeader("Authorization", "ApiKey " + apiKeyAuth)};
+                        builder.setDefaultHeaders(headers);
                     }
                     client = new RestHighLevelClient(builder);
                 }

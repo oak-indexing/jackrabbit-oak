@@ -108,12 +108,14 @@ public class ElasticsearchIndexProviderService {
     private static final String PROP_ELASTICSEARCH_PORT = ElasticsearchConnection.PORT_PROP;
 
     @Property(
-            label = "Elasticsearch API key ID"
+            label = "Elasticsearch API key ID",
+            value = ElasticsearchConnection.DEFAULT_API_KEY_ID
     )
     private static final String PROP_ELASTICSEARCH_API_KEY_ID = ElasticsearchConnection.API_KEY_ID_PROP;
 
     @Property(
-            label = "Elasticsearch API key secret"
+            label = "Elasticsearch API key secret",
+            passwordValue = ElasticsearchConnection.DEFAULT_API_KEY_SECRET
     )
     private static final String PROP_ELASTICSEARCH_API_KEY_SECRET = ElasticsearchConnection.API_KEY_SECRET_PROP;
 
