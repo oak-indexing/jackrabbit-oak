@@ -70,13 +70,13 @@ public class ElasticPropertyTextSearchTest extends SearchTest {
                 @Override
                 public Jcr customize(Oak oak) {
                     ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(coordinate,
-                            new ExtractedTextCache(10 * FileUtils.ONE_MB, 100), "");
-                    ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(coordinate, "");
+                            new ExtractedTextCache(10 * FileUtils.ONE_MB, 100));
+                    ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(coordinate);
                     oak.with(editorProvider)
                             .with(indexProvider)
                             .with(new PropertyIndexEditorProvider())
                             .with(new NodeTypeIndexProvider())
-                            .with(new PropertyFullTextTest.FullTextPropertyInitialiser("elasticTitle", of("title"),
+                            .with(new PropertyFullTextTest.FullTextPropertyInitialiser("elasticTitle" + System.nanoTime(), of("title"),
                                     ElasticsearchIndexDefinition.TYPE_ELASTICSEARCH));
                     return new Jcr(oak);
                 }

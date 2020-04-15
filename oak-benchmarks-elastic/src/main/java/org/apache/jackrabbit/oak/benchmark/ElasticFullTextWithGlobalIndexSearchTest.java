@@ -40,7 +40,7 @@ import java.io.File;
 public class ElasticFullTextWithGlobalIndexSearchTest extends SearchTest {
 
     private ElasticsearchConnection coordinate;
-    private final String ELASTIC_GLOBAL_INDEX = "elasticGlobal";
+    private final String ELASTIC_GLOBAL_INDEX = "elasticGlobal" + System.nanoTime();
 
     public ElasticFullTextWithGlobalIndexSearchTest(File dump, boolean flat, boolean doReport, Boolean storageEnabled, ElasticsearchConnection coordinate) {
         super(dump, flat, doReport, storageEnabled);
@@ -54,8 +54,8 @@ public class ElasticFullTextWithGlobalIndexSearchTest extends SearchTest {
                 @Override
                 public Jcr customize(Oak oak) {
                     ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(coordinate,
-                            new ExtractedTextCache(10 * FileUtils.ONE_MB, 100), null);
-                    ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(coordinate, null);
+                            new ExtractedTextCache(10 * FileUtils.ONE_MB, 100));
+                    ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(coordinate);
                     oak.with(editorProvider)
                             .with(indexProvider)
                             .with(new PropertyIndexEditorProvider())

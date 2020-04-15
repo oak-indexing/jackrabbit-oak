@@ -54,13 +54,13 @@ public class ElasticFullTextWithoutGlobalIndexSearchTest extends SearchTest {
                 @Override
                 public Jcr customize(Oak oak) {
                     ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(coordinate,
-                            new ExtractedTextCache(10 * FileUtils.ONE_MB, 100), null);
-                    ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(coordinate, null);
+                            new ExtractedTextCache(10 * FileUtils.ONE_MB, 100));
+                    ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(coordinate);
                     oak.with(editorProvider)
                             .with(indexProvider)
                             .with(new PropertyIndexEditorProvider())
                             .with(new NodeTypeIndexProvider())
-                            .with(new PropertyFullTextTest.FullTextPropertyInitialiser("elasticText", of("text"),
+                            .with(new PropertyFullTextTest.FullTextPropertyInitialiser("elasticText" + System.nanoTime(), of("text"),
                                     ElasticsearchIndexDefinition.TYPE_ELASTICSEARCH).nodeScope().analyzed());
                     return new Jcr(oak);
                 }

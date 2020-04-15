@@ -31,10 +31,10 @@ class ElasticsearchIndexNode implements IndexNode {
     private final ElasticsearchIndexDefinition indexDefinition;
 
     ElasticsearchIndexNode(@NotNull NodeState root, @NotNull String indexPath,
-                                     @NotNull ElasticsearchConnection elasticsearchConnection, String indexPrefix) {
+                                     @NotNull ElasticsearchConnection elasticsearchConnection) {
         final NodeState indexNS = NodeStateUtils.getNode(root, indexPath);
-        this.indexDefinition = new ElasticsearchIndexDefinition(root, indexNS, indexPath, indexPrefix);
         this.elasticsearchConnection = elasticsearchConnection;
+        this.indexDefinition = new ElasticsearchIndexDefinition(root, indexNS, indexPath, elasticsearchConnection.getIndexPrefix());
     }
 
     @Override

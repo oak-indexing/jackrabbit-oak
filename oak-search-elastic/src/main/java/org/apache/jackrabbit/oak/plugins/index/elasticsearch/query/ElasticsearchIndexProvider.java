@@ -27,15 +27,13 @@ import java.util.List;
 
 public class ElasticsearchIndexProvider implements QueryIndexProvider {
     private final ElasticsearchConnection elasticsearchConnection;
-    private final String indexPrefix;
 
-    public ElasticsearchIndexProvider(ElasticsearchConnection elasticsearchConnection, String indexPrefix) {
+    public ElasticsearchIndexProvider(ElasticsearchConnection elasticsearchConnection) {
         this.elasticsearchConnection = elasticsearchConnection;
-        this.indexPrefix = indexPrefix;
     }
 
     @Override
     public @NotNull List<? extends QueryIndex> getQueryIndexes(NodeState nodeState) {
-        return Collections.singletonList(new ElasticsearchIndex(elasticsearchConnection, nodeState, indexPrefix));
+        return Collections.singletonList(new ElasticsearchIndex(elasticsearchConnection, nodeState));
     }
 }

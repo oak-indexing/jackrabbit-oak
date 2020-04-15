@@ -77,11 +77,12 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
         ElasticsearchConnection coordinate = new ElasticsearchConnection(
                 ElasticsearchConnection.DEFAULT_SCHEME,
                 elastic.getContainerIpAddress(),
-                elastic.getMappedPort(ElasticsearchConnection.DEFAULT_PORT)
+                elastic.getMappedPort(ElasticsearchConnection.DEFAULT_PORT),
+                "" + System.nanoTime()
         );
         ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(coordinate,
-                new ExtractedTextCache(10 * FileUtils.ONE_MB, 100), "");
-        ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(coordinate, "");
+                new ExtractedTextCache(10 * FileUtils.ONE_MB, 100));
+        ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(coordinate);
 
         // remove all indexes to avoid cost competition (essentially a TODO for fixing cost ES cost estimation)
         NodeBuilder builder = InitialContentHelper.INITIAL_CONTENT.builder();

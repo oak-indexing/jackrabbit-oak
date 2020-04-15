@@ -66,7 +66,7 @@ public class ElasticPropertyFTIndexedContentAvailability extends PropertyFullTex
     private static final Logger LOG = LoggerFactory.getLogger(ElasticPropertyFTIndexedContentAvailability.class);
     private String currentFixtureName;
     private ElasticsearchConnection coordinate;
-    private final String ELASTIC_GLOBAL_INDEX = "elasticGlobal";
+    private final String ELASTIC_GLOBAL_INDEX = "elasticGlobal" + System.nanoTime();
 
     @Override
     public String getCurrentFixtureName() {
@@ -95,8 +95,8 @@ public class ElasticPropertyFTIndexedContentAvailability extends PropertyFullTex
                 @Override
                 public Jcr customize(Oak oak) {
                     ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(coordinate,
-                            new ExtractedTextCache(10 * FileUtils.ONE_MB, 100), null);
-                    ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(coordinate, null);
+                            new ExtractedTextCache(10 * FileUtils.ONE_MB, 100));
+                    ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(coordinate);
                     oak.with(editorProvider)
                             .with(indexProvider)
                             .with((new ElasticGlobalInitializer(ELASTIC_GLOBAL_INDEX, storageEnabled)).async())

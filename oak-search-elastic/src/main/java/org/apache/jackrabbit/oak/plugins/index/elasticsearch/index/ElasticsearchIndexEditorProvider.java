@@ -36,13 +36,11 @@ public class ElasticsearchIndexEditorProvider implements IndexEditorProvider {
 
     private final ElasticsearchConnection elasticsearchConnection;
     private final ExtractedTextCache extractedTextCache;
-    private final String indexPrefix;
 
     public ElasticsearchIndexEditorProvider(@NotNull ElasticsearchConnection elasticsearchConnection,
-                                            ExtractedTextCache extractedTextCache, String indexPrefix) {
+                                            ExtractedTextCache extractedTextCache) {
         this.elasticsearchConnection = elasticsearchConnection;
         this.extractedTextCache = extractedTextCache != null ? extractedTextCache : new ExtractedTextCache(0, 0);
-        this.indexPrefix = indexPrefix;
     }
 
     @Override
@@ -57,7 +55,7 @@ public class ElasticsearchIndexEditorProvider implements IndexEditorProvider {
 
             String indexPath = indexingContext.getIndexPath();
             ElasticsearchIndexDefinition indexDefinition =
-                    new ElasticsearchIndexDefinition(root, definition.getNodeState(), indexPath, indexPrefix);
+                    new ElasticsearchIndexDefinition(root, definition.getNodeState(), indexPath, elasticsearchConnection.getIndexPrefix());
 
             ElasticsearchIndexWriterFactory writerFactory = new ElasticsearchIndexWriterFactory(elasticsearchConnection);
 
@@ -67,7 +65,7 @@ public class ElasticsearchIndexEditorProvider implements IndexEditorProvider {
                     writerFactory,
                     extractedTextCache,
                     indexingContext,
-                    true, indexPrefix);
+                    true, elasticsearchConnection.getIndexPrefix());
 
             return new ElasticsearchIndexEditor(context);
         }

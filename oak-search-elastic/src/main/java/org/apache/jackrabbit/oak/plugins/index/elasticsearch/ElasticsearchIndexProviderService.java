@@ -95,7 +95,7 @@ public class ElasticsearchIndexProviderService {
             label = "Index prefix",
             description = "Prefix to be added to name of each elastic search index"
     )
-    private static final String PROP_INDEX_PREFIX = "indexPrefix";
+    static final String PROP_INDEX_PREFIX = "indexPrefix";
 
     @Property(
             value = ElasticsearchConnection.DEFAULT_SCHEME,
@@ -139,7 +139,6 @@ public class ElasticsearchIndexProviderService {
     private File textExtractionDir;
 
     private ElasticsearchConnection elasticsearchConnection;
-    private String indexPrefix;
 
     @Activate
     private void activate(BundleContext bundleContext, Map<String, ?> config) {
@@ -149,8 +148,6 @@ public class ElasticsearchIndexProviderService {
         //initializeExtractedTextCache(config, statisticsProvider);
 
         elasticsearchConnection = getElasticsearchCoordinate(config);
-        indexPrefix = PropertiesUtil.toString(config.get(PROP_INDEX_PREFIX), PROP_INDEX_PREFIX_DEFAULT);
-        LOG.info("Got indexPrefix=" + indexPrefix);
 
         registerIndexProvider(bundleContext);
         registerIndexEditor(bundleContext);
@@ -174,7 +171,7 @@ public class ElasticsearchIndexProviderService {
     }
 
     private void registerIndexProvider(BundleContext bundleContext) {
-        ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(elasticsearchConnection, indexPrefix);
+        ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(elasticsearchConnection);
 
         Dictionary<String, Object> props = new Hashtable<>();
         props.put("type", ElasticsearchIndexDefinition.TYPE_ELASTICSEARCH);
@@ -182,7 +179,7 @@ public class ElasticsearchIndexProviderService {
     }
 
     private void registerIndexEditor(BundleContext bundleContext) {
-        ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(elasticsearchConnection, extractedTextCache, indexPrefix);
+        ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(elasticsearchConnection, extractedTextCache);
 
         Dictionary<String, Object> props = new Hashtable<>();
         props.put("type", ElasticsearchIndexDefinition.TYPE_ELASTICSEARCH);
@@ -276,7 +273,7 @@ public class ElasticsearchIndexProviderService {
             try {
                 Integer port = Integer.parseInt(p.toString());
                 coordinate = new ElasticsearchConnection((String) config.get(PROP_ELASTICSEARCH_SCHEME),
-                        (String) config.get(PROP_ELASTICSEARCH_HOST), port);
+                        (String) config.get(PROP_ELASTICSEARCH_HOST), port, (String) config.get(PROP_INDEX_PREFIX));
             } catch (NumberFormatException nfe) {
                 LOG.warn("{} value ({}) cannot be parsed to a valid number", PROP_ELASTICSEARCH_PORT, p);
             }
