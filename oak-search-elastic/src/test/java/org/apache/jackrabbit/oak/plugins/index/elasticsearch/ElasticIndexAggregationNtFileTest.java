@@ -28,11 +28,9 @@ import org.apache.jackrabbit.oak.api.Tree;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.index.ElasticsearchIndexEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.query.ElasticsearchIndexProvider;
-import org.apache.jackrabbit.oak.plugins.index.elasticsearch.util.ElasticsearchIndexDefinitionBuilder;
 import org.apache.jackrabbit.oak.plugins.index.search.ExtractedTextCache;
 import org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexFormatVersion;
-import org.apache.jackrabbit.oak.plugins.index.search.util.IndexDefinitionBuilder;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
 import org.apache.jackrabbit.oak.plugins.name.NamespaceEditorProvider;
 import org.apache.jackrabbit.oak.plugins.nodetype.TypeEditorProvider;
@@ -41,7 +39,6 @@ import org.apache.jackrabbit.oak.plugins.tree.factories.RootFactory;
 import org.apache.jackrabbit.oak.query.AbstractQueryTest;
 import org.apache.jackrabbit.oak.spi.commit.CompositeEditorProvider;
 import org.apache.jackrabbit.oak.spi.commit.EditorHook;
-import org.apache.jackrabbit.oak.spi.query.QueryIndex;
 import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
 import org.apache.jackrabbit.oak.spi.state.ApplyDiff;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
@@ -70,7 +67,6 @@ import static org.apache.jackrabbit.JcrConstants.JCR_PRIMARYTYPE;
 import static org.apache.jackrabbit.JcrConstants.JCR_SYSTEM;
 import static org.apache.jackrabbit.JcrConstants.NT_FILE;
 import static org.apache.jackrabbit.oak.api.Type.NAME;
-import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NAME;
 import static org.apache.jackrabbit.oak.plugins.memory.BinaryPropertyState.binaryProperty;
 import static org.apache.jackrabbit.oak.spi.nodetype.NodeTypeConstants.JCR_NODE_TYPES;
 import static org.junit.Assert.fail;
@@ -164,19 +160,6 @@ public class ElasticIndexAggregationNtFileTest extends AbstractQueryTest {
         }
     }
 
-    private static IndexDefinitionBuilder createIndex(String... propNames) {
-        IndexDefinitionBuilder builder = new ElasticsearchIndexDefinitionBuilder().noAsync();
-        IndexDefinitionBuilder.IndexRule indexRule = builder.indexRule("nt:base");
-        for (String propName : propNames) {
-            indexRule.property(propName).propertyIndex();
-        }
-        return builder;
-    }
-
-    private void setIndex(String idxName, IndexDefinitionBuilder builder) {
-        builder.build(root.getTree("/").addChild(INDEX_DEFINITIONS_NAME).addChild(idxName));
-    }
-
     @Override
     protected void createTestIndexNode() throws Exception {
         Tree index = root.getTree("/");
@@ -190,7 +173,7 @@ public class ElasticIndexAggregationNtFileTest extends AbstractQueryTest {
     }
 
     @Test
-    public void indexNtFileText() throws CommitFailedException {
+    public void indexNtFileText() throws CommitFailedException, InterruptedException {
         setTraversalEnabled(false);
         final String statement = "//element(*, test:Asset)[ " +
                 "jcr:contains(jcr:content/renditions/dam.text.txt/jcr:content, 'quick') ]";
@@ -209,6 +192,7 @@ public class ElasticIndexAggregationNtFileTest extends AbstractQueryTest {
                 "the quick brown fox jumps over the lazy dog."));
         root.commit();
         expected.add("/content/asset");
+        Thread.sleep(5000);
         assertQuery(statement, "xpath", expected);
     }
 }
