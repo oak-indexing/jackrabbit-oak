@@ -89,6 +89,14 @@ public class ElasticsearchIndexProviderService {
     )
     private static final String PROP_PRE_EXTRACTED_TEXT_ALWAYS_USE = "alwaysUsePreExtractedCache";
 
+    private static final String PROP_INDEX_PREFIX_DEFAULT = "";
+    @Property(
+            value = PROP_INDEX_PREFIX_DEFAULT,
+            label = "Index prefix",
+            description = "Prefix to be added to name of each elastic search index"
+    )
+    static final String PROP_INDEX_PREFIX = "indexPrefix";
+
     @Property(
             value = ElasticsearchConnection.DEFAULT_SCHEME,
             label = "Elasticsearch connection scheme"
@@ -279,6 +287,7 @@ public class ElasticsearchIndexProviderService {
                         (String) config.get(PROP_ELASTICSEARCH_SCHEME),
                         (String) config.get(PROP_ELASTICSEARCH_HOST),
                         Integer.parseInt(p.toString()),
+                        (String) config.get(PROP_INDEX_PREFIX),
                         (String) config.get(PROP_ELASTICSEARCH_API_KEY_ID),
                         (String) config.get(PROP_ELASTICSEARCH_API_KEY_SECRET)
                 );

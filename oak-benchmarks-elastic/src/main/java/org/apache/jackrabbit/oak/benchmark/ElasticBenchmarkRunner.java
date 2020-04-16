@@ -40,6 +40,7 @@ public class ElasticBenchmarkRunner extends BenchmarkRunner {
                     benchmarkOptions.getElasticScheme().value(options),
                     benchmarkOptions.getElasticHost().value(options),
                     benchmarkOptions.getElasticPort().value(options),
+                    "Benchmark",
                     benchmarkOptions.getElasticApiKeyId().value(options),
                     benchmarkOptions.getElasticApiKeySecret().value(options)
             );

@@ -54,11 +54,12 @@ public class ElasticsearchConnection implements Closeable {
     protected static final String DEFAULT_API_KEY_SECRET = "";
 
     protected static final Supplier<ElasticsearchConnection> defaultConnection = () ->
-            new ElasticsearchConnection(DEFAULT_SCHEME, DEFAULT_HOST, DEFAULT_PORT);
+            new ElasticsearchConnection(DEFAULT_SCHEME, DEFAULT_HOST, DEFAULT_PORT, "elastic");
 
     private String scheme;
     private String host;
     private int port;
+    private final String indexPrefix;
 
     // API key credentials
     private String apiKeyId;
@@ -76,8 +77,8 @@ public class ElasticsearchConnection implements Closeable {
      * @param host   the hostname (IP or DNS name)
      * @param port   the port number
      */
-    public ElasticsearchConnection(String scheme, String host, Integer port) {
-        this(scheme, host, port, null, null);
+    public ElasticsearchConnection(String scheme, String host, Integer port, String indexPrefix) {
+        this(scheme, host, port, indexPrefix, null, null);
     }
 
     /**
@@ -93,16 +94,19 @@ public class ElasticsearchConnection implements Closeable {
      * Elasticsearch Security API Keys
      * </a>
      */
-    public ElasticsearchConnection(String scheme, String host, Integer port, String apiKeyId, String apiKeySecret) {
-        if (scheme == null || host == null || port == null) {
+    public ElasticsearchConnection(String scheme, String host, Integer port, String indexPrefix, String apiKeyId, String apiKeySecret) {
+        if (scheme == null || host == null || port == null || indexPrefix == null) {
             throw new IllegalArgumentException();
         }
         this.scheme = scheme;
         this.host = host;
         this.port = port;
 
+
         this.apiKeyId = apiKeyId;
         this.apiKeySecret = apiKeySecret;
+
+        this.indexPrefix = indexPrefix;
     }
 
     public RestHighLevelClient getClient() {
@@ -140,6 +144,10 @@ public class ElasticsearchConnection implements Closeable {
 
     public int getPort() {
         return port;
+    }
+
+    public String getIndexPrefix() {
+        return indexPrefix;
     }
 
     @Override

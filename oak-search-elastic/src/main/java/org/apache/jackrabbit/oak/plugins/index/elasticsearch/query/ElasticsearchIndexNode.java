@@ -33,8 +33,8 @@ class ElasticsearchIndexNode implements IndexNode {
     ElasticsearchIndexNode(@NotNull NodeState root, @NotNull String indexPath,
                                      @NotNull ElasticsearchConnection elasticsearchConnection) {
         final NodeState indexNS = NodeStateUtils.getNode(root, indexPath);
-        this.indexDefinition = new ElasticsearchIndexDefinition(root, indexNS, indexPath);
         this.elasticsearchConnection = elasticsearchConnection;
+        this.indexDefinition = new ElasticsearchIndexDefinition(root, indexNS, indexPath, elasticsearchConnection.getIndexPrefix());
     }
 
     @Override
@@ -60,6 +60,6 @@ class ElasticsearchIndexNode implements IndexNode {
 
     @Override
     public @Nullable IndexStatistics getIndexStatistics() {
-        return new ElasticsearchIndexStatistics(elasticsearchConnection);
+        return new ElasticsearchIndexStatistics(elasticsearchConnection, indexDefinition);
     }
 }
