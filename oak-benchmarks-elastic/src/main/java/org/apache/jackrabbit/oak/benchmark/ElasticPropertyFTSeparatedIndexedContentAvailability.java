@@ -77,7 +77,6 @@ public class ElasticPropertyFTSeparatedIndexedContentAvailability extends Proper
                     ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(coordinate,
                             new ExtractedTextCache(10 * FileUtils.ONE_MB, 100));
                     ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(coordinate);
-                    System.out.print("============================== ElasticPropertyFTSeparatedIndexedContentAvailability " + ELASTIC_GLOBAL_INDEX);
                     oak.with(editorProvider)
                             .with(indexProvider)
                             .with((new ElasticGlobalInitializer(ELASTIC_GLOBAL_INDEX, storageEnabled)).async("fulltext-async"))
