@@ -22,6 +22,7 @@ package org.apache.jackrabbit.oak.benchmark;
 import org.apache.commons.io.FileUtils;
 import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.benchmark.util.ElasticGlobalInitializer;
+import org.apache.jackrabbit.oak.benchmark.util.TestHelper;
 import org.apache.jackrabbit.oak.fixture.JcrCreator;
 import org.apache.jackrabbit.oak.fixture.OakRepositoryFixture;
 import org.apache.jackrabbit.oak.fixture.RepositoryFixture;
@@ -45,9 +46,9 @@ public class ElasticPropertyFTSeparatedIndexedContentAvailability extends Proper
 
     private String currentFixtureName;
     private ElasticsearchConnection coordinate;
-    private final String ELASTIC_GLOBAL_INDEX = "elasticGlobal" + System.nanoTime();
+    private String ELASTIC_GLOBAL_INDEX;
 
-    public ElasticPropertyFTSeparatedIndexedContentAvailability(final File dump,
+    ElasticPropertyFTSeparatedIndexedContentAvailability(final File dump,
                                                                 final boolean flat,
                                                                 final boolean doReport,
                                                                 final Boolean storageEnabled, ElasticsearchConnection coordinate) {
@@ -67,6 +68,7 @@ public class ElasticPropertyFTSeparatedIndexedContentAvailability extends Proper
 
     @Override
     protected Repository[] createRepository(RepositoryFixture fixture) throws Exception {
+        ELASTIC_GLOBAL_INDEX = TestHelper.getUniqueIndexName("elasticGlobal");
         if (fixture instanceof OakRepositoryFixture) {
             currentFixtureName = fixture.toString();
             return ((OakRepositoryFixture) fixture).setUpCluster(1, new JcrCreator() {
@@ -75,11 +77,12 @@ public class ElasticPropertyFTSeparatedIndexedContentAvailability extends Proper
                     ElasticsearchIndexEditorProvider editorProvider = new ElasticsearchIndexEditorProvider(coordinate,
                             new ExtractedTextCache(10 * FileUtils.ONE_MB, 100));
                     ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(coordinate);
+                    System.out.print("============================== ElasticPropertyFTSeparatedIndexedContentAvailability " + ELASTIC_GLOBAL_INDEX);
                     oak.with(editorProvider)
                             .with(indexProvider)
                             .with((new ElasticGlobalInitializer(ELASTIC_GLOBAL_INDEX, storageEnabled)).async("fulltext-async"))
                                     // the WikipediaImporter set a property `title`
-                            .with(new FullTextPropertyInitialiser("elasticTitle" + System.nanoTime(), of("title"),
+                            .with(new FullTextPropertyInitialiser(TestHelper.getUniqueIndexName("elasticTitle"), of("title"),
                                     ElasticsearchIndexDefinition.TYPE_ELASTICSEARCH).async())
                             .withAsyncIndexing("async", 5)
                             .withAsyncIndexing("fulltext-async", 5);
