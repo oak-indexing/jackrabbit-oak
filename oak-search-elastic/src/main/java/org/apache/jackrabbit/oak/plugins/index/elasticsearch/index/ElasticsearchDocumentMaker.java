@@ -186,4 +186,11 @@ public class ElasticsearchDocumentMaker extends FulltextDocumentMaker<Elasticsea
         // TODO : not implemented
         return false;
     }
+
+    @Override
+    protected boolean indexDynamicBoost(ElasticsearchDocument doc, PropertyDefinition pd, NodeState nodeState,
+            String propertyName) {
+        // TODO : not implemented
+        return false;
+    }
 }
