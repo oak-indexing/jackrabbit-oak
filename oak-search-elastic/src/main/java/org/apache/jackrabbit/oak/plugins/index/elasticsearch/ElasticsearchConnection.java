@@ -144,7 +144,7 @@ public class ElasticsearchConnection implements Closeable {
 
     @Override
     public String toString() {
-        return scheme + "://" + host + ":" + port;
+        return scheme + "://" + host + ":" + port + "/" + indexPrefix;
     }
 
     /**
