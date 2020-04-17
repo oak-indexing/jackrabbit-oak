@@ -22,6 +22,7 @@ import org.apache.http.message.BasicHeader;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
 import org.elasticsearch.client.RestHighLevelClient;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -29,7 +30,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Supplier;
 
 /**
  * This class represents an Elasticsearch Connection with the related <code>RestHighLevelClient</code>.
@@ -53,60 +53,43 @@ public class ElasticsearchConnection implements Closeable {
     protected static final String API_KEY_SECRET_PROP = "elasticsearch.apiKeySecret";
     protected static final String DEFAULT_API_KEY_SECRET = "";
 
-    protected static final Supplier<ElasticsearchConnection> defaultConnection = () ->
-            new ElasticsearchConnection(DEFAULT_SCHEME, DEFAULT_HOST, DEFAULT_PORT, "elastic");
-
-    private String scheme;
-    private String host;
-    private int port;
     private final String indexPrefix;
+    private final String scheme;
+    private final String host;
+    private final int port;
 
     // API key credentials
-    private String apiKeyId;
-    private String apiKeySecret;
+    private final String apiKeyId;
+    private final String apiKeySecret;
 
     private volatile RestHighLevelClient client;
 
-    private AtomicBoolean isClosed = new AtomicBoolean(false);
-
-    /**
-     * Creates an {@code ElasticsearchConnection} instance with the given scheme, host address and port that requires no
-     * authentication.
-     *
-     * @param scheme the name {@code HttpHost.scheme} name
-     * @param host   the hostname (IP or DNS name)
-     * @param port   the port number
-     */
-    public ElasticsearchConnection(String scheme, String host, Integer port, String indexPrefix) {
-        this(scheme, host, port, indexPrefix, null, null);
-    }
+    private final AtomicBoolean isClosed = new AtomicBoolean(false);
 
     /**
      * Creates an {@code ElasticsearchConnection} instance with the given scheme, host address and port that support API
      * key-based authentication.
      *
+     * @param indexPrefix  the prefix to be used for index creation
      * @param scheme       the name {@code HttpHost.scheme} name
      * @param host         the hostname (IP or DNS name)
-     * @param port         the port number
+     * @param port         the Elasticsearch port for incoming HTTP requests (transport client not supported)
      * @param apiKeyId     the unique id of the API key
      * @param apiKeySecret the generated API secret
      * @see <a href="https://www.elastic.co/guide/en/elasticsearch/reference/current/security-api.html#security-api-keys">
      * Elasticsearch Security API Keys
      * </a>
      */
-    public ElasticsearchConnection(String scheme, String host, Integer port, String indexPrefix, String apiKeyId, String apiKeySecret) {
-        if (scheme == null || host == null || port == null || indexPrefix == null) {
-            throw new IllegalArgumentException();
-        }
+    private ElasticsearchConnection(@NotNull String indexPrefix, @NotNull String scheme, @NotNull String host,
+                                    @NotNull Integer port, String apiKeyId, String apiKeySecret) {
+        this.indexPrefix = indexPrefix;
+
         this.scheme = scheme;
         this.host = host;
         this.port = port;
 
-
         this.apiKeyId = apiKeyId;
         this.apiKeySecret = apiKeySecret;
-
-        this.indexPrefix = indexPrefix;
     }
 
     public RestHighLevelClient getClient() {
@@ -134,18 +117,6 @@ public class ElasticsearchConnection implements Closeable {
         return client;
     }
 
-    public String getScheme() {
-        return scheme;
-    }
-
-    public String getHost() {
-        return host;
-    }
-
-    public int getPort() {
-        return port;
-    }
-
     public String getIndexPrefix() {
         return indexPrefix;
     }
@@ -170,12 +141,87 @@ public class ElasticsearchConnection implements Closeable {
 
     @Override
     public int hashCode() {
-        return Objects.hash(getScheme(), getHost(), getPort());
+        return Objects.hash(indexPrefix, scheme, host, port);
     }
 
     @Override
     public String toString() {
-        return getScheme() + "://" + getHost() + ":" + getPort();
+        return scheme + "://" + host + ":" + port;
+    }
+
+    public static Builder.IndexPrefixStep newBuilder() {
+        return new Builder.Steps();
+    }
+
+    public static class Builder {
+
+        private Builder() {}
+
+        public interface IndexPrefixStep {
+            BasicConnectionStep withIndexPrefix(String indexPrefix);
+        }
+
+        public interface BasicConnectionStep {
+            BuildStep withConnectionParameters(
+                    @NotNull String scheme,
+                    @NotNull String host,
+                    @NotNull Integer port
+            );
+
+            BuildStep withDefaultConnectionParameters();
+        }
+
+        public interface AuthenticationStep {
+            BuildStep withApiKeys(@NotNull String id, @NotNull String secret);
+        }
+
+        public interface BuildStep extends AuthenticationStep {
+            ElasticsearchConnection build();
+        }
+
+        private static class Steps implements IndexPrefixStep, BasicConnectionStep, AuthenticationStep, BuildStep {
+
+            private String indexPrefix;
+
+            private String scheme;
+            private String host;
+            private Integer port;
+
+            private String apiKeyId;
+            private String apiKeySecret;
+
+            @Override
+            public BasicConnectionStep withIndexPrefix(@NotNull String indexPrefix) {
+                this.indexPrefix = Objects.requireNonNull(indexPrefix, "indexPrefix must be not null");
+                return this;
+            }
+
+            @Override
+            public BuildStep withConnectionParameters(@NotNull String scheme, @NotNull String host, @NotNull Integer port) {
+                this.scheme = Objects.requireNonNull(scheme, "scheme must be not null");;
+                this.host = Objects.requireNonNull(host, "host must be not null");;
+                this.port = Objects.requireNonNull(port, "port must be not null");;
+                return this;
+            }
+
+            @Override
+            public BuildStep withDefaultConnectionParameters() {
+                return withConnectionParameters(DEFAULT_SCHEME, DEFAULT_HOST, DEFAULT_PORT);
+            }
+
+            @Override
+            public BuildStep withApiKeys(@NotNull String id, @NotNull String secret) {
+                this.apiKeyId = id;
+                this.apiKeySecret = secret;
+                return this;
+            }
+
+            @Override
+            public ElasticsearchConnection build() {
+                return new ElasticsearchConnection(indexPrefix, scheme, host, port, apiKeyId, apiKeySecret);
+            }
+        }
+
     }
 
 }
