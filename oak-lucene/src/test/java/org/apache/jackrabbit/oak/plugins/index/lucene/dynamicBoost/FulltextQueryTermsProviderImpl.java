@@ -82,7 +82,7 @@ public class FulltextQueryTermsProviderImpl implements FulltextQueryTermsProvide
         query.add(new TermQuery(term), BooleanClause.Occur.SHOULD);
         LOG.debug("Added query term: {}", text.toLowerCase());
 
-        //De-boosting smart tags based query. CQ-4194419
+        //De-boosting smart tags based query.
         query.setBoost(0.0001f);
         return query;
 

@@ -26,10 +26,11 @@ import java.io.InputStream;
 
 import org.apache.jackrabbit.JcrConstants;
 import org.apache.jackrabbit.oak.Oak;
+import org.apache.jackrabbit.oak.api.CommitFailedException;
 import org.apache.jackrabbit.oak.api.ContentRepository;
-import org.apache.jackrabbit.oak.api.Root;
 import org.apache.jackrabbit.oak.api.Tree;
 import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.commons.junit.LogCustomizer;
 import org.apache.jackrabbit.oak.plugins.index.lucene.IndexAugmentorFactory;
 import org.apache.jackrabbit.oak.plugins.index.lucene.IndexTracker;
 import org.apache.jackrabbit.oak.plugins.index.lucene.LuceneDocumentMaker;
@@ -37,7 +38,6 @@ import org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexConstants;
 import org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexProvider;
 import org.apache.jackrabbit.oak.plugins.index.lucene.TestUtil;
-import org.apache.jackrabbit.oak.plugins.index.lucene.dynamicBoost.IndexFieldProviderImpl;
 import org.apache.jackrabbit.oak.plugins.index.lucene.spi.IndexFieldProvider;
 import org.apache.jackrabbit.oak.plugins.index.search.ExtractedTextCache;
 import org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants;
@@ -49,28 +49,22 @@ import org.apache.jackrabbit.oak.spi.mount.Mounts;
 import org.apache.jackrabbit.oak.spi.query.QueryIndexProvider;
 import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
 import org.junit.Test;
-import org.slf4j.LoggerFactory;
 
 import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.LoggerContext;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.filter.Filter;
-import ch.qos.logback.core.read.ListAppender;
-import ch.qos.logback.core.spi.FilterReply;
 
 /**
  * Tests the index augmentation feature.
  */
 public class DynamicBoostTest extends AbstractQueryTest {
-    
-    public static final String ASSET_NODE_TYPE = 
-            "[dam:Asset]\n" + 
-            " - * (UNDEFINED) multiple\n" + 
-            " - * (UNDEFINED)\n" + 
+
+    public static final String ASSET_NODE_TYPE =
+            "[dam:Asset]\n" +
+            " - * (UNDEFINED) multiple\n" +
+            " - * (UNDEFINED)\n" +
             " + * (nt:base) = oak:TestNode VERSION";
-    
+
     private static final String UNSTRUCTURED = "nt:unstructured";
-    
+
     private final SimpleIndexAugmentorFactory factory = new SimpleIndexAugmentorFactory();
 
     @Override
@@ -93,30 +87,20 @@ public class DynamicBoostTest extends AbstractQueryTest {
             .with(editorProvider)
             .createContentRepository();
     }
-    
+
     @Test public void withFieldProvider() throws Exception {
         NodeTypeRegistry.register(root, toInputStream(ASSET_NODE_TYPE), "test nodeType");
         createIndex("dam:Asset");
         root.commit();
-
         factory.indexFieldProvider = new IndexFieldProviderImpl();
-        
-        Tree t = createTestNodes(root);
-        
-        AsyncLogFilter filter = new AsyncLogFilter(IndexFieldProviderImpl.class);
-        ListAppender<ILoggingEvent> appender = filter.subscribe();
-        root.commit();
-        // this is not detected
-        updateTestNode(t, 20);
-        root.commit();
-        // now we change an indexed property: this is not detected with the IndexFieldProvider
-        t.getParent().setProperty("updateCount", 2);
-        updateTestNode(t, 30);
-        root.commit();
-        filter.unsubscribe(appender);
-        assertEquals("[[TRACE] Added augmented fields: jcr:content/metadata/predictedTags/[my, a, my:a], 10.0]", appender.list.toString());
+
+        String log = runTest(IndexFieldProviderImpl.class);
+        assertEquals(
+                "[" +
+                "Added augmented fields: jcr:content/metadata/predictedTags/[my, a, my:a], 10.0" +
+                "]", log);
     }
-    
+
     @Test public void withDynamicBoost() throws Exception {
         NodeTypeRegistry.register(root, toInputStream(ASSET_NODE_TYPE), "test nodeType");
         Tree props = createIndex("dam:Asset");
@@ -126,44 +110,45 @@ public class DynamicBoostTest extends AbstractQueryTest {
         pt.setProperty("dynamicBoost", true);
         pt.setProperty("propertyIndex", true);
         root.commit();
-        
-        Tree t = createTestNodes(root);
 
-        AsyncLogFilter filter = new AsyncLogFilter(LuceneDocumentMaker.class);
-        ListAppender<ILoggingEvent> appender = filter.subscribe();
-        root.commit();
-        // this is not detected
-        updateTestNode(t, 20);
-        root.commit();
-        // now we change an indexed property: this is detected
-        t.getParent().setProperty("updateCount", 2);
-        updateTestNode(t, 30);
-        root.commit();
-        filter.unsubscribe(appender);
+        String log = runTest(LuceneDocumentMaker.class);
         assertEquals(
-                "[" + 
-                "[TRACE] Added augmented fields: jcr:content/metadata/predictedTags/[my, a, my:a], 10.0, " + 
-                "[TRACE] Added augmented fields: jcr:content/metadata/predictedTags/[my, a, my:a], 30.0" + 
-                "]", appender.list.toString());
+                "[" +
+                "Added augmented fields: jcr:content/metadata/predictedTags/[my, a, my:a], 10.0, " +
+                "Added augmented fields: jcr:content/metadata/predictedTags/[my, a, my:a], 30.0" +
+                "]", log);
     }
-    
-    private static Tree createTestNodes(Root root) {
-        Tree test = createNodeWithType(root.getTree("/"), "test", UNSTRUCTURED);
-        Tree node = createNodeWithType(test, "item", "dam:Asset");
-        Tree predicted = 
-                createNodeWithType(
-                createNodeWithType(
-                createNodeWithType(node, JcrConstants.JCR_CONTENT, UNSTRUCTURED),
-                "metadata", UNSTRUCTURED),
-                "predictedTags", UNSTRUCTURED);
-        Tree a = createNodeWithType(predicted, "a", UNSTRUCTURED);
-        a.setProperty("name", "my:a");
-        a.setProperty("confidence", 10.0);
-        return a;
-    }
-    
-    private static void updateTestNode(Tree a, double value) {
-        a.setProperty("confidence", value);
+
+    private String runTest(Class<?> loggerClass) throws CommitFailedException {
+        LogCustomizer customLogs = LogCustomizer
+                .forLogger(loggerClass)
+                .enable(Level.TRACE).create();
+        customLogs.starting();
+        try {
+            Tree test = createNodeWithType(root.getTree("/"), "test", UNSTRUCTURED);
+            Tree node = createNodeWithType(test, "item", "dam:Asset");
+            Tree predicted =
+                    createNodeWithType(
+                    createNodeWithType(
+                    createNodeWithType(node, JcrConstants.JCR_CONTENT, UNSTRUCTURED),
+                    "metadata", UNSTRUCTURED),
+                    "predictedTags", UNSTRUCTURED);
+            Tree t = createNodeWithType(predicted, "a", UNSTRUCTURED);
+            t.setProperty("name", "my:a");
+            t.setProperty("confidence", 10.0);
+            root.commit();
+            // this is not detected
+            t.setProperty("confidence", 20);
+            root.commit();
+            // now we change an indexed property:
+            // this is detected in the dynamicBoost case
+            t.getParent().setProperty("updateCount", 2);
+            t.setProperty("confidence", 30);
+            root.commit();
+            return customLogs.getLogs().toString();
+        } finally {
+            customLogs.finished();
+        }
     }
 
     private static Tree createNodeWithType(Tree t, String nodeName, String typeName){
@@ -174,11 +159,7 @@ public class DynamicBoostTest extends AbstractQueryTest {
 
     private Tree createIndex(String nodeType) throws Exception {
         Tree rootTree = root.getTree("/");
-        return createIndex(rootTree, nodeType);
-    }
-
-    private static Tree createIndex(Tree root, String nodeType) throws Exception {
-        Tree index = createTestIndexNode(root, LuceneIndexConstants.TYPE_LUCENE);
+        Tree index = createTestIndexNode(rootTree, LuceneIndexConstants.TYPE_LUCENE);
         index.setProperty(FulltextIndexConstants.COMPAT_MODE, IndexFormatVersion.V2.getVersion());
         return TestUtil.newRulePropTree(index, nodeType);
     }
@@ -190,47 +171,11 @@ public class DynamicBoostTest extends AbstractQueryTest {
         public IndexFieldProvider getIndexFieldProvider(String nodeType) {
             return indexFieldProvider;
         }
-        
+
     }
-    
+
     private static InputStream toInputStream(String x) {
         return new ByteArrayInputStream(x.getBytes());
     }
-    
-    private static class AsyncLogFilter extends Filter<ILoggingEvent> {
-        
-        private final Class<?> loggerClass;
-        
-        AsyncLogFilter(Class<?> loggerClass) {
-            this.loggerClass = loggerClass;
-        }
-        
-        private ListAppender<ILoggingEvent> subscribe() {
-            start();
-            ListAppender<ILoggingEvent> appender = new ListAppender<ILoggingEvent>();
-            appender.setContext((LoggerContext) LoggerFactory.getILoggerFactory());
-            appender.setName("asynclogcollector");
-            appender.addFilter(this);
-            appender.start();
-            ((LoggerContext) LoggerFactory.getILoggerFactory()).getLogger(
-                ch.qos.logback.classic.Logger.ROOT_LOGGER_NAME).addAppender(appender);
-            ((LoggerContext) LoggerFactory.getILoggerFactory()).
-                getLogger(loggerClass).setLevel(Level.TRACE);
-            return appender;
-        }
-        
-        private void unsubscribe( ListAppender<ILoggingEvent> appender) {
-            ((LoggerContext) LoggerFactory.getILoggerFactory()).getLogger(
-                    ch.qos.logback.classic.Logger.ROOT_LOGGER_NAME).detachAppender(appender);
-        }
-        
-        @Override
-        public FilterReply decide(ILoggingEvent event) {
-            if (!event.getLoggerName().startsWith(loggerClass.getName())) {
-                return FilterReply.DENY;
-            }
-            return FilterReply.ACCEPT;
-        }
-    }
-    
+
 }
