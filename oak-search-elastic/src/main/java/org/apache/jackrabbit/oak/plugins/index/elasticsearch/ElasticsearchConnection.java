@@ -163,14 +163,14 @@ public class ElasticsearchConnection implements Closeable {
         }
 
         /**
-         * First Builder Step in charge of the mandatory indexPrefix. Next Step: {@link BasicConnectionStep}
+         * First Builder Step in charge of the mandatory indexPrefix. Next Step: {@link BasicConnectionStep}.
          */
         public interface IndexPrefixStep {
             BasicConnectionStep withIndexPrefix(String indexPrefix);
         }
 
         /**
-         * Step in charge of handling of both default and custom connection parameters. Next step: {@link BuildStep}
+         * Step in charge of handling connection parameters (with default option). Next step: {@link BuildStep}.
          */
         public interface BasicConnectionStep {
             BuildStep withConnectionParameters(
@@ -183,7 +183,7 @@ public class ElasticsearchConnection implements Closeable {
         }
 
         /**
-         * Step in charge of authentication credentials. Next step: {@link BuildStep}
+         * Step in charge of authentication credentials. Next step: {@link BuildStep}.
          */
         public interface AuthenticationStep {
             BuildStep withApiKeys(String id, String secret);
