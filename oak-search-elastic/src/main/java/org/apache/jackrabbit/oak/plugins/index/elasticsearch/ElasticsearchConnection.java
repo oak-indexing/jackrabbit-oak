@@ -83,11 +83,9 @@ public class ElasticsearchConnection implements Closeable {
     private ElasticsearchConnection(@NotNull String indexPrefix, @NotNull String scheme, @NotNull String host,
                                     @NotNull Integer port, String apiKeyId, String apiKeySecret) {
         this.indexPrefix = indexPrefix;
-
         this.scheme = scheme;
         this.host = host;
         this.port = port;
-
         this.apiKeyId = apiKeyId;
         this.apiKeySecret = apiKeySecret;
     }
@@ -149,18 +147,31 @@ public class ElasticsearchConnection implements Closeable {
         return scheme + "://" + host + ":" + port;
     }
 
+    /**
+     * Returns a new {@code Builder.IndexPrefixStep} instance to allow a step by step construction of a
+     * {@link ElasticsearchConnection} object.
+     */
     public static Builder.IndexPrefixStep newBuilder() {
         return new Builder.Steps();
     }
 
-    public static class Builder {
+    // Step Builder pattern
+    // https://github.com/iluwatar/java-design-patterns/tree/master/step-builder
+    public static final class Builder {
 
-        private Builder() {}
+        private Builder() {
+        }
 
+        /**
+         * First Builder Step in charge of the mandatory indexPrefix. Next Step: {@link BasicConnectionStep}
+         */
         public interface IndexPrefixStep {
             BasicConnectionStep withIndexPrefix(String indexPrefix);
         }
 
+        /**
+         * Step in charge of handling of both default and custom connection parameters. Next step: {@link BuildStep}
+         */
         public interface BasicConnectionStep {
             BuildStep withConnectionParameters(
                     @NotNull String scheme,
@@ -171,10 +182,18 @@ public class ElasticsearchConnection implements Closeable {
             BuildStep withDefaultConnectionParameters();
         }
 
+        /**
+         * Step in charge of authentication credentials. Next step: {@link BuildStep}
+         */
         public interface AuthenticationStep {
-            BuildStep withApiKeys(@NotNull String id, @NotNull String secret);
+            BuildStep withApiKeys(String id, String secret);
         }
 
+        /**
+         * This is the final step in charge of building the {@link ElasticsearchConnection}.
+         * It adds optional {@link AuthenticationStep} support.
+         * Validation should be here.
+         */
         public interface BuildStep extends AuthenticationStep {
             ElasticsearchConnection build();
         }
@@ -192,21 +211,21 @@ public class ElasticsearchConnection implements Closeable {
 
             @Override
             public BasicConnectionStep withIndexPrefix(@NotNull String indexPrefix) {
-                this.indexPrefix = Objects.requireNonNull(indexPrefix, "indexPrefix must be not null");
+                this.indexPrefix = indexPrefix;
                 return this;
             }
 
             @Override
             public BuildStep withConnectionParameters(@NotNull String scheme, @NotNull String host, @NotNull Integer port) {
-                this.scheme = Objects.requireNonNull(scheme, "scheme must be not null");;
-                this.host = Objects.requireNonNull(host, "host must be not null");;
-                this.port = Objects.requireNonNull(port, "port must be not null");;
+                this.scheme = scheme;
+                this.host = host;
+                this.port = port;
                 return this;
             }
 
             @Override
             public BuildStep withDefaultConnectionParameters() {
-                return withConnectionParameters(DEFAULT_SCHEME, DEFAULT_HOST, DEFAULT_PORT);
+                return withConnectionParameters(ElasticsearchConnection.DEFAULT_SCHEME, ElasticsearchConnection.DEFAULT_HOST, ElasticsearchConnection.DEFAULT_PORT);
             }
 
             @Override
@@ -218,10 +237,13 @@ public class ElasticsearchConnection implements Closeable {
 
             @Override
             public ElasticsearchConnection build() {
-                return new ElasticsearchConnection(indexPrefix, scheme, host, port, apiKeyId, apiKeySecret);
+                return new ElasticsearchConnection(
+                        Objects.requireNonNull(indexPrefix, "indexPrefix must be not null"),
+                        Objects.requireNonNull(scheme, "scheme must be not null"),
+                        Objects.requireNonNull(host, "host must be not null"),
+                        Objects.requireNonNull(port, "port must be not null"),
+                        apiKeyId, apiKeySecret);
             }
         }
-
     }
-
 }

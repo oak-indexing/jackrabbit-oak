@@ -36,14 +36,17 @@ public class ElasticBenchmarkRunner extends BenchmarkRunner {
         // we have orphaned HttpClient's I/O disp threads that don't let the process exit.
 
         try {
-            connection = new ElasticsearchConnection(
-                    benchmarkOptions.getElasticScheme().value(options),
-                    benchmarkOptions.getElasticHost().value(options),
-                    benchmarkOptions.getElasticPort().value(options),
-                    "Benchmark",
-                    benchmarkOptions.getElasticApiKeyId().value(options),
-                    benchmarkOptions.getElasticApiKeySecret().value(options)
-            );
+            connection =  ElasticsearchConnection.newBuilder()
+                    .withIndexPrefix("benchmark")
+                    .withConnectionParameters(
+                            benchmarkOptions.getElasticScheme().value(options),
+                            benchmarkOptions.getElasticHost().value(options),
+                            benchmarkOptions.getElasticPort().value(options)
+                    )
+                    .withApiKeys(
+                            benchmarkOptions.getElasticApiKeyId().value(options),
+                            benchmarkOptions.getElasticApiKeySecret().value(options)
+                    ).build();
 
             BenchmarkRunner.addToBenchMarkList(
                     Arrays.asList(
