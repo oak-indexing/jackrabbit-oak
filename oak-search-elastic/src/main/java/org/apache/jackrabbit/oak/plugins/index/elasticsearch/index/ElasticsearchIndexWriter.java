@@ -116,12 +116,12 @@ class ElasticsearchIndexWriter implements FulltextIndexWriter<ElasticsearchDocum
         // in this case wait for sometime for the last OakBulkProcessorListener.afterBulk to be called
         // where indexUpdated can possibly be set to true, return false in case of timeout.
         // We don't wait in case indexUpdated is already set (This would be if any of the previous flushes for this processor
-        // were successfull i.e index was updated at least once)
+        // were successful i.e index was updated at least once)
         final long start = System.currentTimeMillis();
+        long timeoutMillis = indexDefinition.bulkFlushIntervalMs * 5 ;
         while (!indexUpdated.isPresent()) {
             long lastAttempt = System.currentTimeMillis();
             long elapsedTime = lastAttempt - start;
-            long timeoutMillis = indexDefinition.bulkFlushIntervalMs * 5 ;
             if (elapsedTime > timeoutMillis) {
                 // indexUpdate was not set till now, return false
                 LOG.trace("Timed out waiting for the bulk processor response. Returning indexUpdated = false");

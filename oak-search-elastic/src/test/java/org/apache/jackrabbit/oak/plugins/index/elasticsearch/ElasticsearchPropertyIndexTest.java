@@ -115,14 +115,14 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
         }
         root.commit();
 
-        // 250 is the defualt flush limit for bulk processor, and we added just less than 250 nodes
+        // 250 is the default flush limit for bulk processor, and we added just less than 250 nodes
         // So once the index writer is closed , bulk Processor would be closed and all the 248 entries should be flushed.
         // Make sure that the last entry is indexed correctly.
         String propaQuery = "select [jcr:path] from [nt:base] where [propa] = 'foo248'";
         assertEventually(() -> {
             assertThat(explain(propaQuery), containsString("elasticsearch:test1"));
 
-            assertQuery(propaQuery, Arrays.asList("/test/a248"));
+            assertQuery(propaQuery, singletonList("/test/a248"));
         });
 
         // Now we test for 250 < nodes < 500
@@ -135,7 +135,7 @@ public class ElasticsearchPropertyIndexTest extends AbstractQueryTest {
         assertEventually(() -> {
             assertThat(explain(propaQuery2), containsString("elasticsearch:test1"));
 
-            assertQuery(propaQuery2, Arrays.asList("/test/a299"));
+            assertQuery(propaQuery2, singletonList("/test/a299"));
         });
     }
 
