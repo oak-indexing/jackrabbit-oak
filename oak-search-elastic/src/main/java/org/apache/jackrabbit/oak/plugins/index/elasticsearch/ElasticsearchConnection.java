@@ -183,22 +183,23 @@ public class ElasticsearchConnection implements Closeable {
         }
 
         /**
-         * Step in charge of authentication credentials. Next step: {@link BuildStep}.
+         * Step in charge of optional steps. Next step: {@link BuildStep}.
          */
-        public interface AuthenticationStep {
+        public interface OptionalSteps {
             BuildStep withApiKeys(String id, String secret);
         }
 
         /**
          * This is the final step in charge of building the {@link ElasticsearchConnection}.
-         * It adds optional {@link AuthenticationStep} support.
          * Validation should be here.
+         *
+         * It adds support for {@link OptionalSteps}.
          */
-        public interface BuildStep extends AuthenticationStep {
+        public interface BuildStep extends OptionalSteps {
             ElasticsearchConnection build();
         }
 
-        private static class Steps implements IndexPrefixStep, BasicConnectionStep, AuthenticationStep, BuildStep {
+        private static class Steps implements IndexPrefixStep, BasicConnectionStep, OptionalSteps, BuildStep {
 
             private String indexPrefix;
 
