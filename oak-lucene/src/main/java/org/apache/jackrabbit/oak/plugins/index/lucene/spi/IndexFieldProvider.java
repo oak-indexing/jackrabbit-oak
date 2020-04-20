@@ -25,6 +25,9 @@ import java.util.Set;
 /**
  * Implementations of this interface would get callbacks while indexing documents. It's the responsibility
  * of the implementation to exit as early as possible if it doesn't care about the document being indexed.
+ *
+ * @deprecated This interface exposes Lucene API directly - it will be removed soon.
+ * Use the "dynamicBoost" feature instead.
  */
 public interface IndexFieldProvider {
     /**
