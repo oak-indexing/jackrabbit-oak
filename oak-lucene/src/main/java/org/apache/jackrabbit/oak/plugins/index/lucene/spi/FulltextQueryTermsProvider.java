@@ -24,8 +24,14 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.Collections;
 import java.util.Set;
+
 /**
- * Implementations of this interface would get callbacks while forming lucene full text queries.
+ * Implementations of this interface would get callbacks while forming lucene
+ * full text queries.
+ *
+ * @deprecated This interface exposes Lucene API directly - it will be removed
+ *             as soon as an alternative is available. See also
+ *             IndexFieldProvider.
  */
 public interface FulltextQueryTermsProvider {
     /**
