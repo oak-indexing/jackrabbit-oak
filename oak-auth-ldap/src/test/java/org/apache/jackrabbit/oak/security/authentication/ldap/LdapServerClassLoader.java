@@ -35,8 +35,8 @@ public class LdapServerClassLoader extends URLClassLoader {
     private final byte[] serverClassResource;
     private final byte[] serverBaseClassResource;
 
-    public LdapServerClassLoader(URL[] urls, Class serverClass, Class serverBaseClass) throws IOException {
-        super(urls, null);
+    private LdapServerClassLoader(URL[] urls, Class serverClass, Class serverBaseClass) throws IOException {
+        super(urls, ClassLoader.getSystemClassLoader().getParent());
         this.serverClassResource = ByteStreams.toByteArray(
                 serverClass.getResourceAsStream("/".concat(serverClass.getCanonicalName()).replace('.', '/').concat(".class")));
         this.serverBaseClassResource = ByteStreams.toByteArray(
@@ -50,6 +50,7 @@ public class LdapServerClassLoader extends URLClassLoader {
                 .toURI()
                 .getRawSchemeSpecificPart();
         apacheDsUrl = apacheDsUrl.substring(0, apacheDsUrl.lastIndexOf('!'));
+
         Class<?> sc = appClassLoader.loadClass(InternalLdapServer.class.getCanonicalName());
         Class<?> sbc = appClassLoader.loadClass(AbstractServer.class.getCanonicalName());
         return new LdapServerClassLoader(new URL[] { new URI(apacheDsUrl).toURL() }, sc, sbc);
