@@ -33,6 +33,7 @@ import java.util.Set;
  *             as soon as an alternative is available. See also
  *             IndexFieldProvider.
  */
+@Deprecated
 public interface FulltextQueryTermsProvider {
     /**
      * Implementation which doesn't do anything useful... yet, abides with the contract.

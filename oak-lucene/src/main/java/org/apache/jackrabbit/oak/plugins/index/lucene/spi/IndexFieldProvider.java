@@ -29,6 +29,7 @@ import java.util.Set;
  * @deprecated This interface exposes Lucene API directly - it will be removed soon.
  * Use the "dynamicBoost" feature instead.
  */
+@Deprecated
 public interface IndexFieldProvider {
     /**
      * Implementation which doesn't do anything useful... yet, abides with the contract.
