@@ -75,6 +75,7 @@ public abstract class ElasticsearchAbstractQueryTest extends AbstractQueryTest {
     // <scheme>://<hostname>:<port>?key_id=<>,key_secret=<>
     // key_id and key_secret are optional in case the ES server
     // needs authentication
+    // Do not set this if docker is running and you want to run the tests on docker instead.
     private static final String elasticConnectionString = System.getProperty("elasticConnectionString");
     static URI uri;
     private ElasticsearchConnection esConnection;
