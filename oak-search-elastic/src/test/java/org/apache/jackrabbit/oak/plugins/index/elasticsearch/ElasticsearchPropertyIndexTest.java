@@ -32,7 +32,6 @@ import static org.hamcrest.MatcherAssert.assertThat;
 public class ElasticsearchPropertyIndexTest extends ElasticsearchAbstractQueryTest {
 
     private static final Logger LOG = LoggerFactory.getLogger(ElasticsearchPropertyIndexTest.class);
-    protected static boolean useAsyncIndexing = true;
 
     @Test
     public void testBulkProcessorFlushLimit() throws Exception {

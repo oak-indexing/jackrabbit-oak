@@ -38,11 +38,14 @@ public class ElasticsearchConnectionDetails {
     public ElasticsearchConnection getEsConnection() {
 
         if (esConnection == null) {
-            esConnection = ElasticsearchConnection.newBuilder()
+            ElasticsearchConnection.Builder.BuildStep step = ElasticsearchConnection.newBuilder()
                     .withIndexPrefix("ElasticTest_" + System.currentTimeMillis())
-                    .withConnectionParameters(elasticScheme, elasticHost, elasticPort)
-                    .withApiKeys(apiKeyId, apiKeySecret)
-                    .build();
+                    .withConnectionParameters(elasticScheme, elasticHost, elasticPort);
+            if (apiKeyId != null && apiKeySecret != null) {
+                step = step.withApiKeys(apiKeyId, apiKeySecret);
+            }
+            esConnection = step.build();
+
         }
         return esConnection;
     }

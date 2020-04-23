@@ -82,12 +82,10 @@ public abstract class ElasticsearchAbstractQueryTest extends AbstractQueryTest {
     // This is instantiated during repo creation but not hooked up to the async indexing lane
     // This can be used by the extending classes to trigger the async index update as per need (not having to wait for async indexing cycle)
     protected AsyncIndexUpdate asyncIndexUpdate;
-
     protected long INDEX_CORRUPT_INTERVAL_IN_MILLIS = 100;
-
     protected ElasticsearchIndexEditorProvider editorProvider;
-
     protected NodeStore nodeStore;
+    protected int DEFAULT_ASYNC_INDEXING_TIME_IN_SECONDS = 5;
 
 
     @ClassRule
@@ -139,8 +137,14 @@ public abstract class ElasticsearchAbstractQueryTest extends AbstractQueryTest {
         return nodeStore;
     }
 
-    protected  boolean useAsyncIndexing() {
+    protected boolean useAsyncIndexing() {
         return false;
+    }
+
+    protected Oak addAsyncIndexingLanesToOak(Oak oak) {
+        // Override this in extending clases to configure different
+        // indexing lanes with different time limits.
+        return oak.withAsyncIndexing("async", DEFAULT_ASYNC_INDEXING_TIME_IN_SECONDS);
     }
 
 
@@ -171,7 +175,7 @@ public abstract class ElasticsearchAbstractQueryTest extends AbstractQueryTest {
                 .with(new NodeTypeIndexProvider());
 
         if (useAsyncIndexing()) {
-            oak.withAsyncIndexing("async", 5);
+            oak = addAsyncIndexingLanesToOak(oak);
         }
         return oak.createContentRepository();
     }
@@ -181,8 +185,11 @@ public abstract class ElasticsearchAbstractQueryTest extends AbstractQueryTest {
         ElasticsearchTestUtils.assertEventually(r, BULK_FLUSH_INTERVAL_MS_DEFAULT * 3);
     }
 
-    protected static IndexDefinitionBuilder createIndex(String... propNames) {
-        IndexDefinitionBuilder builder = new ElasticsearchIndexDefinitionBuilder().noAsync();
+    protected IndexDefinitionBuilder createIndex(String... propNames) {
+        IndexDefinitionBuilder builder = new ElasticsearchIndexDefinitionBuilder();
+        if (!useAsyncIndexing()) {
+            builder = builder.noAsync();
+        }
         IndexDefinitionBuilder.IndexRule indexRule = builder.indexRule("nt:base");
         for (String propName : propNames) {
             indexRule.property(propName).propertyIndex();
@@ -195,8 +202,12 @@ public abstract class ElasticsearchAbstractQueryTest extends AbstractQueryTest {
     }
 
     protected String explain(String query) {
+        return explain(query, SQL2);
+    }
+
+    protected String explain(String query, String language) {
         String explain = "explain " + query;
-        return executeQuery(explain, "JCR-SQL2").get(0);
+        return executeQuery(explain, language).get(0);
     }
 
     @Override
