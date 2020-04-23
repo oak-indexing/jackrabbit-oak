@@ -49,9 +49,6 @@ public class ElasticsearchFullTextAsyncTest extends ElasticsearchAbstractQueryTe
         test.addChild("c").setProperty("propa", "Hello everyone. This is an elastic test");
         test.addChild("b").setProperty("propa", "Simple test");
         root.commit();
-        // Wait for DEFAULT_ASYNC_INDEXING_TIME_IN_SECONDS
-        Thread.sleep(DEFAULT_ASYNC_INDEXING_TIME_IN_SECONDS * 1000);
-
         String query = "//*[jcr:contains(@propa, 'Hello')] ";
 
         assertEventually(() -> {

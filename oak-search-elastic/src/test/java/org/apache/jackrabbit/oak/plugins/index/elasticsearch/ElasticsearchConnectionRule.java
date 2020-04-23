@@ -27,6 +27,7 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.elasticsearch.ElasticsearchContainer;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 
@@ -38,9 +39,10 @@ To be used as a @ClassRule
 public class ElasticsearchConnectionRule extends ExternalResource {
 
     private static final Logger LOG = LoggerFactory.getLogger(ElasticsearchConnectionRule.class);
-    private ElasticsearchConnectionDetails elasticsearchConnectionDetails;
-    private String elasticSearchConnectionString;
-    private boolean useDocker = false;
+    private ElasticsearchConnection elasticSearchConnection;
+    private final String elasticSearchConnectionString;
+    private static final String INDEX_PREFIX = "ElasticTest_";
+    private static boolean useDocker = false;
 
     public ElasticsearchConnectionRule(String elasticSearchConnectionString) {
         this.elasticSearchConnectionString = elasticSearchConnectionString;
@@ -53,11 +55,8 @@ public class ElasticsearchConnectionRule extends ExternalResource {
      */
     @Override
     protected void before() {
-        if(useDocker) {
-            elasticsearchConnectionDetails = new ElasticsearchConnectionDetails(elastic.getContainerIpAddress(),
-                    elastic.getMappedPort(ElasticsearchConnection.DEFAULT_PORT),
-                    ElasticsearchConnection.DEFAULT_SCHEME,
-                    null, null);
+        if (useDocker()) {
+            elasticSearchConnection = getElasticSearchConnectionForDocker();
         }
     }
 
@@ -69,11 +68,11 @@ public class ElasticsearchConnectionRule extends ExternalResource {
         Statement s = super.apply(base, description);
         // see if docker is to be used or not... initialize docker rule only if that's the case.
 
-        if (elasticSearchConnectionString == null || getElasticsearchConnectionDetailsfromString() == null) {
+        if (elasticSearchConnectionString == null || getElasticsearchConnectionFromString() == null) {
             checkIfDockerClientAvailable();
             elastic = new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:" + Version.CURRENT);
             s = elastic.apply(s, description);
-            useDocker = true;
+            setUseDocker(true);
         }
         return s;
     }
@@ -83,9 +82,8 @@ public class ElasticsearchConnectionRule extends ExternalResource {
         //TODO: See if something needs to be cleaned up at test class level ??
     }
 
-    public ElasticsearchConnectionDetails getElasticsearchConnectionDetailsfromString() {
-
-        if (elasticsearchConnectionDetails == null) {
+    public ElasticsearchConnection getElasticsearchConnectionFromString() {
+        if (elasticSearchConnection == null) {
             try {
                 URI uri = new URI(elasticSearchConnectionString);
                 String host = uri.getHost();
@@ -99,12 +97,38 @@ public class ElasticsearchConnectionRule extends ExternalResource {
                     api_key = query.split(",")[0].split("=")[1];
                     api_secret = query.split(",")[1].split("=")[1];
                 }
-                elasticsearchConnectionDetails = new ElasticsearchConnectionDetails(host, port, scheme, api_key, api_secret);
+                elasticSearchConnection = ElasticsearchConnection.newBuilder()
+                        .withIndexPrefix(INDEX_PREFIX + System.currentTimeMillis())
+                        .withConnectionParameters(scheme, host, port)
+                        .withApiKeys(api_key, api_secret)
+                        .build();
             } catch (URISyntaxException e) {
                 return null;
             }
         }
-        return elasticsearchConnectionDetails;
+        return elasticSearchConnection;
+    }
+
+    public ElasticsearchConnection getElasticSearchConnectionForDocker() {
+        if (elasticSearchConnection == null) {
+            elasticSearchConnection = ElasticsearchConnection.newBuilder()
+                    .withIndexPrefix(INDEX_PREFIX + System.currentTimeMillis())
+                    .withConnectionParameters(ElasticsearchConnection.DEFAULT_SCHEME,
+                            elastic.getContainerIpAddress(),
+                            elastic.getMappedPort(ElasticsearchConnection.DEFAULT_PORT))
+                    .withApiKeys(null, null)
+                    .build();
+        }
+        return elasticSearchConnection;
+    }
+
+    public void closeElasticSearchConnection() throws IOException {
+        if (elasticSearchConnection != null) {
+            elasticSearchConnection.close();
+            // Make this object null otherwise tests after the first test would
+            // receive an client that is closed.
+            elasticSearchConnection = null;
+        }
     }
 
 
@@ -117,5 +141,13 @@ public class ElasticsearchConnectionRule extends ExternalResource {
                     ", Elastic tests will be skipped");
         }
         assumeNotNull(client);
+    }
+
+    private void setUseDocker(boolean useDocker) {
+        this.useDocker = useDocker;
+    }
+
+    public boolean useDocker() {
+        return useDocker;
     }
 }

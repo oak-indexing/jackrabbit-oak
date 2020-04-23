@@ -74,7 +74,6 @@ import static org.junit.Assert.fail;
 import static org.junit.Assume.assumeNotNull;
 
 public class ElasticIndexAggregationNtFileTest extends ElasticsearchAbstractQueryTest {
-    private static final Logger LOG = LoggerFactory.getLogger(ElasticIndexAggregationNtFileTest.class);
     private static final String NT_TEST_ASSET = "test:Asset";
 
     @Override

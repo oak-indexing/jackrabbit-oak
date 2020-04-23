@@ -16,11 +16,8 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elasticsearch;
 
-
-import com.github.dockerjava.api.DockerClient;
 import org.apache.commons.io.FileUtils;
 import org.apache.jackrabbit.oak.InitialContent;
-import org.apache.jackrabbit.oak.InitialContentHelper;
 import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.api.ContentRepository;
 import org.apache.jackrabbit.oak.commons.PerfLogger;
@@ -40,32 +37,24 @@ import org.apache.jackrabbit.oak.query.AbstractQueryTest;
 import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
-import org.elasticsearch.Version;
 import org.jetbrains.annotations.NotNull;
 import org.junit.After;
-import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.ClassRule;
-import org.junit.Rule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.DockerClientFactory;
-import org.testcontainers.elasticsearch.ElasticsearchContainer;
 
 import java.io.IOException;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.concurrent.TimeUnit;
 
 import static com.google.common.collect.Lists.newArrayList;
 import static org.apache.jackrabbit.oak.plugins.index.CompositeIndexEditorProvider.compose;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NAME;
 import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexDefinition.BULK_FLUSH_INTERVAL_MS_DEFAULT;
-import static org.junit.Assume.assumeNotNull;
 
 public abstract class ElasticsearchAbstractQueryTest extends AbstractQueryTest {
 
-    private static final Logger LOG = LoggerFactory.getLogger(ElasticsearchAbstractQueryTest.class);
+    protected static final Logger LOG = LoggerFactory.getLogger(ElasticsearchAbstractQueryTest.class);
 
     protected static final PerfLogger PERF_LOGGER =
             new PerfLogger(LoggerFactory.getLogger(ElasticsearchAbstractQueryTest.class.getName() + ".perf"));
@@ -77,7 +66,6 @@ public abstract class ElasticsearchAbstractQueryTest extends AbstractQueryTest {
     // needs authentication
     // Do not set this if docker is running and you want to run the tests on docker instead.
     private static final String elasticConnectionString = System.getProperty("elasticConnectionString");
-    static URI uri;
     private ElasticsearchConnection esConnection;
 
     // This is instantiated during repo creation but not hooked up to the async indexing lane
@@ -97,7 +85,7 @@ public abstract class ElasticsearchAbstractQueryTest extends AbstractQueryTest {
      */
     @After
     public void cleanup() throws IOException {
-        elasticRule.getElasticsearchConnectionDetailsfromString().closeESConnection();
+        elasticRule.closeElasticSearchConnection();
     }
 
     // Override this in extending test class to provide different ExtractedTextCache if needed
@@ -132,7 +120,7 @@ public abstract class ElasticsearchAbstractQueryTest extends AbstractQueryTest {
     // TODO provide a util here so that test classes simply need to mention the type of store they want to create
     // for now, memory store should suffice.
     protected NodeStore getNodeStore() {
-        if (nodeStore == null){
+        if (nodeStore == null) {
             nodeStore = new MemoryNodeStore();
         }
         return nodeStore;
@@ -151,7 +139,9 @@ public abstract class ElasticsearchAbstractQueryTest extends AbstractQueryTest {
 
     @Override
     protected ContentRepository createRepository() {
-        esConnection = elasticRule.getElasticsearchConnectionDetailsfromString().getEsConnection();
+
+        esConnection = elasticRule.useDocker() ? elasticRule.getElasticSearchConnectionForDocker() :
+                elasticRule.getElasticsearchConnectionFromString();
         ElasticsearchIndexEditorProvider editorProvider = getElasticIndexEditorProvider(esConnection);
         ElasticsearchIndexProvider indexProvider = new ElasticsearchIndexProvider(esConnection);
 
@@ -183,7 +173,7 @@ public abstract class ElasticsearchAbstractQueryTest extends AbstractQueryTest {
 
 
     protected static void assertEventually(Runnable r) {
-        ElasticsearchTestUtils.assertEventually(r, BULK_FLUSH_INTERVAL_MS_DEFAULT * 3);
+        ElasticsearchTestUtils.assertEventually(r, BULK_FLUSH_INTERVAL_MS_DEFAULT * 5);
     }
 
     protected IndexDefinitionBuilder createIndex(String... propNames) {
