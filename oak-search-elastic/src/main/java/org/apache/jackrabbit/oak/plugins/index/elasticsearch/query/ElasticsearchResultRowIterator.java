@@ -40,6 +40,9 @@ import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.search.aggregations.Aggregations;
+import org.elasticsearch.search.aggregations.bucket.terms.Terms;
+import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -53,6 +56,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiPredicate;
@@ -156,14 +160,23 @@ class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.FulltextR
         SearchHit lastDocToRecord = null;
         try {
             ElasticsearchSearcher searcher = getCurrentSearcher(indexNode);
-            QueryBuilder query = getESRequest(plan, pr);
+            QueryBuilder query = getESQuery(plan, pr);
+
+            List<TermsAggregationBuilder> aggregationBuilders = ElasticsearchAggregation.getAggregators(indexNode, plan, pr);
+
+            ElasticsearchSearcherModel elasticsearchSearcherModel = new ElasticsearchSearcherModel.ElasticsearchSearcherModelBuilder()
+                    .withQuery(query)
+                    .withAggregation(aggregationBuilders)
+                    .withBatchSize(nextBatchSize)
+                    .build();
+
             // TODO: custom scoring
 
             SearchResponse docs;
             long start = PERF_LOGGER.start();
             while (true) {
                 LOG.debug("loading {} entries for query {}", nextBatchSize, query);
-                docs = searcher.search(query, nextBatchSize);
+                docs = searcher.search(elasticsearchSearcherModel, nextBatchSize);
 
                 SearchHit[] searchHits = docs.getHits().getHits();
                 PERF_LOGGER.end(start, -1, "{} ...", searchHits.length);
@@ -177,6 +190,7 @@ class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.FulltextR
                 nextBatchSize = (int) Math.min(nextBatchSize * 2L, ELASTICSEARCH_QUERY_MAX_BATCH_SIZE);
 
                 // TODO: faceting
+                Aggregations aggregations = docs.getAggregations();
 
                 // TODO: excerpt
 
@@ -187,7 +201,7 @@ class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.FulltextR
                 for (SearchHit doc : searchHits) {
                     // TODO : excerpts
 
-                    FulltextIndex.FulltextResultRow row = convertToRow(doc);
+                    FulltextIndex.FulltextResultRow row = convertToRow(doc, aggregations);
                     if (row != null) {
                         queue.add(row);
                     }
@@ -222,7 +236,7 @@ class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.FulltextR
         return new ElasticsearchSearcher(indexNode);
     }
 
-    private FulltextIndex.FulltextResultRow convertToRow(SearchHit hit) throws IOException {
+    private FulltextIndex.FulltextResultRow convertToRow(SearchHit hit, Aggregations aggregations) throws IOException {
         String id = hit.getId();
         String path = idToPath(id);
         if (path != null) {
@@ -242,7 +256,7 @@ class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.FulltextR
             boolean shouldIncludeForHierarchy = rowInclusionPredicate.shouldInclude(path, plan);
             LOG.trace("Matched path {}; shouldIncludeForHierarchy: {}", path, shouldIncludeForHierarchy);
             return shouldIncludeForHierarchy ? new FulltextIndex.FulltextResultRow(path, hit.getScore(), null,
-                    null, null)
+                    new ElasticsearchFacetProvider((aggregations)), null)
                     : null;
         }
         return null;
@@ -261,7 +275,7 @@ class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.FulltextR
      * @param planResult
      * @return the Lucene query
      */
-    static QueryBuilder getESRequest(IndexPlan plan, PlanResult planResult) {
+    static QueryBuilder getESQuery(IndexPlan plan, PlanResult planResult) {
         List<QueryBuilder> qs = new ArrayList<>();
         Filter filter = plan.getFilter();
         FullTextExpression ft = filter.getFullTextConstraint();
@@ -722,4 +736,28 @@ class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.FulltextR
     private static String idToPath(String id) throws UnsupportedEncodingException {
         return URLDecoder.decode(id, "UTF-8");
     }
+
+    class ElasticsearchFacetProvider implements FulltextIndex.FacetProvider {
+        private Aggregations aggregations = null;
+
+        ElasticsearchFacetProvider(
+                Aggregations aggregations) {
+            this.aggregations = aggregations;
+        }
+
+        @Override
+        public List<FulltextIndex.Facet> getFacets(int numberOfFacets, String columnName) throws IOException {
+            List<FulltextIndex.Facet> facets = new LinkedList<>();
+            String facetProp = FulltextIndex.parseFacetField(columnName);
+            List<? extends Terms.Bucket> buckets = ((Terms) (aggregations.get(facetProp))).getBuckets();//.get(0).getKeyAsString();
+            for (Terms.Bucket bucket : buckets) {
+                String key = bucket.getKeyAsString();
+                long value = bucket.getDocCount();
+                FulltextIndex.Facet facet = new FulltextIndex.Facet(key, (int) value);
+                facets.add(facet);
+            }
+            return facets;
+        }
+    }
+
 }
