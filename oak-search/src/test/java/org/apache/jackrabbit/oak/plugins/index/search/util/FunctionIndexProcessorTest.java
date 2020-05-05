@@ -18,20 +18,14 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.search.util;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-
-import org.apache.jackrabbit.JcrConstants;
-import org.apache.jackrabbit.oak.api.PropertyState;
-import org.apache.jackrabbit.oak.api.Type;
-import org.apache.jackrabbit.oak.plugins.memory.ArrayBasedBlob;
-import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeBuilder;
-import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
-import org.apache.jackrabbit.oak.spi.state.NodeState;
-import org.junit.Test;
-
 import static org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState.EMPTY_NODE;
 import static org.junit.Assert.assertEquals;
+
+import java.util.Arrays;
+
+import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.plugins.memory.ArrayBasedBlob;
+import org.junit.Test;
 
 public class FunctionIndexProcessorTest {
 
