@@ -1,0 +1,105 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.jackrabbit.oak.plugins.index.elasticsearch.facets;
+
+import org.apache.jackrabbit.oak.plugins.index.elasticsearch.query.ElasticsearchIndexNode;
+import org.apache.jackrabbit.oak.plugins.index.elasticsearch.query.ElasticsearchSearcher;
+import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition.SecureFacetConfiguration;
+import org.apache.jackrabbit.oak.spi.query.Filter;
+import org.apache.jackrabbit.oak.spi.query.QueryIndex;
+import org.elasticsearch.index.query.QueryBuilder;
+import org.elasticsearch.search.SearchHit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.UnsupportedEncodingException;
+import java.net.URLDecoder;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+
+public class ElasticFacetHelper {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ElasticFacetHelper.class);
+
+    /**
+     * IndexPlan Attribute name which refers to the name of the fields that should be used for facets.
+     */
+    public static final String ATTR_FACET_FIELDS = "oak.facet.fields";
+
+    private ElasticFacetHelper() {
+    }
+
+    public static ElasticsearchFacets getAggregates(ElasticsearchSearcher searcher, QueryBuilder query,
+                                                    ElasticsearchIndexNode indexNode, QueryIndex.IndexPlan plan) {
+        List<String> facetFields = (List<String>) plan.getAttribute(ATTR_FACET_FIELDS);
+        ElasticsearchFacets elasticsearchFacets = null;
+        if (facetFields != null && facetFields.size() > 0) {
+            for (String facetField : facetFields) {
+                try {
+                    SecureFacetConfiguration secureFacetConfiguration = indexNode.getDefinition().getSecureFacetConfiguration();
+                    switch (secureFacetConfiguration.getMode()) {
+                        case INSECURE:
+                            elasticsearchFacets = new InsecureElasticSearchFacets(searcher, query, plan);
+                            break;
+                        case STATISTICAL:
+                            elasticsearchFacets = new StatisticalElasticSearchFacets(searcher, query, plan, secureFacetConfiguration);
+                            break;
+                        case SECURE:
+                        default:
+                            elasticsearchFacets = new SecureElasticSearchFacets(searcher, query, plan);
+                            break;
+                    }
+                } catch (IllegalArgumentException iae) {
+                    LOGGER.warn("facets for {} not yet indexed", facetField);
+                }
+            }
+        }
+        return elasticsearchFacets;
+    }
+
+    public static List<String> getAccessibleDocIds(SearchHit[] searchHits, Filter filter) throws UnsupportedEncodingException {
+        List<String> accessibleDocs = new LinkedList<>();
+        for (SearchHit searchHit : searchHits) {
+            String id = searchHit.getId();
+            String path = idToPath(id);
+            if (filter.isAccessible(path)) {
+                accessibleDocs.add(id);
+            }
+        }
+        return accessibleDocs;
+    }
+
+    public static int getAccessibleDocCount(Iterator<SearchHit> searchHitIterator, Filter filter) throws UnsupportedEncodingException {
+        int count = 0;
+        while (searchHitIterator.hasNext()) {
+            SearchHit searchHit = searchHitIterator.next();
+            String id = searchHit.getId();
+            String path = idToPath(id);
+            if (filter.isAccessible(path)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    public static String idToPath(String id) throws UnsupportedEncodingException {
+        return URLDecoder.decode(id, "UTF-8");
+    }
+}

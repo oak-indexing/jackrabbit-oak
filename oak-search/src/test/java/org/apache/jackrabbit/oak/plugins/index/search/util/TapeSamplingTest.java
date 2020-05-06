@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.jackrabbit.oak.plugins.index.lucene.util;
+package org.apache.jackrabbit.oak.plugins.index.search.util;
 
 import com.google.common.collect.AbstractIterator;
 import com.google.common.collect.Iterators;
