@@ -40,7 +40,7 @@ import com.google.common.base.Preconditions;
  */
 public class PersistedLinkedList implements NodeStateEntryList {
 
-    private final Logger LOG = LoggerFactory.getLogger(PersistedLinkedList.class);
+    private final static Logger LOG = LoggerFactory.getLogger(PersistedLinkedList.class);
 
     private static final String COMPACT_STORE_MILLIS_NAME = "oak.indexer.linkedList.compactMillis";
 
