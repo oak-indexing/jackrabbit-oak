@@ -44,13 +44,19 @@ class FlatFileStoreIterator extends AbstractIterator<NodeStateEntry> implements 
     private final Set<String> preferredPathElements;
     private int maxBufferSize;
     static final String BUFFER_MEM_LIMIT_CONFIG_NAME = "oak.indexer.memLimitInMB";
-    private static final int DEFAULT_BUFFER_MEM_LIMIT_IN_MB = 100;
+
+    // by default, use the PersistedLinkedList
+    private static final int DEFAULT_BUFFER_MEM_LIMIT_IN_MB = 0;
 
     public FlatFileStoreIterator(BlobStore blobStore, String fileName, Iterator<NodeStateEntry> baseItr, Set<String> preferredPathElements) {
+        this(blobStore, fileName, baseItr, preferredPathElements,
+                Integer.getInteger(BUFFER_MEM_LIMIT_CONFIG_NAME, DEFAULT_BUFFER_MEM_LIMIT_IN_MB));
+    }
+
+    public FlatFileStoreIterator(BlobStore blobStore, String fileName, Iterator<NodeStateEntry> baseItr, Set<String> preferredPathElements, int memLimitConfig) {
         this.baseItr = baseItr;
         this.preferredPathElements = preferredPathElements;
 
-        int memLimitConfig = Integer.getInteger(BUFFER_MEM_LIMIT_CONFIG_NAME, DEFAULT_BUFFER_MEM_LIMIT_IN_MB);
         if (memLimitConfig == 0) {
             log.info("Using a key-value store buffer: {}", fileName);
             NodeStateEntryReader reader = new NodeStateEntryReader(blobStore);
@@ -92,7 +98,8 @@ class FlatFileStoreIterator extends AbstractIterator<NodeStateEntry> implements 
                     maxBufferSize, buffer.estimatedMemoryUsage(), current.getPath());
         }
         if (!buffer.isEmpty()) {
-            return buffer.remove();
+            NodeStateEntry e = buffer.remove();
+            return wrapIfNeeded(e);
         }
         if (baseItr.hasNext()) {
             return wrap(baseItr.next());
@@ -120,10 +127,23 @@ class FlatFileStoreIterator extends AbstractIterator<NodeStateEntry> implements 
                     buffer.add(wrap(baseItr.next()));
                 }
                 if (qitr.hasNext()) {
-                    return qitr.next();
+                    return wrapIfNeeded(qitr.next());
                 }
                 return endOfData();
             }
         };
+    }
+
+    NodeStateEntry wrapIfNeeded(NodeStateEntry e) {
+        if (buffer instanceof PersistedLinkedList) {
+            // for the PersistedLinkedList, the entries from the iterators are
+            // de-serialized and don't contain the LazyChildrenNodeState -
+            // so we need to wrap them
+            return wrap(e);
+        }
+        // if not a PersistedLinkedList, no wrapping is needed, as the in-memory linked list
+        // already contains the LazyChildrenNodeState
+        // (actually wrapping would work just fine - it's just not needed)
+        return e;
     }
 }
