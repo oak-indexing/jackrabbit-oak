@@ -19,6 +19,7 @@
 
 package org.apache.jackrabbit.oak.index.indexer.document.flatfile;
 
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
@@ -26,6 +27,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.jackrabbit.oak.index.indexer.document.NodeStateEntry;
 import org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState;
+import org.apache.jackrabbit.oak.spi.blob.BlobStore;
 import org.apache.jackrabbit.oak.spi.state.ChildNodeEntry;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.junit.Test;
@@ -39,13 +41,18 @@ import static org.junit.Assert.fail;
 
 public class FlatFileStoreIteratorTest {
 
+    protected FlatFileStoreIterator newFlatFileStore(Iterator<NodeStateEntry> it, Set<String> set) {
+        BlobStore blobStore = null;
+        return new FlatFileStoreIterator(blobStore, "target/test",  it, set);
+    }
+
     @Test
     public void simpleTraversal() {
         Set<String> preferred = ImmutableSet.of("jcr:content");
         CountingIterable<NodeStateEntry> citr = createList(preferred, asList("/a", "/a/jcr:content", "/a/jcr:content/metadata",
                 "/a/d", "/e"));
 
-        FlatFileStoreIterator fitr = new FlatFileStoreIterator(citr.iterator(), preferred);
+        FlatFileStoreIterator fitr = newFlatFileStore(citr.iterator(), preferred);
         NodeStateEntry a = fitr.next();
         assertEquals("/a", a.getPath());
 
@@ -80,7 +87,7 @@ public class FlatFileStoreIteratorTest {
         CountingIterable<NodeStateEntry> citr = createList(preferred, asList("/a", "/a/jcr:content", "/a/jcr:content/metadata",
                 "/a/d", "/e"));
 
-        FlatFileStoreIterator fitr = new FlatFileStoreIterator(citr.iterator(), preferred);
+        FlatFileStoreIterator fitr = newFlatFileStore(citr.iterator(), preferred);
         NodeStateEntry a = fitr.next();
         assertEquals("/a", a.getPath());
 
@@ -110,7 +117,7 @@ public class FlatFileStoreIteratorTest {
 
         CountingIterable<NodeStateEntry> citr = createList(preferred, asList("/a", "/a/j:c", "/a/j:c/j:c", "/a/b"));
 
-        FlatFileStoreIterator fitr = new FlatFileStoreIterator(citr.iterator(), preferred);
+        FlatFileStoreIterator fitr = newFlatFileStore(citr.iterator(), preferred);
 
         NodeStateEntry a = fitr.next();
         assertEquals("/a", a.getPath());
@@ -135,7 +142,7 @@ public class FlatFileStoreIteratorTest {
 
         CountingIterable<NodeStateEntry> citr = createList(preferred, asList("/a", "/a/b", "/a/c"));
 
-        FlatFileStoreIterator fitr = new FlatFileStoreIterator(citr.iterator(), preferred);
+        FlatFileStoreIterator fitr = newFlatFileStore(citr.iterator(), preferred);
 
         NodeStateEntry a = fitr.next();
         assertEquals("/a", a.getPath());
@@ -153,7 +160,7 @@ public class FlatFileStoreIteratorTest {
                 new NodeStateEntry(EmptyNodeState.EMPTY_NODE, "/a", 20),
                 new NodeStateEntry(EmptyNodeState.EMPTY_NODE, "/a/b", 30)
         );
-        FlatFileStoreIterator fitr = new FlatFileStoreIterator(nseList.iterator(), ImmutableSet.of());
+        FlatFileStoreIterator fitr = newFlatFileStore(nseList.iterator(), ImmutableSet.of());
 
         NodeStateEntry entry = fitr.next();
         NodeState entryNS = entry.getNodeState();
@@ -178,7 +185,7 @@ public class FlatFileStoreIteratorTest {
             {
                 //default configured limit
                 List<NodeStateEntry> list = Lists.newArrayList(root, e100MB, e1Byte);
-                FlatFileStoreIterator fitr = new FlatFileStoreIterator(list.iterator(), ImmutableSet.of());
+                FlatFileStoreIterator fitr = newFlatFileStore(list.iterator(), ImmutableSet.of());
                 NodeState rootNS = fitr.next().getNodeState();
                 NodeState aNS = rootNS.getChildNode("a");//default is 100MB, this should work
                 try {
@@ -193,7 +200,7 @@ public class FlatFileStoreIteratorTest {
                 System.setProperty(BUFFER_MEM_LIMIT_CONFIG_NAME, "1");
 
                 List<NodeStateEntry> list = Lists.newArrayList(root, e1MB, e1Byte);
-                FlatFileStoreIterator fitr = new FlatFileStoreIterator(list.iterator(), ImmutableSet.of());
+                FlatFileStoreIterator fitr = newFlatFileStore(list.iterator(), ImmutableSet.of());
                 NodeState rootNS = fitr.next().getNodeState();
                 NodeState aNS = rootNS.getChildNode("a");//configured limit is 10 bytes, this should work
                 try {
@@ -209,7 +216,7 @@ public class FlatFileStoreIteratorTest {
                 System.setProperty(BUFFER_MEM_LIMIT_CONFIG_NAME, "1A");
 
                 List<NodeStateEntry> list = Lists.newArrayList(root, e100MB, e1Byte);
-                FlatFileStoreIterator fitr = new FlatFileStoreIterator(list.iterator(), ImmutableSet.of());
+                FlatFileStoreIterator fitr = newFlatFileStore(list.iterator(), ImmutableSet.of());
                 NodeState rootNS = fitr.next().getNodeState();
                 NodeState aNS = rootNS.getChildNode("a");//default is 100MB, this should work
                 try {
@@ -225,7 +232,7 @@ public class FlatFileStoreIteratorTest {
                 System.setProperty(BUFFER_MEM_LIMIT_CONFIG_NAME, "-1");
 
                 List<NodeStateEntry> list = Lists.newArrayList(root, e100MB, e1Byte);
-                FlatFileStoreIterator fitr = new FlatFileStoreIterator(list.iterator(), ImmutableSet.of());
+                FlatFileStoreIterator fitr = newFlatFileStore(list.iterator(), ImmutableSet.of());
                 NodeState rootNS = fitr.next().getNodeState();
                 NodeState aNS = rootNS.getChildNode("a");
                 aNS.getChildNode("b");//configure negative value - mem usage limit should be unbounded (long_max)

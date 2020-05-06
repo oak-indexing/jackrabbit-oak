@@ -19,35 +19,44 @@
 
 package org.apache.jackrabbit.oak.index.indexer.document.flatfile;
 
+import static com.google.common.collect.Iterators.concat;
+import static com.google.common.collect.Iterators.singletonIterator;
+
 import java.util.Iterator;
 import java.util.Set;
 
-import com.google.common.collect.AbstractIterator;
 import org.apache.jackrabbit.oak.index.indexer.document.NodeStateEntry;
-import org.apache.jackrabbit.oak.index.indexer.document.flatfile.FlatFileBufferLinkedList.NodeIterator;
+import org.apache.jackrabbit.oak.index.indexer.document.flatfile.linkedList.FlatFileBufferLinkedList;
+import org.apache.jackrabbit.oak.index.indexer.document.flatfile.linkedList.NodeStateEntryList;
+import org.apache.jackrabbit.oak.index.indexer.document.flatfile.linkedList.PersistedLinkedList;
+import org.apache.jackrabbit.oak.spi.blob.BlobStore;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static com.google.common.collect.Iterators.concat;
-import static com.google.common.collect.Iterators.singletonIterator;
+import com.google.common.collect.AbstractIterator;
 
 class FlatFileStoreIterator extends AbstractIterator<NodeStateEntry> implements Iterator<NodeStateEntry> {
     private final Logger log = LoggerFactory.getLogger(getClass());
     private final Iterator<NodeStateEntry> baseItr;
-    private final FlatFileBufferLinkedList buffer;
+    private final NodeStateEntryList buffer;
     private NodeStateEntry current;
     private final Set<String> preferredPathElements;
     private int maxBufferSize;
     static final String BUFFER_MEM_LIMIT_CONFIG_NAME = "oak.indexer.memLimitInMB";
     private static final int DEFAULT_BUFFER_MEM_LIMIT_IN_MB = 100;
 
-    public FlatFileStoreIterator(Iterator<NodeStateEntry> baseItr, Set<String> preferredPathElements) {
+    public FlatFileStoreIterator(BlobStore blobStore, String fileName, Iterator<NodeStateEntry> baseItr, Set<String> preferredPathElements) {
         this.baseItr = baseItr;
         this.preferredPathElements = preferredPathElements;
 
         int memLimitConfig = Integer.getInteger(BUFFER_MEM_LIMIT_CONFIG_NAME, DEFAULT_BUFFER_MEM_LIMIT_IN_MB);
-        if (memLimitConfig < 0) {
+        if (memLimitConfig == 0) {
+            log.info("Using a key-value store buffer: {}", fileName);
+            NodeStateEntryReader reader = new NodeStateEntryReader(blobStore);
+            NodeStateEntryWriter writer = new NodeStateEntryWriter(blobStore);
+            this.buffer = new PersistedLinkedList(fileName, writer, reader);
+        } else if (memLimitConfig < 0) {
             log.info("Setting buffer memory limit unbounded", memLimitConfig);
             this.buffer = new FlatFileBufferLinkedList();
         } else {
@@ -102,7 +111,7 @@ class FlatFileStoreIterator extends AbstractIterator<NodeStateEntry> implements 
     }
 
     private Iterator<NodeStateEntry> queueIterator() {
-        NodeIterator qitr = buffer.iterator();
+        Iterator<NodeStateEntry> qitr = buffer.iterator();
         return new AbstractIterator<NodeStateEntry>() {
             @Override
             protected NodeStateEntry computeNext() {
