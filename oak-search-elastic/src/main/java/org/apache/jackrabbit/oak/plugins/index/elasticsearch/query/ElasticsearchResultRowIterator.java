@@ -109,20 +109,20 @@ class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.FulltextR
     private boolean noDocs = false;
 
     private final Filter filter;
-    private final PlanResult pr;
+    private final PlanResult planResult;
     private final IndexPlan plan;
     private final ElasticsearchIndexNode indexNode;
     private final RowInclusionPredicate rowInclusionPredicate;
     private final LMSEstimator estimator;
 
     ElasticsearchResultRowIterator(@NotNull Filter filter,
-                                   @NotNull PlanResult pr,
+                                   @NotNull PlanResult planResult,
                                    @NotNull IndexPlan plan,
                                    ElasticsearchIndexNode indexNode,
                                    RowInclusionPredicate rowInclusionPredicate,
                                    LMSEstimator estimator) {
         this.filter = filter;
-        this.pr = pr;
+        this.planResult = planResult;
         this.plan = plan;
         this.indexNode = indexNode;
         this.rowInclusionPredicate = rowInclusionPredicate != null ? rowInclusionPredicate : RowInclusionPredicate.NOOP;
@@ -157,7 +157,7 @@ class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.FulltextR
         SearchHit lastDocToRecord = null;
         try {
             ElasticsearchSearcher searcher = getCurrentSearcher(indexNode);
-            QueryBuilder query = getESQuery(plan, pr);
+            QueryBuilder query = getESQuery(plan, planResult);
             int numberOfFacets = indexNode.getDefinition().getNumberOfTopFacets();
             List<TermsAggregationBuilder> aggregationBuilders = ElasticsearchAggregationBuilderUtil
                     .getAggregators(plan, numberOfFacets);
@@ -244,9 +244,9 @@ class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.FulltextR
             if ("".equals(path)) {
                 path = "/";
             }
-            if (this.pr.isPathTransformed()) {
+            if (planResult.isPathTransformed()) {
                 String originalPath = path;
-                path = this.pr.transformPath(path);
+                path = planResult.transformPath(path);
 
                 if (path == null) {
                     LOG.trace("Ignoring path {} : Transformation returned null", originalPath);
