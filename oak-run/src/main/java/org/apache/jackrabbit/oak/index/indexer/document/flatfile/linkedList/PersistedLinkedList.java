@@ -90,12 +90,14 @@ public class PersistedLinkedList implements NodeStateEntryList {
         size++;
         long now = System.currentTimeMillis();
         boolean compactNow = now >= lastCompact + compactStoreMillis;
+        long sizeBytes = store.getFileStore().size();
         if (compactNow || now >= lastLog + 10000) {
             LOG.info("Entries: " + size + " map size: " + map.sizeAsLong() + " file size: "
-                    + store.getFileStore().size() + " bytes");
+                    + sizeBytes + " bytes");
             lastLog = now;
         }
-        if (compactNow) {
+        if (compactNow && sizeBytes > 10L * 1000 * 1000) {
+            // compact once a minute, if larger than 10 MB
             LOG.info("Compacting...");
             store.close();
             MVStoreTool.compact(storeFileName, true);

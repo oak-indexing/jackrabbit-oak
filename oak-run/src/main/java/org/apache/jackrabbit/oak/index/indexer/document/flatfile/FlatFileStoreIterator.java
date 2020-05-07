@@ -46,7 +46,7 @@ class FlatFileStoreIterator extends AbstractIterator<NodeStateEntry> implements 
     static final String BUFFER_MEM_LIMIT_CONFIG_NAME = "oak.indexer.memLimitInMB";
 
     // by default, use the PersistedLinkedList
-    private static final int DEFAULT_BUFFER_MEM_LIMIT_IN_MB = 100;
+    private static final int DEFAULT_BUFFER_MEM_LIMIT_IN_MB = 0;
 
     public FlatFileStoreIterator(BlobStore blobStore, String fileName, Iterator<NodeStateEntry> baseItr, Set<String> preferredPathElements) {
         this(blobStore, fileName, baseItr, preferredPathElements,
