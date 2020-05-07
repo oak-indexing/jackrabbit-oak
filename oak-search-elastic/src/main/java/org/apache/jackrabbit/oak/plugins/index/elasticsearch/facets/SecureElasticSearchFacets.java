@@ -26,7 +26,7 @@ public class SecureElasticSearchFacets extends InsecureElasticSearchFacets {
 
     public SecureElasticSearchFacets(ElasticsearchSearcher searcher, QueryBuilder query,
                                      QueryIndex.IndexPlan plan) {
-        super(searcher, query, plan);
+        super(searcher, query, plan, null);
     }
 
     /*

@@ -27,29 +27,36 @@ import java.util.Random;
 public class StatisticalElasticSearchFacets extends InsecureElasticSearchFacets {
     private static final Logger LOG = LoggerFactory.getLogger(StatisticalElasticSearchFacets.class);
 
-    IndexDefinition.SecureFacetConfiguration secureFacetConfiguration;
+    private IndexDefinition.SecureFacetConfiguration secureFacetConfiguration;
 
     public StatisticalElasticSearchFacets(ElasticsearchSearcher searcher, QueryBuilder query,
-                                          QueryIndex.IndexPlan plan, IndexDefinition.SecureFacetConfiguration secureFacetConfiguration) {
-        super(searcher, query, plan);
+                                          QueryIndex.IndexPlan plan, IndexDefinition.SecureFacetConfiguration secureFacetConfiguration,
+                                          ElasticsearchAggregationData elasticsearchAggregationData) {
+        super(searcher, query, plan, elasticsearchAggregationData);
         this.secureFacetConfiguration = secureFacetConfiguration;
     }
 
     public Map<String, List<FulltextIndex.Facet>> getElasticSearchFacets(int numberOfFacets) throws IOException {
         Map<String, List<FulltextIndex.Facet>> result = new HashMap<>();
-        Map<String, List<FulltextIndex.Facet>> topChildren = super.getElasticSearchFacets(numberOfFacets);
-
+        Map<String, List<FulltextIndex.Facet>> topChildren;
         Filter filter = getPlan().getFilter();
         int hitCount;
-        long totalResults;
         int sampleSize = secureFacetConfiguration.getStatisticalFacetSampleSize();
-        ElasticsearchSearcherModel elasticsearchSearcherModel = new ElasticsearchSearcherModel.ElasticsearchSearcherModelBuilder()
-                .withQuery(getQuery())
-                .withBatchSize(ElasticsearchConstants.ELASTICSEARCH_QUERY_BATCH_SIZE)
-                .build();
-        SearchResponse docs = getSearcher().search(elasticsearchSearcherModel);
-        totalResults = docs.getHits().getTotalHits().value;
-        hitCount = Math.toIntExact(totalResults);
+
+        if (getElasticsearchAggregationData() == null || getElasticsearchAggregationData().getNumberOfFacets() != numberOfFacets) {
+            LOG.warn("Facets and Totalhit count are being retrieved by calling Elasticsearch");
+            topChildren = super.getElasticSearchFacets(numberOfFacets);
+            ElasticsearchSearcherModel elasticsearchSearcherModel = new ElasticsearchSearcherModel.ElasticsearchSearcherModelBuilder()
+                    .withQuery(getQuery())
+                    .withBatchSize(ElasticsearchConstants.ELASTICSEARCH_QUERY_BATCH_SIZE)
+                    .build();
+            SearchResponse docs = getSearcher().search(elasticsearchSearcherModel);
+            long totalResults = docs.getHits().getTotalHits().value;
+            hitCount = Math.toIntExact(totalResults);
+        } else {
+            topChildren = changeToFacetList(getElasticsearchAggregationData().getAggregations().getAsMap());
+            hitCount = Math.toIntExact(getElasticsearchAggregationData().getTotalDocuments());
+        }
 
         // In case the hit count is less than sample size(A very small reposiotry perhaps)
         // Delegate getting FacetResults to SecureSortedSetDocValuesFacetCounts to get the exact count

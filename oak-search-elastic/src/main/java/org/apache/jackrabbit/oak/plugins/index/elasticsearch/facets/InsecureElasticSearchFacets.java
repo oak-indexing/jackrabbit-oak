@@ -9,6 +9,8 @@ import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.search.aggregations.Aggregation;
 import org.elasticsearch.search.aggregations.bucket.terms.Terms;
 import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -17,19 +19,27 @@ import java.util.List;
 import java.util.Map;
 
 public class InsecureElasticSearchFacets implements ElasticsearchFacets {
+    private static final Logger LOG = LoggerFactory.getLogger(InsecureElasticSearchFacets.class);
+
     private ElasticsearchSearcher searcher;
     private QueryBuilder query;
     private QueryIndex.IndexPlan plan;
+    private ElasticsearchAggregationData elasticsearchAggregationData;
 
     public InsecureElasticSearchFacets(ElasticsearchSearcher searcher, QueryBuilder query,
-                                       QueryIndex.IndexPlan plan) {
+                                       QueryIndex.IndexPlan plan, ElasticsearchAggregationData elasticsearchAggregationData) {
         this.searcher = searcher;
         this.query = query;
         this.plan = plan;
+        this.elasticsearchAggregationData = elasticsearchAggregationData;
     }
 
     @Override
     public Map<String, List<FulltextIndex.Facet>> getElasticSearchFacets(int numberOfFacets) throws IOException {
+        if (elasticsearchAggregationData != null && numberOfFacets == elasticsearchAggregationData.getNumberOfFacets()) {
+            return changeToFacetList(elasticsearchAggregationData.getAggregations().getAsMap());
+        }
+        LOG.warn("Facet data is being retrieved by again calling Elasticsearch");
         List<TermsAggregationBuilder> aggregationBuilders = ElasticsearchAggregationBuilderUtil.getAggregators(plan, numberOfFacets);
         ElasticsearchSearcherModel elasticsearchSearcherModel = new ElasticsearchSearcherModel.ElasticsearchSearcherModelBuilder()
                 .withQuery(query)
@@ -39,7 +49,7 @@ public class InsecureElasticSearchFacets implements ElasticsearchFacets {
         return changeToFacetList(facetResult);
     }
 
-    private Map<String, List<FulltextIndex.Facet>> changeToFacetList(Map<String, Aggregation> docs) {
+    Map<String, List<FulltextIndex.Facet>> changeToFacetList(Map<String, Aggregation> docs) {
         Map<String, List<FulltextIndex.Facet>> facetMap = new HashMap<>();
         for (String facet : docs.keySet()) {
             Terms terms = (Terms) docs.get(facet);
@@ -68,5 +78,10 @@ public class InsecureElasticSearchFacets implements ElasticsearchFacets {
     @Override
     public QueryIndex.IndexPlan getPlan() {
         return plan;
+    }
+
+    @Override
+    public ElasticsearchAggregationData getElasticsearchAggregationData() {
+        return elasticsearchAggregationData;
     }
 }

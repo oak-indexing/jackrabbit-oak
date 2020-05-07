@@ -13,11 +13,16 @@ import java.util.Map;
 public interface ElasticsearchFacets {
 
     ElasticsearchSearcher getSearcher();
+
     QueryBuilder getQuery();
+
     QueryIndex.IndexPlan getPlan();
+
     Map<String, List<FulltextIndex.Facet>> getElasticSearchFacets(int numberOfFacets) throws IOException;
 
-    public static class ElasticSearchFacet {
+    ElasticsearchAggregationData getElasticsearchAggregationData();
+
+    class ElasticSearchFacet {
 
         private final String label;
         private final Long count;

@@ -47,7 +47,8 @@ public class ElasticFacetHelper {
     }
 
     public static ElasticsearchFacets getAggregates(ElasticsearchSearcher searcher, QueryBuilder query,
-                                                    ElasticsearchIndexNode indexNode, QueryIndex.IndexPlan plan) {
+                                                    ElasticsearchIndexNode indexNode, QueryIndex.IndexPlan plan,
+                                                    ElasticsearchAggregationData elasticsearchAggregationData) {
         List<String> facetFields = (List<String>) plan.getAttribute(ATTR_FACET_FIELDS);
         ElasticsearchFacets elasticsearchFacets = null;
         if (facetFields != null && facetFields.size() > 0) {
@@ -56,10 +57,11 @@ public class ElasticFacetHelper {
                     SecureFacetConfiguration secureFacetConfiguration = indexNode.getDefinition().getSecureFacetConfiguration();
                     switch (secureFacetConfiguration.getMode()) {
                         case INSECURE:
-                            elasticsearchFacets = new InsecureElasticSearchFacets(searcher, query, plan);
+                            elasticsearchFacets = new InsecureElasticSearchFacets(searcher, query, plan, elasticsearchAggregationData);
                             break;
                         case STATISTICAL:
-                            elasticsearchFacets = new StatisticalElasticSearchFacets(searcher, query, plan, secureFacetConfiguration);
+                            elasticsearchFacets = new StatisticalElasticSearchFacets(searcher, query, plan,
+                                    secureFacetConfiguration, elasticsearchAggregationData);
                             break;
                         case SECURE:
                         default:

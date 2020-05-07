@@ -21,7 +21,9 @@ import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.commons.PerfLogger;
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.facets.ElasticFacetHelper;
+import org.apache.jackrabbit.oak.plugins.index.elasticsearch.facets.ElasticsearchAggregationData;
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.facets.ElasticsearchFacets;
+import org.apache.jackrabbit.oak.plugins.index.elasticsearch.util.ElasticsearchAggregationBuilderUtil;
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.util.ElasticsearchConstants;
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
@@ -43,6 +45,7 @@ import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -155,9 +158,14 @@ class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.FulltextR
         try {
             ElasticsearchSearcher searcher = getCurrentSearcher(indexNode);
             QueryBuilder query = getESQuery(plan, pr);
+            int numberOfFacets = indexNode.getDefinition().getNumberOfTopFacets();
+            List<TermsAggregationBuilder> aggregationBuilders = ElasticsearchAggregationBuilderUtil
+                    .getAggregators(plan, numberOfFacets);
+
             ElasticsearchSearcherModel elasticsearchSearcherModel = new ElasticsearchSearcherModel.ElasticsearchSearcherModelBuilder()
                     .withQuery(query)
                     .withBatchSize(nextBatchSize)
+                    .withAggregation(aggregationBuilders)
                     .build();
 
             // TODO: custom scoring
@@ -167,6 +175,9 @@ class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.FulltextR
             while (true) {
                 LOG.debug("loading {} entries for query {}", nextBatchSize, query);
                 docs = searcher.search(elasticsearchSearcherModel);
+                long totalHits = docs.getHits().getTotalHits().value;
+                ElasticsearchAggregationData elasticsearchAggregationData =
+                        new ElasticsearchAggregationData(numberOfFacets, totalHits, docs.getAggregations());
 
                 SearchHit[] searchHits = docs.getHits().getHits();
                 PERF_LOGGER.end(start, -1, "{} ...", searchHits.length);
@@ -179,7 +190,7 @@ class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.FulltextR
 
                 nextBatchSize = (int) Math.min(nextBatchSize * 2L, ElasticsearchConstants.ELASTICSEARCH_QUERY_MAX_BATCH_SIZE);
 
-                ElasticsearchFacetProvider elasticsearchFacetProvider = new ElasticsearchFacetProvider(ElasticFacetHelper.getAggregates(searcher, query, indexNode, plan));
+                ElasticsearchFacetProvider elasticsearchFacetProvider = new ElasticsearchFacetProvider(ElasticFacetHelper.getAggregates(searcher, query, indexNode, plan, elasticsearchAggregationData));
 
                 // TODO: excerpt
 
