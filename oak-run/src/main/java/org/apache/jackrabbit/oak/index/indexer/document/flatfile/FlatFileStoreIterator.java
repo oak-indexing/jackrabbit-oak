@@ -63,7 +63,7 @@ class FlatFileStoreIterator extends AbstractIterator<NodeStateEntry> implements 
             NodeStateEntryWriter writer = new NodeStateEntryWriter(blobStore);
             this.buffer = new PersistedLinkedList(fileName, writer, reader);
         } else if (memLimitConfig < 0) {
-            log.info("Setting buffer memory limit unbounded", memLimitConfig);
+            log.info("Setting buffer memory limit unbounded");
             this.buffer = new FlatFileBufferLinkedList();
         } else {
             log.info("Setting buffer memory limit to {} MBs", memLimitConfig);
@@ -129,12 +129,13 @@ class FlatFileStoreIterator extends AbstractIterator<NodeStateEntry> implements 
                 if (qitr.hasNext()) {
                     return wrapIfNeeded(qitr.next());
                 }
+                buffer.close();
                 return endOfData();
             }
         };
     }
 
-    NodeStateEntry wrapIfNeeded(NodeStateEntry e) {
+    private NodeStateEntry wrapIfNeeded(NodeStateEntry e) {
         if (buffer instanceof PersistedLinkedList) {
             // for the PersistedLinkedList, the entries from the iterators are
             // de-serialized and don't contain the LazyChildrenNodeState -

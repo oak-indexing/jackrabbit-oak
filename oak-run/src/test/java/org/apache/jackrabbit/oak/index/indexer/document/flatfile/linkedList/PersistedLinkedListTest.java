@@ -51,7 +51,9 @@ public class PersistedLinkedListTest extends FlatFileBufferLinkedListTest {
     }
 
     @Test
+    @Override
     public void memUsage() {
+        // estimated memory usage is alway 0 with the persisted list
     }
 
 }
