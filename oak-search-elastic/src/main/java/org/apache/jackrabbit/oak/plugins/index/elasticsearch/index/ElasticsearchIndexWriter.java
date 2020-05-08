@@ -21,6 +21,8 @@ import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexD
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.editor.FulltextIndexWriter;
 import org.elasticsearch.action.DocWriteRequest;
+import org.elasticsearch.action.admin.indices.alias.IndicesAliasesRequest;
+import org.elasticsearch.action.admin.indices.alias.get.GetAliasesRequest;
 import org.elasticsearch.action.bulk.BackoffPolicy;
 import org.elasticsearch.action.bulk.BulkItemResponse;
 import org.elasticsearch.action.bulk.BulkProcessor;
@@ -28,9 +30,12 @@ import org.elasticsearch.action.bulk.BulkRequest;
 import org.elasticsearch.action.bulk.BulkResponse;
 import org.elasticsearch.action.delete.DeleteRequest;
 import org.elasticsearch.action.index.IndexRequest;
+import org.elasticsearch.client.GetAliasesResponse;
+import org.elasticsearch.client.IndicesClient;
 import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.indices.CreateIndexRequest;
 import org.elasticsearch.client.indices.CreateIndexResponse;
+import org.elasticsearch.cluster.metadata.AliasMetaData;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.ByteSizeValue;
@@ -44,8 +49,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.index.ElasticsearchDocument.pathToId;
@@ -92,7 +98,7 @@ class ElasticsearchIndexWriter implements FulltextIndexWriter<ElasticsearchDocum
 
     @Override
     public void updateDocument(String path, ElasticsearchDocument doc) throws IOException {
-        IndexRequest request = new IndexRequest(indexDefinition.getRemoteIndexName())
+        IndexRequest request = new IndexRequest(indexDefinition.getRemoteIndexAlias())
                 .id(pathToId(path))
                 .source(doc.build(), XContentType.JSON);
         bulkProcessor.add(request);
@@ -100,7 +106,7 @@ class ElasticsearchIndexWriter implements FulltextIndexWriter<ElasticsearchDocum
 
     @Override
     public void deleteDocuments(String path) throws IOException {
-        DeleteRequest request = new DeleteRequest(indexDefinition.getRemoteIndexName())
+        DeleteRequest request = new DeleteRequest(indexDefinition.getRemoteIndexAlias())
                 .id(pathToId(path));
         bulkProcessor.add(request);
     }
@@ -142,7 +148,35 @@ class ElasticsearchIndexWriter implements FulltextIndexWriter<ElasticsearchDocum
     // TODO: we need to check if the index already exists and in that case we have to figure out if there are
     // "breaking changes" in the index definition
     protected void provisionIndex() throws IOException {
-        CreateIndexRequest request = new CreateIndexRequest(indexDefinition.getRemoteIndexName());
+
+        IndicesClient indicesClient = elasticsearchConnection.getClient().indices();
+        final String indexName = indexDefinition.getRemoteIndexName();
+
+        CreateIndexRequest createIndexRequest = constructCreateIndexRequest(indexName);
+        String requestMsg = Strings.toString(createIndexRequest.toXContent(jsonBuilder(), EMPTY_PARAMS));
+        CreateIndexResponse response = indicesClient.create(createIndexRequest, RequestOptions.DEFAULT);
+
+        LOG.info("Updated settings for index {} = {}. Response acknowledged: {}",
+                indexDefinition.getRemoteIndexAlias(), requestMsg, response.isAcknowledged());
+
+
+        GetAliasesRequest getAliasesRequest = new GetAliasesRequest(indexDefinition.getRemoteIndexAlias());
+        GetAliasesResponse aliasesResponse = indicesClient.getAlias(getAliasesRequest, RequestOptions.DEFAULT);
+        Map<String, Set<AliasMetaData>> aliases = aliasesResponse.getAliases();
+        IndicesAliasesRequest indicesAliasesRequest = new IndicesAliasesRequest();
+        for (String oldIndexName : aliases.keySet()) {
+            IndicesAliasesRequest.AliasActions removeAction = new IndicesAliasesRequest.AliasActions(IndicesAliasesRequest.AliasActions.Type.REMOVE);
+            removeAction.index(oldIndexName).alias(indexDefinition.getRemoteIndexAlias());
+            indicesAliasesRequest.addAliasAction(removeAction);
+        }
+        IndicesAliasesRequest.AliasActions addAction = new IndicesAliasesRequest.AliasActions(IndicesAliasesRequest.AliasActions.Type.ADD);
+        addAction.index(indexName).alias(indexDefinition.getRemoteIndexAlias());
+        indicesAliasesRequest.addAliasAction(addAction);
+        indicesClient.updateAliases(indicesAliasesRequest, RequestOptions.DEFAULT);
+    }
+
+    private CreateIndexRequest constructCreateIndexRequest(String indexName) throws IOException {
+        CreateIndexRequest request = new CreateIndexRequest(indexName);
 
         // provision settings
         request.settings(Settings.builder()
@@ -179,11 +213,7 @@ class ElasticsearchIndexWriter implements FulltextIndexWriter<ElasticsearchDocum
         mappingBuilder.endObject();
         request.mapping(mappingBuilder);
 
-        String requestMsg = Strings.toString(request.toXContent(jsonBuilder(), EMPTY_PARAMS));
-        CreateIndexResponse response = elasticsearchConnection.getClient().indices().create(request, RequestOptions.DEFAULT);
-
-        LOG.info("Updated settings for index {} = {}. Response acknowledged: {}",
-                indexDefinition.getRemoteIndexName(), requestMsg, response.isAcknowledged());
+        return request;
     }
 
     private class OakBulkProcessorListener implements BulkProcessor.Listener {
