@@ -30,6 +30,7 @@ import org.elasticsearch.action.bulk.BulkRequest;
 import org.elasticsearch.action.bulk.BulkResponse;
 import org.elasticsearch.action.delete.DeleteRequest;
 import org.elasticsearch.action.index.IndexRequest;
+import org.elasticsearch.action.support.master.AcknowledgedResponse;
 import org.elasticsearch.client.GetAliasesResponse;
 import org.elasticsearch.client.IndicesClient;
 import org.elasticsearch.client.RequestOptions;
@@ -172,7 +173,9 @@ class ElasticsearchIndexWriter implements FulltextIndexWriter<ElasticsearchDocum
         IndicesAliasesRequest.AliasActions addAction = new IndicesAliasesRequest.AliasActions(IndicesAliasesRequest.AliasActions.Type.ADD);
         addAction.index(indexName).alias(indexDefinition.getRemoteIndexAlias());
         indicesAliasesRequest.addAliasAction(addAction);
-        indicesClient.updateAliases(indicesAliasesRequest, RequestOptions.DEFAULT);
+        AcknowledgedResponse updateAliasResponse =indicesClient.updateAliases(indicesAliasesRequest, RequestOptions.DEFAULT);
+        LOG.info("Updated alias {} to index {}. Response acknowledged: {}", indexDefinition.getRemoteIndexAlias(),
+                indexDefinition.getRemoteIndexName(), updateAliasResponse.isAcknowledged());
     }
 
     private CreateIndexRequest constructCreateIndexRequest(String indexName) throws IOException {
