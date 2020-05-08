@@ -49,29 +49,20 @@ public class ElasticFacetHelper {
     public static ElasticsearchFacets getAggregates(ElasticsearchSearcher searcher, QueryBuilder query,
                                                     ElasticsearchIndexNode indexNode, QueryIndex.IndexPlan plan,
                                                     ElasticsearchAggregationData elasticsearchAggregationData) {
-        List<String> facetFields = (List<String>) plan.getAttribute(ATTR_FACET_FIELDS);
         ElasticsearchFacets elasticsearchFacets = null;
-        if (facetFields != null && facetFields.size() > 0) {
-            for (String facetField : facetFields) {
-                try {
-                    SecureFacetConfiguration secureFacetConfiguration = indexNode.getDefinition().getSecureFacetConfiguration();
-                    switch (secureFacetConfiguration.getMode()) {
-                        case INSECURE:
-                            elasticsearchFacets = new InsecureElasticSearchFacets(searcher, query, plan, elasticsearchAggregationData);
-                            break;
-                        case STATISTICAL:
-                            elasticsearchFacets = new StatisticalElasticSearchFacets(searcher, query, plan,
-                                    secureFacetConfiguration, elasticsearchAggregationData);
-                            break;
-                        case SECURE:
-                        default:
-                            elasticsearchFacets = new SecureElasticSearchFacets(searcher, query, plan);
-                            break;
-                    }
-                } catch (IllegalArgumentException iae) {
-                    LOGGER.warn("facets for {} not yet indexed", facetField);
-                }
-            }
+        SecureFacetConfiguration secureFacetConfiguration = indexNode.getDefinition().getSecureFacetConfiguration();
+        switch (secureFacetConfiguration.getMode()) {
+            case INSECURE:
+                elasticsearchFacets = new InsecureElasticSearchFacets(searcher, query, plan, elasticsearchAggregationData);
+                break;
+            case STATISTICAL:
+                elasticsearchFacets = new StatisticalElasticSearchFacets(searcher, query, plan,
+                        secureFacetConfiguration, elasticsearchAggregationData);
+                break;
+            case SECURE:
+            default:
+                elasticsearchFacets = new SecureElasticSearchFacets(searcher, query, plan);
+                break;
         }
         return elasticsearchFacets;
     }
