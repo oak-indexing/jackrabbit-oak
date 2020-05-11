@@ -23,6 +23,7 @@ import org.apache.jackrabbit.oak.plugins.index.search.spi.editor.FulltextIndexWr
 import org.elasticsearch.action.DocWriteRequest;
 import org.elasticsearch.action.admin.indices.alias.IndicesAliasesRequest;
 import org.elasticsearch.action.admin.indices.alias.get.GetAliasesRequest;
+import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest;
 import org.elasticsearch.action.bulk.BackoffPolicy;
 import org.elasticsearch.action.bulk.BulkItemResponse;
 import org.elasticsearch.action.bulk.BulkProcessor;
@@ -173,9 +174,21 @@ class ElasticsearchIndexWriter implements FulltextIndexWriter<ElasticsearchDocum
         IndicesAliasesRequest.AliasActions addAction = new IndicesAliasesRequest.AliasActions(IndicesAliasesRequest.AliasActions.Type.ADD);
         addAction.index(indexName).alias(indexDefinition.getRemoteIndexAlias());
         indicesAliasesRequest.addAliasAction(addAction);
-        AcknowledgedResponse updateAliasResponse =indicesClient.updateAliases(indicesAliasesRequest, RequestOptions.DEFAULT);
+        AcknowledgedResponse updateAliasResponse = indicesClient.updateAliases(indicesAliasesRequest, RequestOptions.DEFAULT);
         LOG.info("Updated alias {} to index {}. Response acknowledged: {}", indexDefinition.getRemoteIndexAlias(),
                 indexDefinition.getRemoteIndexName(), updateAliasResponse.isAcknowledged());
+        deleteOldIndices(indicesClient, aliases.keySet());
+    }
+
+    private void deleteOldIndices(IndicesClient indicesClient, Set<String> indices) throws IOException {
+        if (indices.size() == 0)
+            return;
+        DeleteIndexRequest deleteIndexRequest = new DeleteIndexRequest();
+        for (String oldIndexName : indices) {
+            deleteIndexRequest.indices(oldIndexName);
+        }
+        AcknowledgedResponse deleteIndexResponse = indicesClient.delete(deleteIndexRequest, RequestOptions.DEFAULT);
+        LOG.info("Deleted indices {}. Response acknowledged: {}", indices.toString(), deleteIndexResponse.isAcknowledged());
     }
 
     private CreateIndexRequest constructCreateIndexRequest(String indexName) throws IOException {
