@@ -18,6 +18,10 @@ package org.apache.jackrabbit.oak.plugins.index.elasticsearch.facets;
 
 import org.elasticsearch.search.aggregations.Aggregations;
 
+/*
+    This class's object is used in facets to save unnecessary call to Elasticsearch
+    as this info is also retrieved when calling ES in rowIterator.
+ */
 public class ElasticsearchAggregationData {
     private int numberOfFacets; // topFacet count from indexDefinition
     private long totalDocuments; // total documents in query result.

@@ -52,8 +52,8 @@ public class InsecureElasticSearchFacets implements ElasticsearchFacets {
 
     @Override
     public Map<String, List<FulltextIndex.Facet>> getElasticSearchFacets(int numberOfFacets) throws IOException {
-        if (elasticsearchAggregationData != null && numberOfFacets == elasticsearchAggregationData.getNumberOfFacets()) {
-            return changeToFacetList(elasticsearchAggregationData.getAggregations().getAsMap());
+        if (elasticsearchAggregationData != null && numberOfFacets <= elasticsearchAggregationData.getNumberOfFacets()) {
+            return changeToFacetList(elasticsearchAggregationData.getAggregations().getAsMap(), numberOfFacets);
         }
         LOG.warn("Facet data is being retrieved by again calling Elasticsearch");
         List<TermsAggregationBuilder> aggregationBuilders = ElasticsearchAggregationBuilderUtil.getAggregators(plan, numberOfFacets);
@@ -62,10 +62,10 @@ public class InsecureElasticSearchFacets implements ElasticsearchFacets {
                 .withAggregation(aggregationBuilders)
                 .build();
         Map<String, Aggregation> facetResult = searcher.search(elasticsearchSearcherModel).getAggregations().getAsMap();
-        return changeToFacetList(facetResult);
+        return changeToFacetList(facetResult, numberOfFacets);
     }
 
-    Map<String, List<FulltextIndex.Facet>> changeToFacetList(Map<String, Aggregation> docs) {
+    Map<String, List<FulltextIndex.Facet>> changeToFacetList(Map<String, Aggregation> docs, int topFacetCount) {
         Map<String, List<FulltextIndex.Facet>> facetMap = new HashMap<>();
         for (String facet : docs.keySet()) {
             Terms terms = (Terms) docs.get(facet);
@@ -76,7 +76,12 @@ public class InsecureElasticSearchFacets implements ElasticsearchFacets {
                 long facetCount = bucket.getDocCount();
                 facetList.add(new FulltextIndex.Facet(facetKey, (int) facetCount));
             }
-            facetMap.put(facet, facetList);
+
+            if ((facetList.size() > topFacetCount)) {
+                facetMap.put(facet, facetList.subList(0, topFacetCount));
+            } else {
+                facetMap.put(facet, facetList);
+            }
         }
         return facetMap;
     }

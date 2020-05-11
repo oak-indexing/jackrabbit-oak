@@ -25,8 +25,6 @@ import org.apache.jackrabbit.oak.spi.query.Filter;
 import org.apache.jackrabbit.oak.spi.query.QueryIndex;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.search.SearchHit;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
@@ -36,20 +34,13 @@ import java.util.List;
 
 public class ElasticFacetHelper {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(ElasticFacetHelper.class);
-
-    /**
-     * IndexPlan Attribute name which refers to the name of the fields that should be used for facets.
-     */
-    public static final String ATTR_FACET_FIELDS = "oak.facet.fields";
-
     private ElasticFacetHelper() {
     }
 
     public static ElasticsearchFacets getAggregates(ElasticsearchSearcher searcher, QueryBuilder query,
                                                     ElasticsearchIndexNode indexNode, QueryIndex.IndexPlan plan,
                                                     ElasticsearchAggregationData elasticsearchAggregationData) {
-        ElasticsearchFacets elasticsearchFacets = null;
+        ElasticsearchFacets elasticsearchFacets;
         SecureFacetConfiguration secureFacetConfiguration = indexNode.getDefinition().getSecureFacetConfiguration();
         switch (secureFacetConfiguration.getMode()) {
             case INSECURE:

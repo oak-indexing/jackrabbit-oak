@@ -25,7 +25,6 @@ import org.elasticsearch.search.aggregations.AggregationBuilders;
 import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -36,7 +35,6 @@ public final class ElasticsearchAggregationBuilderUtil {
 
     public static List<TermsAggregationBuilder> getAggregators(QueryIndex.IndexPlan plan, int numberOfFacets) {
         List<TermsAggregationBuilder> termsAggregationBuilders = new LinkedList<>();
-        Iterator<Filter.PropertyRestriction> it = plan.getFilter().getPropertyRestrictions().iterator();
         Collection<Filter.PropertyRestriction> propertyRestrictions = plan.getFilter().getPropertyRestrictions();
         for (Filter.PropertyRestriction propertyRestriction : propertyRestrictions) {
             String name = propertyRestriction.propertyName;

@@ -43,7 +43,7 @@ import java.util.Random;
 public class StatisticalElasticSearchFacets extends InsecureElasticSearchFacets {
     private static final Logger LOG = LoggerFactory.getLogger(StatisticalElasticSearchFacets.class);
 
-    private IndexDefinition.SecureFacetConfiguration secureFacetConfiguration;
+    private final IndexDefinition.SecureFacetConfiguration secureFacetConfiguration;
 
     public StatisticalElasticSearchFacets(ElasticsearchSearcher searcher, QueryBuilder query,
                                           QueryIndex.IndexPlan plan, IndexDefinition.SecureFacetConfiguration secureFacetConfiguration,
@@ -58,8 +58,8 @@ public class StatisticalElasticSearchFacets extends InsecureElasticSearchFacets 
         Filter filter = getPlan().getFilter();
         int hitCount;
         int sampleSize = secureFacetConfiguration.getStatisticalFacetSampleSize();
-
-        if (getElasticsearchAggregationData() == null || getElasticsearchAggregationData().getNumberOfFacets() != numberOfFacets) {
+        ElasticsearchAggregationData aggregationData = getElasticsearchAggregationData();
+        if (aggregationData == null || aggregationData.getNumberOfFacets() < numberOfFacets) {
             LOG.warn("Facets and Totalhit count are being retrieved by calling Elasticsearch");
             topChildren = super.getElasticSearchFacets(numberOfFacets);
             ElasticsearchSearcherModel elasticsearchSearcherModel = new ElasticsearchSearcherModel.ElasticsearchSearcherModelBuilder()
@@ -70,7 +70,7 @@ public class StatisticalElasticSearchFacets extends InsecureElasticSearchFacets 
             long totalResults = docs.getHits().getTotalHits().value;
             hitCount = Math.toIntExact(totalResults);
         } else {
-            topChildren = changeToFacetList(getElasticsearchAggregationData().getAggregations().getAsMap());
+            topChildren = changeToFacetList(getElasticsearchAggregationData().getAggregations().getAsMap(), numberOfFacets);
             hitCount = Math.toIntExact(getElasticsearchAggregationData().getTotalDocuments());
         }
 
@@ -99,8 +99,8 @@ public class StatisticalElasticSearchFacets extends InsecureElasticSearchFacets 
 
     private Iterator<SearchHit> getMatchingDocIterator(ElasticsearchSearcher searcher, QueryBuilder query) {
         return new AbstractIterator<SearchHit>() {
-            List<SearchHit> matchigDocuments = new LinkedList<>();
-            Iterator<SearchHit> matchingDocsListIterator = matchigDocuments.iterator();
+            List<SearchHit> matchingDocuments = new LinkedList<>();
+            Iterator<SearchHit> matchingDocsListIterator = matchingDocuments.iterator();
             int from;
 
             @Override
@@ -119,8 +119,8 @@ public class StatisticalElasticSearchFacets extends InsecureElasticSearchFacets 
                         if (searchHits.length == 0 || searchHits.length < ElasticsearchConstants.ELASTICSEARCH_QUERY_BATCH_SIZE) {
                             return endOfData();
                         } else {
-                            matchigDocuments = Arrays.asList(searchHits);
-                            matchingDocsListIterator = matchigDocuments.iterator();
+                            matchingDocuments = Arrays.asList(searchHits);
+                            matchingDocsListIterator = matchingDocuments.iterator();
                             from += ElasticsearchConstants.ELASTICSEARCH_QUERY_BATCH_SIZE;
                             return matchingDocsListIterator.next();
                         }
@@ -147,12 +147,11 @@ public class StatisticalElasticSearchFacets extends InsecureElasticSearchFacets 
             {
                 List<FulltextIndex.Facet> proportionedLVs = new LinkedList<>();
                 for (FulltextIndex.Facet labelAndValue : labelAndValues) {
-                    FulltextIndex.Facet lv = labelAndValue;
-                    long count = lv.getCount() * accessibleCount / sampleSize;
+                    long count = labelAndValue.getCount() * accessibleCount / sampleSize;
                     if (count == 0) {
                         numZeros++;
                     }
-                    proportionedLVs.add(new FulltextIndex.Facet(lv.getLabel(), Math.toIntExact(count)));
+                    proportionedLVs.add(new FulltextIndex.Facet(labelAndValue.getLabel(), Math.toIntExact(count)));
                 }
                 labelAndValues = proportionedLVs;
             }
