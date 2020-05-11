@@ -157,6 +157,7 @@ class ElasticsearchIndexWriter implements FulltextIndexWriter<ElasticsearchDocum
         CreateIndexRequest createIndexRequest = constructCreateIndexRequest(indexName);
         String requestMsg = Strings.toString(createIndexRequest.toXContent(jsonBuilder(), EMPTY_PARAMS));
         CreateIndexResponse response = indicesClient.create(createIndexRequest, RequestOptions.DEFAULT);
+        checkResponseAcknowledgement(response, "Create index call not acknowledged for index " + indexName);
 
         LOG.info("Updated settings for index {} = {}. Response acknowledged: {}",
                 indexDefinition.getRemoteIndexAlias(), requestMsg, response.isAcknowledged());
@@ -175,9 +176,17 @@ class ElasticsearchIndexWriter implements FulltextIndexWriter<ElasticsearchDocum
         addAction.index(indexName).alias(indexDefinition.getRemoteIndexAlias());
         indicesAliasesRequest.addAliasAction(addAction);
         AcknowledgedResponse updateAliasResponse = indicesClient.updateAliases(indicesAliasesRequest, RequestOptions.DEFAULT);
+        checkResponseAcknowledgement(updateAliasResponse, "Update alias call not acknowledged for alias "
+                + indexDefinition.getRemoteIndexAlias());
         LOG.info("Updated alias {} to index {}. Response acknowledged: {}", indexDefinition.getRemoteIndexAlias(),
                 indexDefinition.getRemoteIndexName(), updateAliasResponse.isAcknowledged());
         deleteOldIndices(indicesClient, aliases.keySet());
+    }
+
+    private void checkResponseAcknowledgement(AcknowledgedResponse response, String exceptionMessage) {
+        if (!response.isAcknowledged()) {
+            throw new IllegalStateException(exceptionMessage);
+        }
     }
 
     private void deleteOldIndices(IndicesClient indicesClient, Set<String> indices) throws IOException {
@@ -188,6 +197,7 @@ class ElasticsearchIndexWriter implements FulltextIndexWriter<ElasticsearchDocum
             deleteIndexRequest.indices(oldIndexName);
         }
         AcknowledgedResponse deleteIndexResponse = indicesClient.delete(deleteIndexRequest, RequestOptions.DEFAULT);
+        checkResponseAcknowledgement(deleteIndexResponse, "Delete index call not acknowledged for indices " + indices);
         LOG.info("Deleted indices {}. Response acknowledged: {}", indices.toString(), deleteIndexResponse.isAcknowledged());
     }
 
