@@ -14,18 +14,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.jackrabbit.oak.plugins.index.elasticsearch.index;
+package org.apache.jackrabbit.oak.plugins.index.elasticsearch.util;
 
-import org.apache.jackrabbit.oak.plugins.index.IndexEditor;
-import org.apache.jackrabbit.oak.plugins.index.search.spi.editor.FulltextIndexEditor;
-import org.apache.jackrabbit.oak.plugins.index.search.spi.editor.FulltextIndexEditorContext;
+public final class ElasticsearchConstants {
+    /**
+     * Batch size for fetching results from queries.
+     */
+    public static final int ELASTICSEARCH_QUERY_BATCH_SIZE = 1000;
+    public static final int ELASTICSEARCH_QUERY_MAX_BATCH_SIZE = 10000;
 
-/**
- * {@link IndexEditor} implementation that is responsible for keeping the
- * corresponding Elasticsearch index up to date
- */
-class ElasticsearchIndexEditor extends FulltextIndexEditor<ElasticsearchDocument> {
-    ElasticsearchIndexEditor(FulltextIndexEditorContext<ElasticsearchDocument> context) {
-        super(context);
+    private ElasticsearchConstants() {
     }
 }
