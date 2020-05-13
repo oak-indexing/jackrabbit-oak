@@ -179,7 +179,7 @@ class ElasticsearchIndexWriter implements FulltextIndexWriter<ElasticsearchDocum
         checkResponseAcknowledgement(updateAliasResponse, "Update alias call not acknowledged for alias "
                 + indexDefinition.getRemoteIndexAlias());
         LOG.info("Updated alias {} to index {}. Response acknowledged: {}", indexDefinition.getRemoteIndexAlias(),
-                indexDefinition.getRemoteIndexName(), updateAliasResponse.isAcknowledged());
+                indexName, updateAliasResponse.isAcknowledged());
         deleteOldIndices(indicesClient, aliases.keySet());
     }
 
