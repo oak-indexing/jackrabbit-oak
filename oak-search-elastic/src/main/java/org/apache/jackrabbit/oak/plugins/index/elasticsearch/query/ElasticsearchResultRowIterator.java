@@ -66,7 +66,6 @@ import java.util.stream.StreamSupport;
 
 import static org.apache.jackrabbit.JcrConstants.JCR_MIXINTYPES;
 import static org.apache.jackrabbit.JcrConstants.JCR_PRIMARYTYPE;
-import static org.apache.jackrabbit.oak.api.Type.STRING;
 import static org.apache.jackrabbit.oak.commons.PathUtils.denotesRoot;
 import static org.apache.jackrabbit.oak.commons.PathUtils.getParentPath;
 import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.util.TermQueryBuilderFactory.newAncestorQuery;
@@ -580,7 +579,7 @@ class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.FulltextR
 
             if (pr.first != null && pr.first.equals(pr.last) && pr.firstIncluding
                     && pr.lastIncluding) {
-                String first = pr.first.getValue(STRING);
+                String first = pr.first.getValue(Type.STRING);
                 first = first.replace("\\", "");
                 if (JCR_PATH.equals(name)) {
                     qs.add(newPathQuery(first));
@@ -629,7 +628,7 @@ class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.FulltextR
     }
 
     private static QueryBuilder createNodeNameQuery(Filter.PropertyRestriction pr) {
-        String first = pr.first != null ? pr.first.getValue(STRING) : null;
+        String first = pr.first != null ? pr.first.getValue(Type.STRING) : null;
         if (pr.first != null && pr.first.equals(pr.last) && pr.firstIncluding
                 && pr.lastIncluding) {
             // [property]=[value]
@@ -709,7 +708,7 @@ class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.FulltextR
             }
             default: {
                 if (pr.isLike) {
-                    return createLikeQuery(propertyName, pr.first.getValue(STRING));
+                    return createLikeQuery(propertyName, pr.first.getValue(Type.STRING));
                 }
 
                 //TODO Confirm that all other types can be treated as string

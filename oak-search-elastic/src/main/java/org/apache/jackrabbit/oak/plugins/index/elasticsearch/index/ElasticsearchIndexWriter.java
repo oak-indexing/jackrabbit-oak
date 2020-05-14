@@ -291,7 +291,7 @@ class ElasticsearchIndexWriter implements FulltextIndexWriter<ElasticsearchDocum
             try {
                 return new String(MessageDigest.getInstance("SHA-256").digest(pathBytes));
             } catch (NoSuchAlgorithmException e) {
-                throw new RuntimeException(e);
+                throw new IllegalStateException(e);
             }
         }
         return path;

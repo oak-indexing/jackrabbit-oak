@@ -21,7 +21,6 @@ import org.apache.jackrabbit.oak.InitialContent;
 import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.api.ContentRepository;
 import org.apache.jackrabbit.oak.api.Tree;
-import org.apache.jackrabbit.oak.commons.PerfLogger;
 import org.apache.jackrabbit.oak.plugins.index.AsyncIndexUpdate;
 import org.apache.jackrabbit.oak.plugins.index.IndexEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.TrackingCorruptIndexHandler;
@@ -58,9 +57,6 @@ import static org.apache.jackrabbit.oak.plugins.index.elasticsearch.Elasticsearc
 public abstract class ElasticsearchAbstractQueryTest extends AbstractQueryTest {
 
     protected static final Logger LOG = LoggerFactory.getLogger(ElasticsearchAbstractQueryTest.class);
-
-    protected static final PerfLogger PERF_LOGGER =
-            new PerfLogger(LoggerFactory.getLogger(ElasticsearchAbstractQueryTest.class.getName() + ".perf"));
 
     // Set this connection string as
     // <scheme>://<hostname>:<port>?key_id=<>,key_secret=<>
@@ -212,7 +208,7 @@ public abstract class ElasticsearchAbstractQueryTest extends AbstractQueryTest {
             return esConnection.getClient().indices()
                     .exists(new GetIndexRequest(esIdxDef.getRemoteIndexAlias()), RequestOptions.DEFAULT);
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new IllegalStateException(e);
         }
     }
 
@@ -223,7 +219,7 @@ public abstract class ElasticsearchAbstractQueryTest extends AbstractQueryTest {
         try {
             return esConnection.getClient().count(request, RequestOptions.DEFAULT).getCount();
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new IllegalStateException(e);
         }
     }
 

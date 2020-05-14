@@ -19,7 +19,6 @@ package org.apache.jackrabbit.oak.plugins.index.elasticsearch.util;
 import org.apache.jackrabbit.oak.api.PropertyValue;
 import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
-import org.apache.jackrabbit.oak.plugins.index.search.PropertyDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndexPlanner;
 import org.apache.jackrabbit.oak.spi.query.Filter;
 import org.elasticsearch.index.query.BoolQueryBuilder;

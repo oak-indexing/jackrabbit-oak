@@ -83,14 +83,14 @@ public class ElasticsearchFacetTest {
     private QueryManager qe;
     Repository repository;
     private Node indexNode;
-    private static String TEST_INDEX = "testIndex";
+    private static final String TEST_INDEX = "testIndex";
     private static final int NUM_LEAF_NODES = STATISTICAL_FACET_SAMPLE_SIZE_DEFAULT;
     private static final int NUM_LABELS = 4;
     private static final int NUM_LEAF_NODES_FOR_LARGE_DATASET = NUM_LEAF_NODES;
     private static final int NUM_LEAF_NODES_FOR_SMALL_DATASET = NUM_LEAF_NODES / (2 * NUM_LABELS);
-    private Map<String, Integer> actualLabelCount = Maps.newHashMap();
-    private Map<String, Integer> actualAclLabelCount = Maps.newHashMap();
-    private Map<String, Integer> actualAclPar1LabelCount = Maps.newHashMap();
+    private final Map<String, Integer> actualLabelCount = Maps.newHashMap();
+    private final Map<String, Integer> actualAclLabelCount = Maps.newHashMap();
+    private final Map<String, Integer> actualAclPar1LabelCount = Maps.newHashMap();
 
     @Rule
     public final ElasticsearchContainer elastic =
@@ -149,9 +149,6 @@ public class ElasticsearchFacetTest {
     private class IndexSkeleton {
         IndexDefinitionBuilder indexDefinitionBuilder;
         IndexDefinitionBuilder.IndexRule indexRule;
-
-        private IndexSkeleton() {
-        }
 
         void initialize() {
             initialize(JcrConstants.NT_BASE);
