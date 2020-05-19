@@ -16,15 +16,19 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elasticsearch.index;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.ElasticsearchIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.elasticsearch.util.ElasticsearchIndexDefinitionBuilder;
 import org.apache.jackrabbit.oak.plugins.index.search.util.IndexDefinitionBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.elasticsearch.client.indices.CreateIndexRequest;
-import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.util.Map;
+
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
 
 public class ElasticsearchIndexHelperTest {
 
@@ -41,7 +45,14 @@ public class ElasticsearchIndexHelperTest {
                 new ElasticsearchIndexDefinition(nodeState, nodeState, "path", "prefix");
 
         CreateIndexRequest request = ElasticsearchIndexHelper.createIndexRequest(definition);
-        Assert.assertNotNull(request);
+
+        ObjectMapper mapper = new ObjectMapper();
+        Map<String, Object> jsonMap = mapper.readValue(request.mappings().streamInput(), Map.class);
+
+        Map fooMapping = (Map) ((Map) jsonMap.get("properties")).get("foo");
+        assertThat(fooMapping.get("type"), is("text"));
+        Map fooKeywordMapping = (Map) ((Map) fooMapping.get("fields")).get("keyword");
+        assertThat(fooKeywordMapping.get("type"), is("keyword"));
     }
 
     @Test(expected = IllegalStateException.class)
