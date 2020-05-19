@@ -95,7 +95,7 @@ public class ElasticsearchPropertyIndexTest extends ElasticsearchAbstractQueryTe
         IndexDefinitionBuilder builder = createIndex();
         builder.includedPaths("/test")
                 .indexRule("nt:base")
-                .property("nodeName", PROPDEF_PROP_NODE_NAME).propertyIndex();
+                .property("nodeName", PROPDEF_PROP_NODE_NAME);
         setIndex("test1", builder);
         root.commit();
 
