@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.jackrabbit.oak.segment.azure.queue;
+package org.apache.jackrabbit.oak.segment.remote.queue;
 
-import org.apache.jackrabbit.oak.segment.azure.AzureSegmentArchiveEntry;
+import org.apache.jackrabbit.oak.segment.remote.RemoteSegmentArchiveEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,9 +35,9 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class SegmentWriteQueue implements Closeable {
 
-    public static final int THREADS = Integer.getInteger("oak.segment.azure.threads", 5);
+    public static final int THREADS = Integer.getInteger("oak.segment.remote.threads", 5);
 
-    private static final int QUEUE_SIZE = Integer.getInteger("oak.segment.org.apache.jackrabbit.oak.segment.azure.queue", 20);
+    private static final int QUEUE_SIZE = Integer.getInteger("oak.segment.remote.queue.size", 20);
 
     private static final Logger log = LoggerFactory.getLogger(SegmentWriteQueue.class);
 
@@ -153,7 +153,7 @@ public class SegmentWriteQueue implements Closeable {
         }
     }
 
-    public void addToQueue(AzureSegmentArchiveEntry indexEntry, byte[] data, int offset, int size) throws IOException {
+    public void addToQueue(RemoteSegmentArchiveEntry indexEntry, byte[] data, int offset, int size) throws IOException {
         waitWhileBroken();
         if (shutdown) {
             throw new IllegalStateException("Can't accept the new segment - shutdown in progress");
@@ -199,6 +199,7 @@ public class SegmentWriteQueue implements Closeable {
         return segmentsByUUID.get(id);
     }
 
+    @Override
     public void close() throws IOException {
         shutdown = true;
         try {
@@ -262,7 +263,7 @@ public class SegmentWriteQueue implements Closeable {
 
     public interface SegmentConsumer {
 
-        void consume(AzureSegmentArchiveEntry indexEntry, byte[] data, int offset, int size) throws IOException;
+        void consume(RemoteSegmentArchiveEntry indexEntry, byte[] data, int offset, int size) throws IOException;
 
     }
 
