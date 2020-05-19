@@ -74,6 +74,8 @@ class ElasticsearchIndexHelper {
         mappingBuilder.startObject(FieldNames.PATH_DEPTH)
                 .field("type", "integer")
                 .endObject();
+        // TODO: the mapping below is for features currently not supported. These need to be reviewed
+        // when the specific features will be implemented
 //                mappingBuilder.startObject(FieldNames.SUGGEST)
 //                        .field("type", "completion")
 //                        .endObject();
