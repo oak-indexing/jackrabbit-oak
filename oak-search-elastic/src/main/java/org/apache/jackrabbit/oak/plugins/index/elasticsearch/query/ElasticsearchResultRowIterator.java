@@ -236,7 +236,7 @@ class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.FulltextR
 
     private FulltextIndex.FulltextResultRow convertToRow(SearchHit hit, ElasticsearchFacetProvider elasticsearchFacetProvider) {
         final Map<String, Object> sourceMap = hit.getSourceAsMap();
-        String path = (String) sourceMap.getOrDefault(FieldNames.PATH, hit.getId());
+        String path = (String) sourceMap.get(FieldNames.PATH);
         if (path != null) {
             if ("".equals(path)) {
                 path = "/";

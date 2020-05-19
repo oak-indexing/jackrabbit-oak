@@ -62,9 +62,9 @@ public class ElasticFacetHelper {
         List<String> accessibleDocs = new LinkedList<>();
         for (SearchHit searchHit : searchHits) {
             final Map<String, Object> sourceMap = searchHit.getSourceAsMap();
-            String path = (String) sourceMap.getOrDefault(FieldNames.PATH, searchHit.getId());
+            String path = (String) sourceMap.get(FieldNames.PATH);
             if (filter.isAccessible(path)) {
-                accessibleDocs.add(searchHit.getId());
+                accessibleDocs.add(path);
             }
         }
         return accessibleDocs;
@@ -75,7 +75,7 @@ public class ElasticFacetHelper {
         while (searchHitIterator.hasNext()) {
             SearchHit searchHit = searchHitIterator.next();
             final Map<String, Object> sourceMap = searchHit.getSourceAsMap();
-            String path = (String) sourceMap.getOrDefault(FieldNames.PATH, searchHit.getId());
+            String path = (String) sourceMap.get(FieldNames.PATH);
             if (filter.isAccessible(path)) {
                 count++;
             }
