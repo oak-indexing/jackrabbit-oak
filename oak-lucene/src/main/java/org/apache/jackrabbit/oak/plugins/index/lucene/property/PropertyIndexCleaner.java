@@ -114,7 +114,7 @@ public class PropertyIndexCleaner implements Runnable{
         for(String s : list) {
             log.info("Cleanup of {}", s);
             if (!NodeStateUtils.isHidden(PathUtils.getName(s))) {
-                log.warn("Not a hidden node");
+                log.warn("Not a hidden node: {}", s);
                 continue;
             }
             RecursiveDelete rd = new RecursiveDelete(nodeStore, createCommitHook(),
