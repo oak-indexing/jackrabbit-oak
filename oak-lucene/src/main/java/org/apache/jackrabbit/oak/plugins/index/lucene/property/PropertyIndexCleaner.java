@@ -123,7 +123,7 @@ public class PropertyIndexCleaner implements Runnable{
             rd.setBatchSize(batchSize);
             rd.setSleepPerBatch(sleepPerBatch);
             rd.setMaxRemoveCount(maxRemoveCount);
-            rd.run(Arrays.asList(s));
+            rd.run(singletonList(s));
             numOfNodesDeleted += rd.getNumRemoved();
         }
         return numOfNodesDeleted;
