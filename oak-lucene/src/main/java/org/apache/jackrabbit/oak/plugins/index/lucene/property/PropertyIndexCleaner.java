@@ -110,7 +110,7 @@ public class PropertyIndexCleaner implements Runnable{
      * @return the number of nodes removed
      */
     public int performCleanup(String paths, int batchSize, int sleepPerBatch, int maxRemoveCount) throws CommitFailedException {
-        ArrayList<String> list = new ArrayList<>(Arrays.asList(paths.split(",")));
+        String[] list = paths.split(",");
         int numOfNodesDeleted = 0;
         for(String s : list) {
             log.info("Cleanup of {}", s);
