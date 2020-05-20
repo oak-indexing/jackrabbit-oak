@@ -131,7 +131,7 @@ public interface LuceneIndexMBean {
             @Description("The list of paths (comma separated). Must be hidden nodes")
             String paths,
             @Name("batchSize")
-            @Description("The bach size, e.g. 1024")
+            @Description("The batch size, e.g. 1024")
             int batchSize,
             @Name("sleepPerBatch")
             @Description("The number of milliseconds to sleep per batch")
