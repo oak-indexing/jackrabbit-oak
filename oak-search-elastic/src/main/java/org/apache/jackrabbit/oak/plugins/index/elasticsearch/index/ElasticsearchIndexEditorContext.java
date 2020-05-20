@@ -26,12 +26,17 @@ import org.apache.jackrabbit.oak.plugins.index.search.spi.editor.FulltextIndexEd
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 
 class ElasticsearchIndexEditorContext extends FulltextIndexEditorContext<ElasticsearchDocument> {
 
+    private static final Logger LOG = LoggerFactory.getLogger(ElasticsearchIndexEditorContext.class);
+
     private String indexPrefix;
+    private NodeBuilder defn;
 
     ElasticsearchIndexEditorContext(NodeState root,
                                     NodeBuilder definition, @Nullable IndexDefinition indexDefinition,
@@ -41,6 +46,7 @@ class ElasticsearchIndexEditorContext extends FulltextIndexEditorContext<Elastic
                                     IndexingContext indexingContext,
                                     boolean asyncIndexing, String indexPrefix) {
         super(root, definition, indexDefinition, updateCallback, indexWriterFactory, extractedTextCache, indexingContext, asyncIndexing);
+        this.defn = definition;
         this.indexPrefix = indexPrefix;
     }
 
@@ -62,8 +68,9 @@ class ElasticsearchIndexEditorContext extends FulltextIndexEditorContext<Elastic
         // get writer and provision index settings and mappings
         try {
             getWriter().provisionIndex();
+            this.defn.setProperty(ElasticsearchIndexDefinition.IS_PROVISIONED, true);
         } catch (IOException e) {
-            throw new IllegalStateException("Unable to provision index", e);
+            LOG.error("Couldn't provision index ", e);
         }
     }
 

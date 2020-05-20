@@ -114,6 +114,10 @@ class ElasticsearchIndexWriter implements FulltextIndexWriter<ElasticsearchDocum
 
     @Override
     public void updateDocument(String path, ElasticsearchDocument doc) {
+        if (!indexDefinition.isProvisioned()) {
+            LOG.error("Can't update document for {} as index is not provisioned", path);
+            return;
+        }
         IndexRequest request = new IndexRequest(indexDefinition.getRemoteIndexAlias())
                 .id(idFromPath(path))
                 .source(doc.build(), XContentType.JSON);
@@ -122,6 +126,10 @@ class ElasticsearchIndexWriter implements FulltextIndexWriter<ElasticsearchDocum
 
     @Override
     public void deleteDocuments(String path) {
+        if (!indexDefinition.isProvisioned()) {
+            LOG.error("Can't delete document for {} as index is not provisioned", path);
+            return;
+        }
         DeleteRequest request = new DeleteRequest(indexDefinition.getRemoteIndexAlias())
                 .id(idFromPath(path));
         bulkProcessor.add(request);
