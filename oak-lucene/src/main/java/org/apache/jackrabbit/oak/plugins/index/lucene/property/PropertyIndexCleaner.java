@@ -19,8 +19,16 @@
 
 package org.apache.jackrabbit.oak.plugins.index.lucene.property;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Collections.singletonList;
+import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.TYPE_PROPERTY_NAME;
+import static org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexConstants.TYPE_LUCENE;
+import static org.apache.jackrabbit.oak.plugins.index.lucene.property.HybridPropertyIndexUtil.PROPERTY_INDEX;
+import static org.apache.jackrabbit.oak.plugins.index.lucene.property.HybridPropertyIndexUtil.simplePropertyIndex;
+import static org.apache.jackrabbit.oak.plugins.index.lucene.property.HybridPropertyIndexUtil.uniquePropertyIndex;
+import static org.apache.jackrabbit.oak.spi.state.NodeStateUtils.getNode;
+
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -28,9 +36,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-
-import com.google.common.base.Stopwatch;
-import com.google.common.collect.ImmutableMap;
 
 import org.apache.jackrabbit.oak.api.CommitFailedException;
 import org.apache.jackrabbit.oak.commons.PathUtils;
@@ -59,14 +64,8 @@ import org.apache.jackrabbit.oak.stats.TimerStats;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import static java.util.Collections.singletonList;
-import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.TYPE_PROPERTY_NAME;
-import static org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexConstants.TYPE_LUCENE;
-import static org.apache.jackrabbit.oak.plugins.index.lucene.property.HybridPropertyIndexUtil.PROPERTY_INDEX;
-import static org.apache.jackrabbit.oak.plugins.index.lucene.property.HybridPropertyIndexUtil.simplePropertyIndex;
-import static org.apache.jackrabbit.oak.plugins.index.lucene.property.HybridPropertyIndexUtil.uniquePropertyIndex;
-import static org.apache.jackrabbit.oak.spi.state.NodeStateUtils.getNode;
+import com.google.common.base.Stopwatch;
+import com.google.common.collect.ImmutableMap;
 
 public class PropertyIndexCleaner implements Runnable{
     private final Logger log = LoggerFactory.getLogger(getClass());
