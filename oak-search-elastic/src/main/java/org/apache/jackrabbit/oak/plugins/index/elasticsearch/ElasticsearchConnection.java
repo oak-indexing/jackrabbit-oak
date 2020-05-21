@@ -19,10 +19,13 @@ package org.apache.jackrabbit.oak.plugins.index.elasticsearch;
 import org.apache.http.Header;
 import org.apache.http.HttpHost;
 import org.apache.http.message.BasicHeader;
+import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
 import org.elasticsearch.client.RestHighLevelClient;
 import org.jetbrains.annotations.NotNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -66,6 +69,8 @@ public class ElasticsearchConnection implements Closeable {
 
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
 
+    private static final Logger LOG = LoggerFactory.getLogger(ElasticsearchConnection.class);
+
     /**
      * Creates an {@code ElasticsearchConnection} instance with the given scheme, host address and port that support API
      * key-based authentication.
@@ -88,6 +93,16 @@ public class ElasticsearchConnection implements Closeable {
         this.port = port;
         this.apiKeyId = apiKeyId;
         this.apiKeySecret = apiKeySecret;
+    }
+
+    public boolean isConnected() {
+        try {
+            return this.getClient().ping(RequestOptions.DEFAULT);
+        } catch (IOException e) {
+            LOG.info("Could not connect to Elasticsearch server - " +  e.getMessage());
+            LOG.debug("Could not connect to Elasticsearch server", e);
+        }
+        return false;
     }
 
     public RestHighLevelClient getClient() {

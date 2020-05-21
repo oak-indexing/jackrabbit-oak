@@ -24,6 +24,7 @@ import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,9 +39,9 @@ public class ElasticsearchSearcher {
         this.indexNode = indexNode;
     }
 
-    public SearchResponse search(ElasticsearchSearcherModel elasticsearchSearcherModel) throws IOException {
-        if (!indexNode.getDefinition().isProvisioned()) {
-            LOG.error("Can't search as index is not provisioned");
+    public @Nullable SearchResponse search(ElasticsearchSearcherModel elasticsearchSearcherModel) throws IOException {
+        if (!indexNode.getConnection().isConnected()) {
+            LOG.error("Can't search as Elasticsearch server is unreachable");
             return null;
         }
         SearchSourceBuilder searchSourceBuilder = SearchSourceBuilderUtil.createSearchSourceBuilder(elasticsearchSearcherModel);
@@ -53,10 +54,6 @@ public class ElasticsearchSearcher {
 
     @Deprecated
     public SearchResponse search(QueryBuilder query, int batchSize) throws IOException {
-        if (!indexNode.getDefinition().isProvisioned()) {
-            LOG.error("Can't search as index is not provisioned");
-            return null;
-        }
         SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder()
                 .query(query)
                 .fetchSource(FieldNames.PATH, null)

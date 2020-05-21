@@ -173,6 +173,8 @@ class ElasticsearchResultRowIterator implements Iterator<FulltextIndex.FulltextR
             while (true) {
                 LOG.debug("loading {} entries for query {}", nextBatchSize, query);
                 docs = searcher.search(elasticsearchSearcherModel);
+                if (docs == null)
+                    return false;
                 long totalHits = docs.getHits().getTotalHits().value;
                 ElasticsearchAggregationData elasticsearchAggregationData =
                         new ElasticsearchAggregationData(numberOfFacets, totalHits, docs.getAggregations());

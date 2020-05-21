@@ -55,9 +55,6 @@ public class ElasticsearchIndexDefinition extends IndexDefinition {
     public static final String BULK_RETRIES_BACKOFF = "bulkRetriesBackoff";
     public static final long BULK_RETRIES_BACKOFF_DEFAULT = 200;
 
-    public static final String IS_PROVISIONED = "isProvisioned";
-    public static final boolean IS_PROVISIONED_DEFAULT = false;
-
     private static final int MAX_NAME_LENGTH = 255;
 
     private static final String INVALID_CHARS_REGEX = Pattern.quote(INVALID_FILENAME_CHARS
@@ -84,7 +81,6 @@ public class ElasticsearchIndexDefinition extends IndexDefinition {
     public final long bulkRetriesBackoff;
     private final String indexPrefix;
     private final String remoteAlias;
-    private final boolean isProvisioned;
 
     private final Map<String, List<PropertyDefinition>> propertiesByName;
 
@@ -100,17 +96,12 @@ public class ElasticsearchIndexDefinition extends IndexDefinition {
         this.bulkFlushIntervalMs = getOptionalValue(defn, BULK_FLUSH_INTERVAL_MS, BULK_FLUSH_INTERVAL_MS_DEFAULT);
         this.bulkRetries = getOptionalValue(defn, BULK_RETRIES, BULK_RETRIES_DEFAULT);
         this.bulkRetriesBackoff = getOptionalValue(defn, BULK_RETRIES_BACKOFF, BULK_RETRIES_BACKOFF_DEFAULT);
-        this.isProvisioned = getOptionalValue(defn, IS_PROVISIONED, IS_PROVISIONED_DEFAULT);
 
         this.propertiesByName = getDefinedRules()
                 .stream()
                 .flatMap(rule -> StreamSupport.stream(rule.getProperties().spliterator(), false))
                 .filter(pd -> pd.index) // keep only properties that can be indexed
                 .collect(Collectors.groupingBy(pd -> pd.name));
-    }
-
-    public boolean isProvisioned() {
-        return isProvisioned;
     }
 
     /**

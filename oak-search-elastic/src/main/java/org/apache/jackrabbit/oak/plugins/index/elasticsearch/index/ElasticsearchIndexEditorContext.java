@@ -36,7 +36,6 @@ class ElasticsearchIndexEditorContext extends FulltextIndexEditorContext<Elastic
     private static final Logger LOG = LoggerFactory.getLogger(ElasticsearchIndexEditorContext.class);
 
     private String indexPrefix;
-    private NodeBuilder defn;
 
     ElasticsearchIndexEditorContext(NodeState root,
                                     NodeBuilder definition, @Nullable IndexDefinition indexDefinition,
@@ -46,7 +45,6 @@ class ElasticsearchIndexEditorContext extends FulltextIndexEditorContext<Elastic
                                     IndexingContext indexingContext,
                                     boolean asyncIndexing, String indexPrefix) {
         super(root, definition, indexDefinition, updateCallback, indexWriterFactory, extractedTextCache, indexingContext, asyncIndexing);
-        this.defn = definition;
         this.indexPrefix = indexPrefix;
     }
 
@@ -68,7 +66,6 @@ class ElasticsearchIndexEditorContext extends FulltextIndexEditorContext<Elastic
         // get writer and provision index settings and mappings
         try {
             getWriter().provisionIndex();
-            this.defn.setProperty(ElasticsearchIndexDefinition.IS_PROVISIONED, true);
         } catch (IOException e) {
             LOG.error("Couldn't provision index ", e);
         }

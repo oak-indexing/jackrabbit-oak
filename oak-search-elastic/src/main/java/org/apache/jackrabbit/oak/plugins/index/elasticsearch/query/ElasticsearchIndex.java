@@ -29,9 +29,7 @@ import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.elasticsearch.common.Strings;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Iterator;
-import java.util.Map;
-import java.util.WeakHashMap;
+import java.util.*;
 import java.util.function.Predicate;
 
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.TYPE_PROPERTY_NAME;
@@ -70,7 +68,18 @@ class ElasticsearchIndex extends FulltextIndex {
 
     @Override
     public double getMinimumCost() {
+        if (!elasticsearchConnection.isConnected()) {
+            return Double.POSITIVE_INFINITY;
+        }
         return MIN_COST;
+    }
+
+    @Override
+    public List<IndexPlan> getPlans(Filter filter, List<OrderEntry> sortOrder, NodeState rootState) {
+        if (!elasticsearchConnection.isConnected()) {
+            return Collections.emptyList();
+        }
+        return super.getPlans(filter, sortOrder, rootState);
     }
 
     @Override
