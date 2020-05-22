@@ -153,7 +153,7 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
 
         SearchHit lastDocToRecord = null;
         try {
-            ElasticSearcher searcher = getCurrentSearcher(indexNode);
+            ElasticSearcher searcher = getCurrentElasticSearcher(indexNode);
             QueryBuilder query = getESQuery(plan, planResult);
             ElasticIndexDefinition indexDefinition = indexNode.getDefinition();
             int numberOfFacets = indexDefinition.getNumberOfTopFacets();
@@ -230,7 +230,7 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
         return !queue.isEmpty();
     }
 
-    private ElasticSearcher getCurrentSearcher(ElasticIndexNode indexNode) {
+    private ElasticSearcher getCurrentElasticSearcher(ElasticIndexNode indexNode) {
         return new ElasticSearcher(indexNode);
     }
 

@@ -90,7 +90,7 @@ public class ElasticIndexDefinition extends IndexDefinition {
         String indexSuffix = "-" + (getReindexCount() + (isReindex ? 1 : 0));
         this.indexPrefix = indexPrefix != null ? indexPrefix : "";
         this.remoteAlias = setupAlias();
-        this.remoteIndexName = getESSafeIndexName(this.remoteAlias + indexSuffix);
+        this.remoteIndexName = getElasticSafeIndexName(this.remoteAlias + indexSuffix);
         this.bulkActions = getOptionalValue(defn, BULK_ACTIONS, BULK_ACTIONS_DEFAULT);
         this.bulkSizeBytes = getOptionalValue(defn, BULK_SIZE_BYTES, BULK_SIZE_BYTES_DEFAULT);
         this.bulkFlushIntervalMs = getOptionalValue(defn, BULK_FLUSH_INTERVAL_MS, BULK_FLUSH_INTERVAL_MS_DEFAULT);
@@ -154,7 +154,7 @@ public class ElasticIndexDefinition extends IndexDefinition {
 
     private String setupAlias() {
         // TODO: implement advanced remote index name strategy that takes into account multiple tenants and re-index process
-        return getESSafeIndexName(indexPrefix + "." + getIndexPath());
+        return getElasticSafeIndexName(indexPrefix + "." + getIndexPath());
     }
 
     /**
@@ -166,12 +166,12 @@ public class ElasticIndexDefinition extends IndexDefinition {
      * <p>
      * The resulting file name would be truncated to MAX_NAME_LENGTH
      */
-    private static String getESSafeIndexName(String indexPath) {
+    private static String getElasticSafeIndexName(String indexPath) {
         String name = StreamSupport
                 .stream(PathUtils.elements(indexPath).spliterator(), false)
                 .limit(3) //Max 3 nodeNames including oak:index which is the immediate parent for any indexPath
                 .filter(p -> !"oak:index".equals(p))
-                .map(ElasticIndexDefinition::getESSafeName)
+                .map(ElasticIndexDefinition::getElasticSafeName)
                 .collect(Collectors.joining("_"));
 
         if (name.length() > MAX_NAME_LENGTH) {
@@ -184,7 +184,7 @@ public class ElasticIndexDefinition extends IndexDefinition {
      * Convert {@code e} to Elasticsearch safe index name.
      * Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-create-index.html
      */
-    private static String getESSafeName(String suggestedIndexName) {
+    private static String getElasticSafeName(String suggestedIndexName) {
         return suggestedIndexName.replaceAll(INVALID_CHARS_REGEX, "").toLowerCase();
     }
 
