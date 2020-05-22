@@ -154,7 +154,7 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
         SearchHit lastDocToRecord = null;
         try {
             ElasticSearcher searcher = getCurrentElasticSearcher(indexNode);
-            QueryBuilder query = getESQuery(plan, planResult);
+            QueryBuilder query = getElasticQuery(plan, planResult);
             ElasticIndexDefinition indexDefinition = indexNode.getDefinition();
             int numberOfFacets = indexDefinition.getNumberOfTopFacets();
             List<TermsAggregationBuilder> aggregationBuilders = ElasticAggregationBuilderUtil
@@ -273,7 +273,7 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
      * @param planResult
      * @return the Lucene query
      */
-    public QueryBuilder getESQuery(IndexPlan plan, PlanResult planResult) {
+    public QueryBuilder getElasticQuery(IndexPlan plan, PlanResult planResult) {
         List<QueryBuilder> qs = new ArrayList<>();
         Filter filter = plan.getFilter();
         FullTextExpression ft = filter.getFullTextConstraint();

@@ -92,7 +92,7 @@ class ElasticIndex extends FulltextIndex {
     protected String getFulltextRequestString(IndexPlan plan, IndexNode indexNode) {
         return Strings.toString(new ElasticResultRowIterator(plan.getFilter(), getPlanResult(plan), plan,
                 acquireIndexNode(plan), FulltextIndex::shouldInclude, getEstimator(plan.getPlanName()))
-                .getESQuery(plan, getPlanResult(plan)));
+                .getElasticQuery(plan, getPlanResult(plan)));
     }
 
     @Override
