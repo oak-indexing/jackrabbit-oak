@@ -157,7 +157,7 @@ public class ElasticIndexProviderService {
         //initializeTextExtractionDir(bundleContext, config);
         //initializeExtractedTextCache(config, statisticsProvider);
 
-        elasticConnection = getElasticsearchConnection(config);
+        elasticConnection = getElasticConnection(config);
 
         LOG.info("Registering Index and Editor providers with connection {}", elasticConnection);
 
@@ -261,7 +261,7 @@ public class ElasticIndexProviderService {
         }
     }
 
-    private ElasticConnection getElasticsearchConnection(Map<String, Object> contextConfig) {
+    private ElasticConnection getElasticConnection(Map<String, Object> contextConfig) {
         // system properties have priority, get mandatory params first
         final String indexPrefix = System.getProperty(PROP_INDEX_PREFIX,
                 (String) contextConfig.getOrDefault(PROP_INDEX_PREFIX, "oak-elastic"));
