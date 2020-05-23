@@ -31,6 +31,7 @@
   <name>Oak Elasticsearch</name>
   <packaging>bundle</packaging>
   <description>Oak Elasticsearch integration subproject</description>
+  <version>1.27-G29829-SNAPSHOT</version>
 
   <properties>
     <elasticsearch.version>7.6.0</elasticsearch.version>
@@ -154,37 +155,37 @@
     <dependency>
       <groupId>org.apache.jackrabbit</groupId>
       <artifactId>oak-api</artifactId>
-      <version>${project.version}</version>
+      <version>1.27-SNAPSHOT</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.jackrabbit</groupId>
       <artifactId>oak-core-spi</artifactId>
-      <version>${project.version}</version>
+      <version>1.27-SNAPSHOT</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.jackrabbit</groupId>
       <artifactId>oak-store-spi</artifactId>
-      <version>${project.version}</version>
+      <version>1.27-SNAPSHOT</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.jackrabbit</groupId>
       <artifactId>oak-query-spi</artifactId>
-      <version>${project.version}</version>
+      <version>1.27-SNAPSHOT</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.jackrabbit</groupId>
       <artifactId>oak-core</artifactId>
-      <version>${project.version}</version>
+      <version>1.27-SNAPSHOT</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.jackrabbit</groupId>
       <artifactId>oak-search</artifactId>
-      <version>${project.version}</version>
+      <version>1.27-SNAPSHOT</version>
       <scope>provided</scope>
     </dependency>
 
@@ -221,14 +222,14 @@
     <dependency>
       <groupId>org.apache.jackrabbit</groupId>
       <artifactId>oak-core</artifactId>
-      <version>${project.version}</version>
+      <version>1.27-SNAPSHOT</version>
       <classifier>tests</classifier>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.jackrabbit</groupId>
       <artifactId>oak-security-spi</artifactId>
-      <version>${project.version}</version>
+      <version>1.27-SNAPSHOT</version>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -251,7 +252,7 @@
     <dependency>
       <groupId>org.apache.jackrabbit</groupId>
       <artifactId>oak-jcr</artifactId>
-      <version>${project.version}</version>
+      <version>1.27-SNAPSHOT</version>
       <scope>test</scope>
     </dependency>
 

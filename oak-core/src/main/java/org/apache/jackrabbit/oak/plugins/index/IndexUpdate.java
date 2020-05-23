@@ -543,6 +543,7 @@ public class IndexUpdate implements Editor, PathSource {
 
             PropertyState providerPropertyState =  definition.getProperty("ignoreMissingProvider");
             if (providerPropertyState != null && providerPropertyState.getValue(BOOLEAN)) {
+                log.info("Ignoring missing index provider for type {} on index {}", type, indexPath);
                 return;
             }
 
