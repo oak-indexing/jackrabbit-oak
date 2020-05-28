@@ -44,7 +44,7 @@ public class TestHelper {
     Deletes the remote elastic index from the elastic server.
      */
     public static void cleanupRemoteElastic(ElasticConnection connection, String indexName) throws IOException {
-        String alias =  ElasticIndexNameHelper.setupAlias(connection.getIndexPrefix(), "/oak:index/" + indexName);
+        String alias =  ElasticIndexNameHelper.getIndexAlias(connection.getIndexPrefix(), "/oak:index/" + indexName);
         /*
         Adding index suffix as -1 because reindex count will always be 1 here (we are not doing any reindexing in the benchmark tests)
         TODO: If we write benchmarks for elastic reindex - this needs to be changed to get the reindex count from the index def node

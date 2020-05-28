@@ -34,7 +34,7 @@ public class ElasticIndexNameHelper {
             .map(Object::toString)
             .collect(Collectors.joining("")));
 
-    public static String setupAlias(String indexPrefix, String indexPath) {
+    public static String getIndexAlias(String indexPrefix, String indexPath) {
         // TODO: implement advanced remote index name strategy that takes into account multiple tenants and re-index process
         return getElasticSafeIndexName(indexPrefix + "." + indexPath);
     }

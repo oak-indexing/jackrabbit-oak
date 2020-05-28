@@ -79,7 +79,7 @@ public class ElasticIndexDefinition extends IndexDefinition {
         boolean isReindex = defn.getBoolean(IndexConstants.REINDEX_PROPERTY_NAME);
         String indexSuffix = "-" + (getReindexCount() + (isReindex ? 1 : 0));
         this.indexPrefix = indexPrefix != null ? indexPrefix : "";
-        this.remoteAlias = ElasticIndexNameHelper.setupAlias(indexPrefix, getIndexPath());
+        this.remoteAlias = ElasticIndexNameHelper.getIndexAlias(indexPrefix, getIndexPath());
         this.remoteIndexName = ElasticIndexNameHelper.getElasticSafeIndexName(this.remoteAlias + indexSuffix);
         this.bulkActions = getOptionalValue(defn, BULK_ACTIONS, BULK_ACTIONS_DEFAULT);
         this.bulkSizeBytes = getOptionalValue(defn, BULK_SIZE_BYTES, BULK_SIZE_BYTES_DEFAULT);
