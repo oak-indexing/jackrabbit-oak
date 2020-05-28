@@ -90,6 +90,7 @@ public class IndexSanityChecker {
               DirectoryUtils return -1 in case local file is not present
                */
                 if (localLength == -1) {
+                    log.info("{} is not present on remote as well as local", fileName);
                     continue;
                 }
             }
