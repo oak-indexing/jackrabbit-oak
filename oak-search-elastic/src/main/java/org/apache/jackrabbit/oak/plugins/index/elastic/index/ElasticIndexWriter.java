@@ -157,6 +157,10 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
     }
 
     protected void provisionIndex() throws IOException {
+        if (!elasticConnection.isConnected()) {
+            LOG.error("Can't provision the index {} as Elasticsearch server is unreachable, ", indexDefinition.getIndexPath());
+            return;
+        }
         // check if index already exists
         boolean exists = elasticConnection.getClient().indices().exists(
                 new GetIndexRequest(indexDefinition.getRemoteIndexName()), RequestOptions.DEFAULT

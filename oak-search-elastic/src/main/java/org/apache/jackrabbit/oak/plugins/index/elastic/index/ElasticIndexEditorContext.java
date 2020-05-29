@@ -26,14 +26,10 @@ import org.apache.jackrabbit.oak.plugins.index.search.spi.editor.FulltextIndexEd
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.jetbrains.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 
 class ElasticIndexEditorContext extends FulltextIndexEditorContext<ElasticDocument> {
-
-    private static final Logger LOG = LoggerFactory.getLogger(ElasticIndexEditorContext.class);
 
     private String indexPrefix;
 
@@ -67,7 +63,7 @@ class ElasticIndexEditorContext extends FulltextIndexEditorContext<ElasticDocume
         try {
             getWriter().provisionIndex();
         } catch (IOException e) {
-            LOG.error("Couldn't provision index ", e);
+            throw new IllegalStateException("Unable to provision index", e);
         }
     }
 
