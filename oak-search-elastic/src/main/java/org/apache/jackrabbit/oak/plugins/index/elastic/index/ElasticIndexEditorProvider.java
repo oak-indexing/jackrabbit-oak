@@ -28,10 +28,14 @@ import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition.TYPE_ELASTICSEARCH;
 
 public class ElasticIndexEditorProvider implements IndexEditorProvider {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ElasticIndexEditorProvider.class);
 
     private final ElasticConnection elasticConnection;
     private final ExtractedTextCache extractedTextCache;
@@ -47,6 +51,10 @@ public class ElasticIndexEditorProvider implements IndexEditorProvider {
                                            @NotNull NodeBuilder definition, @NotNull NodeState root,
                                            @NotNull IndexUpdateCallback callback) {
         if (TYPE_ELASTICSEARCH.equals(type)) {
+            if (!this.elasticConnection.isConnected()) {
+                LOG.error("Can't provide index editor. Connection not available.");
+                return null;
+            }
             if (!(callback instanceof ContextAwareCallback)) {
                 throw new IllegalStateException("callback instance not of type ContextAwareCallback [" + callback + "]");
             }

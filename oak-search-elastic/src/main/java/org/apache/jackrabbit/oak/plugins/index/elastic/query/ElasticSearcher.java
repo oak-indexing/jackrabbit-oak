@@ -22,17 +22,25 @@ import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 
 public class ElasticSearcher {
     private final ElasticIndexNode indexNode;
+    private static final Logger LOG = LoggerFactory.getLogger(ElasticSearcher.class);
 
     ElasticSearcher(@NotNull ElasticIndexNode indexNode) {
         this.indexNode = indexNode;
     }
 
-    public SearchResponse search(ElasticSearcherModel elasticSearcherModel) throws IOException {
+    public @Nullable SearchResponse search(ElasticSearcherModel elasticSearcherModel) throws IOException {
+        if (!indexNode.getConnection().isConnected()) {
+            LOG.error("Can't search as Elasticsearch server is unreachable");
+            return null;
+        }
         SearchSourceBuilder searchSourceBuilder = SearchSourceBuilderUtil.createSearchSourceBuilder(elasticSearcherModel);
 
         SearchRequest request = new SearchRequest(indexNode.getDefinition().getRemoteIndexAlias())

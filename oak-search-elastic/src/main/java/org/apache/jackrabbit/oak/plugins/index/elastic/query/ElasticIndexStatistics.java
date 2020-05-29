@@ -32,6 +32,8 @@ import org.elasticsearch.index.query.QueryBuilders;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Objects;
@@ -56,6 +58,7 @@ class ElasticIndexStatistics implements IndexStatistics {
     private static final Long MAX_SIZE = Long.getLong("oak.elastic.statsMaxSize", 10000);
     private static final Long EXPIRE_MIN = Long.getLong("oak.elastic.statsExpireMin", 10);
     private static final Long REFRESH_MIN = Long.getLong("oak.elastic.statsRefreshMin", 1);
+    private static final Logger LOG = LoggerFactory.getLogger(ElasticIndexStatistics.class);
 
     private static final LoadingCache<CountRequestDescriptor, Integer> DEFAULT_STATS_CACHE =
             setupCache(MAX_SIZE, EXPIRE_MIN, REFRESH_MIN, null);
@@ -126,6 +129,10 @@ class ElasticIndexStatistics implements IndexStatistics {
     }
 
     private static int count(CountRequestDescriptor crd) throws IOException {
+        if (!crd.connection.isConnected()) {
+            LOG.error("Can't obtain count. No connection available.");
+            return 0;
+        }
         CountRequest countRequest = new CountRequest(crd.index);
         if (crd.field != null) {
             countRequest.query(QueryBuilders.existsQuery(crd.field));

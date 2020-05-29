@@ -19,10 +19,13 @@ package org.apache.jackrabbit.oak.plugins.index.elastic;
 import org.apache.http.Header;
 import org.apache.http.HttpHost;
 import org.apache.http.message.BasicHeader;
+import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
 import org.elasticsearch.client.RestHighLevelClient;
 import org.jetbrains.annotations.NotNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -41,6 +44,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Once close() is invoked this instance cannot be used anymore.
  */
 public class ElasticConnection implements Closeable {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ElasticConnection.class);
 
     protected static final String SCHEME_PROP = "elasticsearch.scheme";
     protected static final String DEFAULT_SCHEME = "http";
@@ -145,6 +150,16 @@ public class ElasticConnection implements Closeable {
     @Override
     public String toString() {
         return scheme + "://" + host + ":" + port + "/" + indexPrefix;
+    }
+
+    public boolean isConnected() {
+        try {
+            return this.getClient().ping(RequestOptions.DEFAULT);
+        } catch (IOException e) {
+            LOG.info("Could not connect to Elasticsearch server - " +  e.getMessage());
+            LOG.debug("Could not connect to Elasticsearch server", e);
+        }
+        return false;
     }
 
     /**

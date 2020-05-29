@@ -541,6 +541,12 @@ public class IndexUpdate implements Editor, PathSource {
                 return;
             }
 
+            PropertyState providerPropertyState =  definition.getProperty("ignoreMissingProvider");
+            if (providerPropertyState != null && providerPropertyState.getValue(BOOLEAN)) {
+                log.info("Ignoring missing index provider for type {} on index {}", type, indexPath);
+                return;
+            }
+
             if (failOnMissingIndexProvider) {
                 throw new CommitFailedException("IndexUpdate", 1,
                         "Missing index provider detected for type [" + type

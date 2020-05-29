@@ -54,6 +54,7 @@ public class ElasticIndexWriterTest {
     public void setUp() {
         MockitoAnnotations.initMocks(this);
         when(indexDefinitionMock.getRemoteIndexAlias()).thenReturn("test-index");
+        when(elasticConnectionMock.isConnected()).thenReturn(true);
         indexWriter = new ElasticIndexWriter(elasticConnectionMock, indexDefinitionMock, bulkProcessorMock);
     }
 
