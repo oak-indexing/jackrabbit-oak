@@ -90,9 +90,7 @@ class ElasticIndex extends FulltextIndex {
 
     @Override
     protected String getFulltextRequestString(IndexPlan plan, IndexNode indexNode) {
-        return Strings.toString(new ElasticResultRowIterator(plan.getFilter(), getPlanResult(plan), plan,
-                acquireIndexNode(plan), FulltextIndex::shouldInclude, getEstimator(plan.getPlanName()))
-                .getElasticQuery(plan, getPlanResult(plan)));
+        return Strings.toString(new ElasticRequestHandler(plan, getPlanResult(plan)).build());
     }
 
     @Override
@@ -102,10 +100,16 @@ class ElasticIndex extends FulltextIndex {
         // TODO: sorting
 
         final FulltextIndexPlanner.PlanResult pr = getPlanResult(plan);
-        QueryLimits settings = filter.getQueryLimits();
 
-        Iterator<FulltextResultRow> itr = new ElasticResultRowIterator(filter, pr, plan,
-                acquireIndexNode(plan), FulltextIndex::shouldInclude, getEstimator(plan.getPlanName()));
+        Iterator<FulltextResultRow> itr = new ElasticResultRowIteratorV2(
+                acquireIndexNode(plan),
+                plan,
+                pr,
+                FulltextIndex::shouldInclude
+        );
+
+//        Iterator<FulltextResultRow> itr = new ElasticResultRowIterator(filter, pr, plan,
+//                acquireIndexNode(plan), FulltextIndex::shouldInclude, getEstimator(plan.getPlanName()));
         SizeEstimator sizeEstimator = getSizeEstimator(plan);
 
         /*
@@ -117,7 +121,7 @@ class ElasticIndex extends FulltextIndex {
 
         // no concept of rewound in ES (even if it might be doing it internally, we can't do much about it
         IteratorRewoundStateProvider rewoundStateProvider = () -> 0;
-        return new FulltextPathCursor(itr, rewoundStateProvider, plan, settings, sizeEstimator);
+        return new FulltextPathCursor(itr, rewoundStateProvider, plan, filter.getQueryLimits(), sizeEstimator);
     }
 
     private LMSEstimator getEstimator(String path) {
