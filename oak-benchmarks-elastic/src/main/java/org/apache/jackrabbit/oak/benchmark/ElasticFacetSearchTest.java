@@ -65,7 +65,7 @@ public class ElasticFacetSearchTest extends FacetSearchTest {
                             .with(new PropertyIndexEditorProvider())
                             .with(new NodeTypeIndexProvider())
                             .with(new FacetSearchTest.FacetIndexInitializer(indexName, propMap,
-                                    ElasticIndexDefinition.TYPE_ELASTICSEARCH));
+                                    ElasticIndexDefinition.TYPE_ELASTICSEARCH, getFaceMode()));
                     return new Jcr(oak);
                 }
             });

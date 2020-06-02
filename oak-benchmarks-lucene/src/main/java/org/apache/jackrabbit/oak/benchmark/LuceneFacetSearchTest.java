@@ -67,7 +67,7 @@ public class LuceneFacetSearchTest extends FacetSearchTest {
                             .with((Observer) provider)
                             .with(new LuceneIndexEditorProvider())
                             .with(new FacetSearchTest.FacetIndexInitializer(indexName, propMap,
-                                    LuceneIndexConstants.TYPE_LUCENE));
+                                    LuceneIndexConstants.TYPE_LUCENE, getFacetMode()));
                     return new Jcr(oak);
                 }
             });

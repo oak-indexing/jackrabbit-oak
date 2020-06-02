@@ -17,26 +17,15 @@
 package org.apache.jackrabbit.oak.benchmark;
 
 
-import javax.jcr.Node;
-
-import static org.apache.jackrabbit.commons.JcrUtils.getOrCreateByPath;
-import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NAME;
-import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.FACETS;
-import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROP_SECURE_FACETS;
-import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROP_SECURE_FACETS_VALUE_INSECURE;
-
 public class LuceneInsecureFacetSearchTest extends LuceneFacetSearchTest {
 
-    @Override
-    protected void beforeSuite() throws Exception {
-        super.beforeSuite();
-        Node indexNode = defaultContext.session.getRootNode().getNode(INDEX_DEFINITIONS_NAME).getNode(indexName);
-        Node facetConfig = getOrCreateByPath(indexNode.getPath() + "/" + FACETS, "nt:unstructured", defaultContext.session);
-        facetConfig.setProperty(PROP_SECURE_FACETS, PROP_SECURE_FACETS_VALUE_INSECURE);
-        defaultContext.session.save();
-    }
 
     public LuceneInsecureFacetSearchTest(Boolean storageEnabled) {
         super(storageEnabled);
+    }
+
+    @Override
+    protected String getFacetMode() {
+        return INSECURE_FACET;
     }
 }

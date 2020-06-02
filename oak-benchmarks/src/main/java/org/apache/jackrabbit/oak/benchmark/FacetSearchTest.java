@@ -57,10 +57,15 @@ import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFIN
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.REINDEX_PROPERTY_NAME;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.TYPE_PROPERTY_NAME;
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.COMPAT_MODE;
+import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.FACETS;
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.INDEX_RULES;
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROP_NAME;
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROP_NODE;
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROP_PROPERTY_INDEX;
+import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROP_SECURE_FACETS;
+import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROP_SECURE_FACETS_VALUE_INSECURE;
+import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROP_SECURE_FACETS_VALUE_STATISTICAL;
+import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROP_STATISTICAL_FACET_SAMPLE_SIZE;
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.STATISTICAL_FACET_SAMPLE_SIZE_DEFAULT;
 
 public class FacetSearchTest extends AbstractTest<FacetSearchTest.TestContext> {
@@ -72,6 +77,10 @@ public class FacetSearchTest extends AbstractTest<FacetSearchTest.TestContext> {
     // Total number of nodes created will be NUM_LEAF_NODES*NUM_LABELS
     private static final int NUM_LEAF_NODES = Integer.getInteger("numFacetLeafNodes", STATISTICAL_FACET_SAMPLE_SIZE_DEFAULT);
     private static final int NUM_LABELS = Integer.getInteger("numLabelsForFacets", 4);
+    protected static final String SECURE_FACET = "SECURE";
+    protected static final String INSECURE_FACET = "INSECURE";
+    protected static final String STATISTICAL_FACET = "STATISTICAL";
+
     protected static final String SEARCH_PROP = "cons";
     protected static final String FACET_PROP_1 = "foo";
     protected static final String FACET_PROP_2 = "bar";
@@ -212,16 +221,22 @@ public class FacetSearchTest extends AbstractTest<FacetSearchTest.TestContext> {
         final Session session = loginWriter();
     }
 
+    protected String getFacetMode() {
+        return SECURE_FACET;
+    }
+
     static class FacetIndexInitializer implements RepositoryInitializer {
 
         private String name;
         private Map<String, Boolean> props;
         private String type;
+        private String facetMode;
 
-        public FacetIndexInitializer(@NotNull final String name, @NotNull final Map<String, Boolean> props, @NotNull String type) {
+        public FacetIndexInitializer(@NotNull final String name, @NotNull final Map<String, Boolean> props, @NotNull String type, @NotNull String facetMode) {
             this.name = name;
             this.props = props;
             this.type = type;
+            this.facetMode = facetMode;
         }
 
         @Override
@@ -241,6 +256,23 @@ public class FacetSearchTest extends AbstractTest<FacetSearchTest.TestContext> {
                 t.setProperty(TYPE_PROPERTY_NAME, type, STRING);
                 t.setProperty(REINDEX_PROPERTY_NAME, true);
 
+                if (!SECURE_FACET.equals(facetMode)) {
+                    Tree facetConfig = t.addChild(FACETS);
+                    facetConfig.setProperty("jcr:primaryType","nt:unstructured", NAME);
+                    switch(facetMode) {
+                        case INSECURE_FACET :
+
+                            facetConfig.setProperty(PROP_SECURE_FACETS, PROP_SECURE_FACETS_VALUE_INSECURE);
+                            break;
+                        case STATISTICAL_FACET:
+                            facetConfig.setProperty(PROP_SECURE_FACETS, PROP_SECURE_FACETS_VALUE_STATISTICAL);
+                            facetConfig.setProperty(PROP_STATISTICAL_FACET_SAMPLE_SIZE, 3000);
+                            break;
+                        default:
+                            break;
+                    }
+
+                }
                 t = t.addChild(INDEX_RULES);
                 t.setOrderableChildren(true);
                 t.setProperty("jcr:primaryType", "nt:unstructured", NAME);

@@ -19,15 +19,6 @@ package org.apache.jackrabbit.oak.benchmark;
 
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticConnection;
 
-import javax.jcr.Node;
-
-import static org.apache.jackrabbit.commons.JcrUtils.getOrCreateByPath;
-import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NAME;
-import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.FACETS;
-import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROP_SECURE_FACETS;
-import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROP_SECURE_FACETS_VALUE_STATISTICAL;
-import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROP_STATISTICAL_FACET_SAMPLE_SIZE;
-
 public class ElasticStatisticalFacetSearchTest extends ElasticFacetSearchTest {
 
     public ElasticStatisticalFacetSearchTest(Boolean storageEnabled, ElasticConnection coordinate) {
@@ -35,12 +26,8 @@ public class ElasticStatisticalFacetSearchTest extends ElasticFacetSearchTest {
     }
 
     @Override
-    protected void beforeSuite() throws Exception {
-        super.beforeSuite();
-        Node indexNode = defaultContext.session.getRootNode().getNode(INDEX_DEFINITIONS_NAME).getNode(indexName);
-        Node facetConfig = getOrCreateByPath(indexNode.getPath() + "/" + FACETS, "nt:unstructured", defaultContext.session);
-        facetConfig.setProperty(PROP_SECURE_FACETS, PROP_SECURE_FACETS_VALUE_STATISTICAL);
-        facetConfig.setProperty(PROP_STATISTICAL_FACET_SAMPLE_SIZE, 3000);
-        defaultContext.session.save();
+    protected String getFacetMode() {
+        return STATISTICAL_FACET;
     }
+
 }
