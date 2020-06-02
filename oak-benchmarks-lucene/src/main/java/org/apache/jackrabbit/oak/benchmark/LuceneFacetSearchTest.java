@@ -54,7 +54,7 @@ public class LuceneFacetSearchTest extends FacetSearchTest {
 
     @Override
     protected Repository[] createRepository(RepositoryFixture fixture) throws Exception {
-        Map propMap = new LinkedHashMap<String, Boolean>();
+        Map<String, Boolean> propMap = new LinkedHashMap();
         propMap.put(SEARCH_PROP, false);
         propMap.put(FACET_PROP_1, true);
         propMap.put(FACET_PROP_2, true);
@@ -88,7 +88,7 @@ public class LuceneFacetSearchTest extends FacetSearchTest {
     }
 
     private File createTemporaryFolder(File parentFolder) {
-        File createdFolder = null;
+        File createdFolder;
         try {
             createdFolder = File.createTempFile("oak", "", parentFolder);
         } catch (IOException e) {

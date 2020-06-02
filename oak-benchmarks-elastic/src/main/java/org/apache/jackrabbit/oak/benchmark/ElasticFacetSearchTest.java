@@ -38,7 +38,7 @@ import java.util.Map;
 
 public class ElasticFacetSearchTest extends FacetSearchTest {
 
-    private ElasticConnection coordinate;
+    final private ElasticConnection coordinate;
     protected String indexName;
 
     ElasticFacetSearchTest(Boolean storageEnabled, ElasticConnection coordinate) {
@@ -49,7 +49,7 @@ public class ElasticFacetSearchTest extends FacetSearchTest {
     @Override
     protected Repository[] createRepository(RepositoryFixture fixture) throws Exception {
         indexName = TestHelper.getUniqueIndexName("elasticFacetTest");
-        Map propMap = new LinkedHashMap<String, Boolean>();
+        Map<String, Boolean> propMap = new LinkedHashMap();
         propMap.put(SEARCH_PROP, false);
         propMap.put(FACET_PROP_1, true);
         propMap.put(FACET_PROP_2, true);
@@ -65,7 +65,7 @@ public class ElasticFacetSearchTest extends FacetSearchTest {
                             .with(new PropertyIndexEditorProvider())
                             .with(new NodeTypeIndexProvider())
                             .with(new FacetSearchTest.FacetIndexInitializer(indexName, propMap,
-                                    ElasticIndexDefinition.TYPE_ELASTICSEARCH, getFaceMode()));
+                                    ElasticIndexDefinition.TYPE_ELASTICSEARCH, getFacetMode()));
                     return new Jcr(oak);
                 }
             });
