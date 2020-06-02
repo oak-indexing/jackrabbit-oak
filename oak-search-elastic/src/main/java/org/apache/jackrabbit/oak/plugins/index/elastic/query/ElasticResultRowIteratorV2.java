@@ -1,3 +1,19 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.apache.jackrabbit.oak.plugins.index.elastic.query;
 
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
@@ -26,12 +42,20 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiPredicate;
+import java.util.function.Consumer;
 
+/**
+ * Class to iterate over Elastic results of a given {@link IndexPlan}.
+ * The results are produced asynchronously into an internal unbounded {@link BlockingQueue}. To avoid too many calls to
+ * Elastic the results are loaded in chunks (using search_after strategy) and loaded only when needed.
+ */
 public class ElasticResultRowIteratorV2 implements Iterator<FulltextResultRow>, ElasticResponseListener.RowListener {
 
     private static final Logger LOG = LoggerFactory.getLogger(ElasticResultRowIteratorV2.class);
-    public static final FulltextResultRow POISON_PILL =
+    // this is an internal special message to notify the consumer the result set has been completely returned
+    private static final FulltextResultRow POISON_PILL =
             new FulltextResultRow("___OAK_POISON_PILL___", 0d, Collections.emptyMap(), null, null);
 
     private final BlockingQueue<FulltextResultRow> queue = new LinkedBlockingQueue<>();
@@ -57,20 +81,15 @@ public class ElasticResultRowIteratorV2 implements Iterator<FulltextResultRow>, 
         this.elasticQueryScanner = initScanner();
     }
 
-    private CyclicBarrier barrier = new CyclicBarrier(2);
-
     @Override
     public boolean hasNext() {
+        if (queue.isEmpty()) {
+            // this triggers, when needed, the scan of the next results chunk
+            elasticQueryScanner.scan();
+        }
         try {
-            if (queue.isEmpty() && elasticQueryScanner.anyDataLeft) {
-                LOG.trace("time to wake up the scanner for more data");
-                barrier.await();
-            } else {
-                LOG.trace("still stuff to process in the queue(size {}) or nothing left in the scanner(barrier size {})",
-                        queue.size(), barrier.getNumberWaiting());
-            }
             nextRow = queue.take();
-        } catch (InterruptedException | BrokenBarrierException e) {
+        } catch (InterruptedException e) {
             throw new IllegalStateException("Error reading next result from Elastic", e);
         }
         if (POISON_PILL.path.equals(nextRow.path)) {
@@ -84,19 +103,12 @@ public class ElasticResultRowIteratorV2 implements Iterator<FulltextResultRow>, 
         return nextRow;
     }
 
-    private ElasticQueryScanner initScanner() {
-        return new ElasticQueryScanner(indexNode,
-                new ElasticRequestHandler(indexPlan, planResult),
-                new ElasticResponseHandler(indexPlan, planResult, rowInclusionPredicate),
-                Collections.singletonList(this));
-    }
-
     @Override
     public void on(FulltextResultRow row) {
         try {
             queue.put(row);
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            throw new IllegalStateException("Error producing results into the iterator queue", e);
         }
     }
 
@@ -105,63 +117,76 @@ public class ElasticResultRowIteratorV2 implements Iterator<FulltextResultRow>, 
         try {
             queue.put(POISON_PILL);
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            throw new IllegalStateException("Error inserting poison pill into the iterator queue", e);
         }
     }
 
+    private ElasticQueryScanner initScanner() {
+        return new ElasticQueryScanner(
+                new ElasticRequestHandler(indexPlan, planResult),
+                new ElasticResponseHandler(indexPlan, planResult, rowInclusionPredicate),
+                Collections.singletonList(this)
+        );
+    }
+
+    /**
+     * Scans Elastic results asynchronously and notify listeners.
+     */
     class ElasticQueryScanner implements ActionListener<SearchResponse> {
 
-        private static final int SMALL_RESULT_SET_SIZE = 1;
-        private static final int LARGE_RESULT_SET_SIZE = 1;
+        private static final int SMALL_RESULT_SET_SIZE = 250;
+        private static final int LARGE_RESULT_SET_SIZE = 2500;
 
         private final List<ElasticResponseListener.RowListener> rowListeners = new ArrayList<>();
 
-        private final ElasticIndexNode indexNode;
         private final ElasticResponseHandler responseHandler;
 
         private final SearchRequest searchRequest;
 
-        private int scannedRows = 0;
-        public boolean anyDataLeft;
+        // concurrent data structures to coordinate chunks loading
+        private final CyclicBarrier barrier = new CyclicBarrier(2);
+        private final AtomicBoolean anyDataLeft = new AtomicBoolean(false);
 
-        ElasticQueryScanner(ElasticIndexNode indexNode, ElasticRequestHandler requestHandler,
-                            ElasticResponseHandler responseHandler, List<ElasticResponseListener> listeners) {
-            this.indexNode = indexNode;
+        private int scannedRows = 0;
+
+        ElasticQueryScanner(ElasticRequestHandler requestHandler, ElasticResponseHandler responseHandler, List<ElasticResponseListener> listeners) {
             this.responseHandler = responseHandler;
+
+            final Consumer<ElasticResponseListener> registerListener = (listener) -> {
+                if (listener instanceof RowListener) {
+                    rowListeners.add((RowListener) listener);
+                }
+            };
+
             for (ElasticResponseListener l: listeners) {
-                addResponseListener(l);
+                registerListener.accept(l);
             }
 
-            SearchSourceBuilder searchSourceBuilder = SearchSourceBuilder.searchSource()
+            final SearchSourceBuilder searchSourceBuilder = SearchSourceBuilder.searchSource()
                     .query(requestHandler.build())
                     .size(SMALL_RESULT_SET_SIZE)
                     .fetchSource(FieldNames.PATH, null)
+                    // TODO: this needs to be moved in the requestHandler when sorting will be properly supported
                     .sort(SortBuilders.fieldSort("_score").order(SortOrder.DESC))
                     .sort(SortBuilders.fieldSort(FieldNames.PATH).order(SortOrder.ASC)); // tie-breaker
 
             searchRequest = new SearchRequest(indexNode.getDefinition().getRemoteIndexAlias())
                     .source(searchSourceBuilder);
-            LOG.trace("kick first search");
+
+            LOG.trace("Kicking initial search for query {}", searchSourceBuilder);
             indexNode.getConnection().getClient().searchAsync(searchRequest, RequestOptions.DEFAULT, this);
         }
 
-        private void addResponseListener(ElasticResponseListener listener) {
-            if (listener instanceof RowListener) {
-                rowListeners.add((RowListener) listener);
-            }
-        }
-
-        public int getScannedRows() {
-            return scannedRows;
-        }
-
+        /**
+         * Handle the response action notifying the registered listeners. Depending on the listeners' configuration
+         * it could keep loading chunks or wait for a {@code #scan} call to resume scanning.
+         */
         @Override
         public void onResponse(SearchResponse searchResponse) {
-
-            SearchHit[] searchHits = searchResponse.getHits().getHits();
+            final SearchHit[] searchHits = searchResponse.getHits().getHits();
             if (searchHits != null && searchHits.length > 0) {
                 scannedRows += searchHits.length;
-                anyDataLeft = searchResponse.getHits().getTotalHits().value > scannedRows;
+                anyDataLeft.set(searchResponse.getHits().getTotalHits().value > scannedRows);
                 for (SearchHit hit : searchHits) {
                     FulltextResultRow row = responseHandler.toRow(hit, null);
                     for (RowListener l : rowListeners) {
@@ -169,33 +194,60 @@ public class ElasticResultRowIteratorV2 implements Iterator<FulltextResultRow>, 
                     }
                 }
 
-                if (!anyDataLeft) {
+                if (!anyDataLeft.get()) {
                     close();
                     return;
                 }
 
-                LOG.trace("waiting for next call = " + scannedRows);
+                LOG.trace("Scanned {} rows. Waiting for next scan", scannedRows);
                 try {
-                    ElasticResultRowIteratorV2.this.barrier.await(5, TimeUnit.SECONDS);
-                } catch (InterruptedException | BrokenBarrierException | TimeoutException e) {
-                    e.printStackTrace();
+                    // a scanner cannot be open for more than 15 seconds, otherwise an error is returned
+                    barrier.await(15, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    throw new IllegalStateException("Error while waiting for next scan", e);
+                } catch (BrokenBarrierException e) {
+                    // this should never happen, it would be a bug otherwise
+                    throw new IllegalStateException("Error coordinating scan activities", e);
+                } catch (TimeoutException e) {
+                    LOG.error("Scan timeout. Search aborted. The iterator has been left open or is consumed too slowly", e);
+                    endData();
+                    return;
                 }
-                LOG.trace("kicking another search request");
 
                 searchRequest.source()
                         .searchAfter(searchHits[searchHits.length - 1].getSortValues())
                         .size(LARGE_RESULT_SET_SIZE);
+                LOG.trace("Kicking new search after query {}", searchRequest.source());
+
                 indexNode.getConnection().getClient().searchAsync(searchRequest, RequestOptions.DEFAULT, this);
             } else {
+                // no results
                 close();
+            }
+        }
+
+        /**
+         * Triggers a scan of a new chunk of the result set, if needed.
+         */
+        public void scan() {
+            if (anyDataLeft.get()) {
+                LOG.trace("Waking up the scanner for more data");
+                try {
+                    barrier.await();
+                } catch (InterruptedException | BrokenBarrierException e) {
+                    e.printStackTrace();
+                }
+            } else {
+                LOG.trace("Scanner is still processing data from the previous scan");
             }
         }
 
         @Override
         public void onFailure(Exception e) {
-            e.printStackTrace();
+            LOG.error("Error retrieving data from Elastic", e);
         }
 
+        // close all listeners
         private void close() {
             for (RowListener l : rowListeners) {
                 l.endData();
