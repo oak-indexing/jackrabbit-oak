@@ -111,10 +111,6 @@ public class FacetSearchTest extends AbstractTest<FacetSearchTest.TestContext> {
         LOG.trace("Starting test execution");
         Map<String, Integer> map = Maps.newHashMap();
         QueryManager qm = ec.session.getWorkspace().getQueryManager();
-
-
-        LOG.trace("--------------****** PROP VAL SIZE -----" + propVals.size());
-        LOG.trace("--------------****** PROP VAL -----" + propVals);
         String query = getQuery();
         LOG.trace(query);
         Query q;
@@ -164,7 +160,7 @@ public class FacetSearchTest extends AbstractTest<FacetSearchTest.TestContext> {
                 int foolabelNum = rGen.nextInt(NUM_LABELS);
                 int barlabelNum = rGen1.nextInt(NUM_LABELS);
 
-                String val = "val_" + foolabelNum;
+                String val = "val_" + j/100;
                 propVals.add(val);
                 Node child = subPar.addNode("c" + j);
                 child.setProperty("cons", val);
