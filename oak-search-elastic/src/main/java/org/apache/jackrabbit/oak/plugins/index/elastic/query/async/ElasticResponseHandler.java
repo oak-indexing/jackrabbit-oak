@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.jackrabbit.oak.plugins.index.elastic.query;
+package org.apache.jackrabbit.oak.plugins.index.elastic.query.async;
 
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex.FulltextResultRow;
@@ -28,7 +28,7 @@ import org.slf4j.LoggerFactory;
 import java.util.Map;
 import java.util.function.BiPredicate;
 
-public class ElasticResponseHandler {
+class ElasticResponseHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger(ElasticResponseHandler.class);
 
@@ -43,7 +43,7 @@ public class ElasticResponseHandler {
         this.rowInclusionPredicate = rowInclusionPredicate;
     }
 
-    public FulltextResultRow toRow(SearchHit hit, ElasticResultRowIterator.ElasticsearchFacetProvider elasticsearchFacetProvider) {
+    public FulltextResultRow toRow(SearchHit hit) {
         final Map<String, Object> sourceMap = hit.getSourceAsMap();
         String path = (String) sourceMap.get(FieldNames.PATH);
 
@@ -63,7 +63,7 @@ public class ElasticResponseHandler {
         boolean shouldIncludeForHierarchy = rowInclusionPredicate.test(path, indexPlan);
         LOG.trace("Matched path {}; shouldIncludeForHierarchy: {}", path, shouldIncludeForHierarchy);
         return shouldIncludeForHierarchy ? new FulltextResultRow(path, hit.getScore(), null,
-                elasticsearchFacetProvider, null)
+                null, null)
                 : null;
     }
 }

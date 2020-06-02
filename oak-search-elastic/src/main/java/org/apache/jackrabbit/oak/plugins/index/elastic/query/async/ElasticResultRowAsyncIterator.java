@@ -14,11 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.jackrabbit.oak.plugins.index.elastic.query;
+package org.apache.jackrabbit.oak.plugins.index.elastic.query.async;
 
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.ElasticIndexNode;
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex.FulltextResultRow;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndexPlanner.PlanResult;
+import org.apache.jackrabbit.oak.plugins.index.search.util.LMSEstimator;
 import org.apache.jackrabbit.oak.spi.query.QueryIndex.IndexPlan;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.search.SearchRequest;
@@ -51,9 +53,9 @@ import java.util.function.Consumer;
  * The results are produced asynchronously into an internal unbounded {@link BlockingQueue}. To avoid too many calls to
  * Elastic the results are loaded in chunks (using search_after strategy) and loaded only when needed.
  */
-public class ElasticResultRowIteratorV2 implements Iterator<FulltextResultRow>, ElasticResponseListener.RowListener {
+public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow>, ElasticResponseListener.RowListener {
 
-    private static final Logger LOG = LoggerFactory.getLogger(ElasticResultRowIteratorV2.class);
+    private static final Logger LOG = LoggerFactory.getLogger(ElasticResultRowAsyncIterator.class);
     // this is an internal special message to notify the consumer the result set has been completely returned
     private static final FulltextResultRow POISON_PILL =
             new FulltextResultRow("___OAK_POISON_PILL___", 0d, Collections.emptyMap(), null, null);
@@ -64,19 +66,22 @@ public class ElasticResultRowIteratorV2 implements Iterator<FulltextResultRow>, 
     private final IndexPlan indexPlan;
     private final PlanResult planResult;
     private final BiPredicate<String, IndexPlan> rowInclusionPredicate;
+    private final LMSEstimator estimator;
 
     private final ElasticQueryScanner elasticQueryScanner;
 
     private FulltextResultRow nextRow;
 
-    ElasticResultRowIteratorV2(@NotNull ElasticIndexNode indexNode,
-                               @NotNull IndexPlan indexPlan,
-                               @NotNull PlanResult planResult,
-                               BiPredicate<String, IndexPlan> rowInclusionPredicate) {
+    public ElasticResultRowAsyncIterator(@NotNull ElasticIndexNode indexNode,
+                                         @NotNull IndexPlan indexPlan,
+                                         @NotNull PlanResult planResult,
+                                         BiPredicate<String, IndexPlan> rowInclusionPredicate,
+                                         LMSEstimator estimator) {
         this.indexNode = indexNode;
         this.indexPlan = indexPlan;
         this.planResult = planResult;
         this.rowInclusionPredicate = rowInclusionPredicate != null ? rowInclusionPredicate : (p, ip) -> true;
+        this.estimator = estimator;
 
         this.elasticQueryScanner = initScanner();
     }
@@ -187,8 +192,9 @@ public class ElasticResultRowIteratorV2 implements Iterator<FulltextResultRow>, 
             if (searchHits != null && searchHits.length > 0) {
                 scannedRows += searchHits.length;
                 anyDataLeft.set(searchResponse.getHits().getTotalHits().value > scannedRows);
+                estimator.update(indexPlan.getFilter(), searchResponse.getHits().getTotalHits().value);
                 for (SearchHit hit : searchHits) {
-                    FulltextResultRow row = responseHandler.toRow(hit, null);
+                    FulltextResultRow row = responseHandler.toRow(hit);
                     for (RowListener l : rowListeners) {
                         l.on(row);
                     }
@@ -233,9 +239,15 @@ public class ElasticResultRowIteratorV2 implements Iterator<FulltextResultRow>, 
             if (anyDataLeft.get()) {
                 LOG.trace("Waking up the scanner for more data");
                 try {
-                    barrier.await();
-                } catch (InterruptedException | BrokenBarrierException e) {
-                    e.printStackTrace();
+                    barrier.await(1, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    throw new IllegalStateException("Error while waiting for next scan", e);
+                } catch (BrokenBarrierException e) {
+                    // this should never happen, it would be a bug otherwise
+                    throw new IllegalStateException("Error coordinating scan activities", e);
+                } catch (TimeoutException e) {
+                    // this should never happen because the barrier should be released immediately at this stage
+                    LOG.error("Scan timeout. Scan cannot be triggered", e);
                 }
             } else {
                 LOG.trace("Scanner is still processing data from the previous scan");

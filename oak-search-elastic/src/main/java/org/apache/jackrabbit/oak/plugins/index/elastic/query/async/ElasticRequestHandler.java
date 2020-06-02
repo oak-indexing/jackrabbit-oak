@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.jackrabbit.oak.plugins.index.elastic.query;
+package org.apache.jackrabbit.oak.plugins.index.elastic.query.async;
 
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.commons.PathUtils;
@@ -77,7 +77,7 @@ public class ElasticRequestHandler {
     private final PlanResult planResult;
     private final ElasticIndexDefinition elasticIndexDefinition;
 
-    ElasticRequestHandler(@NotNull IndexPlan indexPlan, @NotNull PlanResult planResult) {
+    public ElasticRequestHandler(@NotNull IndexPlan indexPlan, @NotNull PlanResult planResult) {
         this.indexPlan = indexPlan;
         this.planResult = planResult;
         this.elasticIndexDefinition = (ElasticIndexDefinition) planResult.indexDefinition;

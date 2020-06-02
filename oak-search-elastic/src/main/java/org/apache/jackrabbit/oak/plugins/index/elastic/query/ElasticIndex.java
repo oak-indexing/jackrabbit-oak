@@ -17,6 +17,8 @@
 package org.apache.jackrabbit.oak.plugins.index.elastic.query;
 
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticConnection;
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.ElasticRequestHandler;
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.ElasticResultRowAsyncIterator;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexNode;
 import org.apache.jackrabbit.oak.plugins.index.search.SizeEstimator;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex;
@@ -24,7 +26,6 @@ import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndexPla
 import org.apache.jackrabbit.oak.plugins.index.search.util.LMSEstimator;
 import org.apache.jackrabbit.oak.spi.query.Cursor;
 import org.apache.jackrabbit.oak.spi.query.Filter;
-import org.apache.jackrabbit.oak.spi.query.QueryLimits;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.elasticsearch.common.Strings;
 import org.jetbrains.annotations.NotNull;
@@ -40,7 +41,7 @@ import static org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefini
 class ElasticIndex extends FulltextIndex {
     private static final Predicate<NodeState> ELASTICSEARCH_INDEX_DEFINITION_PREDICATE =
             state -> TYPE_ELASTICSEARCH.equals(state.getString(TYPE_PROPERTY_NAME));
-    private static final Map<String, LMSEstimator> estimators = new WeakHashMap<>();
+    private static final Map<String, LMSEstimator> ESTIMATORS = new WeakHashMap<>();
 
     // higher than some threshold below which the query should rather be answered by something else if possible
     private static final double MIN_COST = 100.1;
@@ -101,16 +102,16 @@ class ElasticIndex extends FulltextIndex {
 
         final FulltextIndexPlanner.PlanResult pr = getPlanResult(plan);
 
-        Iterator<FulltextResultRow> itr = new ElasticResultRowIteratorV2(
+        Iterator<FulltextResultRow> itr = new ElasticResultRowAsyncIterator(
                 acquireIndexNode(plan),
                 plan,
                 pr,
-                FulltextIndex::shouldInclude
+                FulltextIndex::shouldInclude,
+                getEstimator(plan.getPlanName())
         );
 
 //        Iterator<FulltextResultRow> itr = new ElasticResultRowIterator(filter, pr, plan,
 //                acquireIndexNode(plan), FulltextIndex::shouldInclude, getEstimator(plan.getPlanName()));
-        SizeEstimator sizeEstimator = getSizeEstimator(plan);
 
         /*
         TODO: sync (nrt too??)
@@ -121,12 +122,12 @@ class ElasticIndex extends FulltextIndex {
 
         // no concept of rewound in ES (even if it might be doing it internally, we can't do much about it
         IteratorRewoundStateProvider rewoundStateProvider = () -> 0;
-        return new FulltextPathCursor(itr, rewoundStateProvider, plan, filter.getQueryLimits(), sizeEstimator);
+        return new FulltextPathCursor(itr, rewoundStateProvider, plan, filter.getQueryLimits(), getSizeEstimator(plan));
     }
 
     private LMSEstimator getEstimator(String path) {
-        estimators.putIfAbsent(path, new LMSEstimator());
-        return estimators.get(path);
+        ESTIMATORS.putIfAbsent(path, new LMSEstimator());
+        return ESTIMATORS.get(path);
     }
 
     @Override
