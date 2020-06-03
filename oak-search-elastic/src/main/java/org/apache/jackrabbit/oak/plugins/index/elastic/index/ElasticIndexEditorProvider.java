@@ -28,14 +28,10 @@ import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import static org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition.TYPE_ELASTICSEARCH;
 
 public class ElasticIndexEditorProvider implements IndexEditorProvider {
-
-    private static final Logger LOG = LoggerFactory.getLogger(ElasticIndexEditorProvider.class);
 
     private final ElasticConnection elasticConnection;
     private final ExtractedTextCache extractedTextCache;
