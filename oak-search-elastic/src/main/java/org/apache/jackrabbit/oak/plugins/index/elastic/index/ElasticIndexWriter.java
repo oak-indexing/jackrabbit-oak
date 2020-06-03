@@ -114,10 +114,6 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
 
     @Override
     public void updateDocument(String path, ElasticDocument doc) {
-        if (!elasticConnection.isConnected()) {
-            LOG.error("Can't update document for {} as Elasticsearch server is unreachable", path);
-            return;
-        }
         IndexRequest request = new IndexRequest(indexDefinition.getRemoteIndexAlias())
                 .id(idFromPath(path))
                 .source(doc.build(), XContentType.JSON);
@@ -126,10 +122,6 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
 
     @Override
     public void deleteDocuments(String path) {
-        if (!elasticConnection.isConnected()) {
-            LOG.error("Can't delete document for {} as Elasticsearch server is unreachable", path);
-            return;
-        }
         DeleteRequest request = new DeleteRequest(indexDefinition.getRemoteIndexAlias())
                 .id(idFromPath(path));
         bulkProcessor.add(request);
@@ -157,10 +149,6 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
     }
 
     protected void provisionIndex() throws IOException {
-        if (!elasticConnection.isConnected()) {
-            LOG.error("Can't provision the index {} as Elasticsearch server is unreachable, ", indexDefinition.getIndexPath());
-            return;
-        }
         // check if index already exists
         boolean exists = elasticConnection.getClient().indices().exists(
                 new GetIndexRequest(indexDefinition.getRemoteIndexName()), RequestOptions.DEFAULT

@@ -22,7 +22,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Throwables.getStackTraceAsString;
 import static com.google.common.collect.Sets.newHashSet;
-import static org.apache.jackrabbit.oak.api.Type.BOOLEAN;
 import static org.apache.jackrabbit.oak.api.jmx.IndexStatsMBean.STATUS_DONE;
 import static org.apache.jackrabbit.oak.commons.PathUtils.elements;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.ASYNC_PROPERTY_NAME;
@@ -205,14 +204,16 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
     private TrackingCorruptIndexHandler corruptIndexHandler = new TrackingCorruptIndexHandler();
 
     private final StatisticsProvider statisticsProvider;
+    private final LaneSanityCheckerProvider laneSanityCheckerProvider;
 
     public AsyncIndexUpdate(@NotNull String name, @NotNull NodeStore store,
                             @NotNull IndexEditorProvider provider, boolean switchOnSync) {
-        this(name, store, provider, StatisticsProvider.NOOP, switchOnSync);
+        this(name, store, provider, StatisticsProvider.NOOP, switchOnSync, null);
     }
 
     public AsyncIndexUpdate(@NotNull String name, @NotNull NodeStore store,
-                            @NotNull IndexEditorProvider provider, StatisticsProvider statsProvider, boolean switchOnSync) {
+                            @NotNull IndexEditorProvider provider, StatisticsProvider statsProvider, boolean switchOnSync,
+                            LaneSanityCheckerProvider laneSanityCheckerProvider) {
         this.name = checkValidName(name);
         this.lastIndexedTo = lastIndexedTo(name);
         this.store = checkNotNull(store);
@@ -222,6 +223,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         this.statisticsProvider = statsProvider;
         this.indexStats = new AsyncIndexStats(name, statsProvider);
         this.corruptIndexHandler.setMeterStats(statsProvider.getMeter(TrackingCorruptIndexHandler.CORRUPT_INDEX_METER_NAME, StatsOptions.METRICS_ONLY));
+        this.laneSanityCheckerProvider = laneSanityCheckerProvider;
     }
 
     public AsyncIndexUpdate(@NotNull String name, @NotNull NodeStore store,
@@ -479,6 +481,14 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             log.debug("[{}] Ignoring the run as indexing is paused", name);
             return;
         }
+        if (laneSanityCheckerProvider != null) {
+            LaneSanityChecker laneSanityChecker = laneSanityCheckerProvider.getSanityChecker(name);
+            if (laneSanityChecker != null && !laneSanityChecker.isIndexable()) {
+                log.info("[{}] Ignoring the run as lane sanity checker forbids it", name);
+                return;
+            }
+        }
+
         log.debug("[{}] Running background index task", name);
 
         NodeState root = store.getRoot();
@@ -1375,11 +1385,6 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         public void onMissingIndex(String type, NodeBuilder definition, String path)
                 throws CommitFailedException {
             if (isDisabled(type)) {
-                return;
-            }
-            PropertyState providerPropertyState =  definition.getProperty("ignoreMissingProvider");
-            if (providerPropertyState != null && providerPropertyState.getValue(BOOLEAN)) {
-                log.info("Ignoring missing index provider for type {} on index {}", type, path);
                 return;
             }
             throw new CommitFailedException("Async", 2,

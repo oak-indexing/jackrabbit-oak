@@ -30,6 +30,7 @@
   <artifactId>oak-core</artifactId>
   <name>Oak Core</name>
   <packaging>bundle</packaging>
+    <version>1.31.2-SNAPSHOT</version>
 
   <properties>
     <!-- enable execution of jacoco and set minimal line coverage -->
@@ -235,49 +236,49 @@
     <dependency>
       <groupId>org.apache.jackrabbit</groupId>
       <artifactId>oak-jackrabbit-api</artifactId>
-      <version>${project.version}</version>
+      <version>1.31-SNAPSHOT</version>
     </dependency>
     <dependency>
       <groupId>org.apache.jackrabbit</groupId>
       <artifactId>oak-api</artifactId>
-      <version>${project.version}</version>
+      <version>1.31-SNAPSHOT</version>
     </dependency>
     <dependency>
       <groupId>org.apache.jackrabbit</groupId>
       <artifactId>oak-core-spi</artifactId>
-      <version>${project.version}</version>
+      <version>1.31-SNAPSHOT</version>
     </dependency>
     <dependency>
       <groupId>org.apache.jackrabbit</groupId>
       <artifactId>oak-query-spi</artifactId>
-      <version>${project.version}</version>
+      <version>1.31-SNAPSHOT</version>
     </dependency>
     <dependency>
       <groupId>org.apache.jackrabbit</groupId>
       <artifactId>oak-security-spi</artifactId>
-      <version>${project.version}</version>
+      <version>1.31-SNAPSHOT</version>
     </dependency>
     <dependency>
       <groupId>org.apache.jackrabbit</groupId>
       <artifactId>oak-commons</artifactId>
-      <version>${project.version}</version>
+      <version>1.31-SNAPSHOT</version>
     </dependency>
     <dependency>
       <groupId>org.apache.jackrabbit</groupId>
       <artifactId>oak-commons</artifactId>
-      <version>${project.version}</version>
+      <version>1.31-SNAPSHOT</version>
       <type>test-jar</type>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.jackrabbit</groupId>
       <artifactId>oak-blob-plugins</artifactId>
-      <version>${project.version}</version>
+      <version>1.31-SNAPSHOT</version>
     </dependency>
     <dependency>
       <groupId>org.apache.jackrabbit</groupId>
       <artifactId>oak-store-spi</artifactId>
-      <version>${project.version}</version>
+      <version>1.31-SNAPSHOT</version>
     </dependency>
     <!-- General utility libraries -->
     <dependency>
@@ -366,7 +367,7 @@
     <dependency>
       <groupId>org.apache.jackrabbit</groupId>
       <artifactId>oak-blob-plugins</artifactId>
-      <version>${project.version}</version>
+      <version>1.31-SNAPSHOT</version>
       <classifier>tests</classifier>
       <scope>test</scope>
     </dependency>

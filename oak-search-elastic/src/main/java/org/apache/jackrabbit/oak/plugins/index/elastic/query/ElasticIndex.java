@@ -72,18 +72,7 @@ class ElasticIndex extends FulltextIndex {
 
     @Override
     public double getMinimumCost() {
-        if (!elasticConnection.isConnected()) {
-            return Double.POSITIVE_INFINITY;
-        }
         return MIN_COST;
-    }
-
-    @Override
-    public List<IndexPlan> getPlans(Filter filter, List<OrderEntry> sortOrder, NodeState rootState) {
-        if (!elasticConnection.isConnected()) {
-            return Collections.emptyList();
-        }
-        return super.getPlans(filter, sortOrder, rootState);
     }
 
     @Override

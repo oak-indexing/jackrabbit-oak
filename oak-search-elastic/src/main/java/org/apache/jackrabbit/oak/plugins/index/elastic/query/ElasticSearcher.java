@@ -37,10 +37,6 @@ public class ElasticSearcher {
     }
 
     public @Nullable SearchResponse search(ElasticSearcherModel elasticSearcherModel) throws IOException {
-        if (!indexNode.getConnection().isConnected()) {
-            LOG.error("Can't search as Elasticsearch server is unreachable");
-            return null;
-        }
         SearchSourceBuilder searchSourceBuilder = SearchSourceBuilderUtil.createSearchSourceBuilder(elasticSearcherModel);
 
         SearchRequest request = new SearchRequest(indexNode.getDefinition().getRemoteIndexAlias())

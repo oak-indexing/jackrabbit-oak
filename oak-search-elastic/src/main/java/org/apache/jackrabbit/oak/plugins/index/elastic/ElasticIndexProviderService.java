@@ -25,6 +25,7 @@ import org.apache.felix.scr.annotations.Reference;
 import org.apache.felix.scr.annotations.ReferenceCardinality;
 import org.apache.felix.scr.annotations.ReferencePolicy;
 import org.apache.felix.scr.annotations.ReferencePolicyOption;
+import org.apache.felix.scr.annotations.Service;
 import org.apache.jackrabbit.oak.api.jmx.CacheStatsMBean;
 import org.apache.jackrabbit.oak.cache.CacheStats;
 import org.apache.jackrabbit.oak.commons.IOUtils;
@@ -54,6 +55,7 @@ import java.util.Map;
 import static org.apache.commons.io.FileUtils.ONE_MB;
 import static org.apache.jackrabbit.oak.spi.whiteboard.WhiteboardUtils.registerMBean;
 
+@Service(ElasticIndexProviderService.class)
 @Component(metatype = true, label = "Apache Jackrabbit Oak ElasticIndexProvider")
 public class ElasticIndexProviderService {
 
@@ -148,7 +150,7 @@ public class ElasticIndexProviderService {
     private Whiteboard whiteboard;
     private File textExtractionDir;
 
-    private ElasticConnection elasticConnection;
+    ElasticConnection elasticConnection;
 
     @Activate
     private void activate(BundleContext bundleContext, Map<String, Object> config) {

@@ -70,6 +70,9 @@ public class ElasticConnection implements Closeable {
     private volatile RestHighLevelClient client;
 
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
+    private boolean isConnected;
+    private long lastChecked;
+    private final long CONNECTION_CHECK_THRESHOLD_MILLIS = 60000;
 
     /**
      * Creates an {@code ElasticsearchConnection} instance with the given scheme, host address and port that support API
@@ -153,13 +156,18 @@ public class ElasticConnection implements Closeable {
     }
 
     public boolean isConnected() {
-        try {
-            return this.getClient().ping(RequestOptions.DEFAULT);
-        } catch (IOException e) {
-            LOG.info("Could not connect to Elasticsearch server - " +  e.getMessage());
-            LOG.debug("Could not connect to Elasticsearch server", e);
+        if (System.currentTimeMillis() - lastChecked < CONNECTION_CHECK_THRESHOLD_MILLIS) {
+            return isConnected;
         }
-        return false;
+        try {
+            lastChecked = System.currentTimeMillis();
+            isConnected = this.getClient().ping(RequestOptions.DEFAULT);
+        } catch (IOException e) {
+            //LOG.info("Could not connect to Elasticsearch server - " +  e.getMessage());
+            LOG.info("Could not connect to Elasticsearch server", e);
+            isConnected = false;
+        }
+        return isConnected;
     }
 
     /**

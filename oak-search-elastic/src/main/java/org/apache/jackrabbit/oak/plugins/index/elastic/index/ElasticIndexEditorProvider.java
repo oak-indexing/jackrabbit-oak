@@ -51,10 +51,6 @@ public class ElasticIndexEditorProvider implements IndexEditorProvider {
                                            @NotNull NodeBuilder definition, @NotNull NodeState root,
                                            @NotNull IndexUpdateCallback callback) {
         if (TYPE_ELASTICSEARCH.equals(type)) {
-            if (!this.elasticConnection.isConnected()) {
-                LOG.error("Can't provide index editor. Connection not available.");
-                return null;
-            }
             if (!(callback instanceof ContextAwareCallback)) {
                 throw new IllegalStateException("callback instance not of type ContextAwareCallback [" + callback + "]");
             }
