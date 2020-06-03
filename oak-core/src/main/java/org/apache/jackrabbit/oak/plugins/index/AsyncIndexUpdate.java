@@ -484,7 +484,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         if (laneSanityCheckerProvider != null) {
             LaneSanityChecker laneSanityChecker = laneSanityCheckerProvider.getSanityChecker(name);
             if (laneSanityChecker != null && !laneSanityChecker.isIndexable()) {
-                log.info("[{}] Ignoring the run as lane sanity checker forbids it", name);
+                log.debug("[{}] Ignoring the run as lane sanity checker forbids it", name);
                 return;
             }
         }
