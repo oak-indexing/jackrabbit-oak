@@ -37,6 +37,8 @@ import org.apache.lucene.search.WildcardQuery;
 import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
+import org.elasticsearch.search.aggregations.AggregationBuilders;
+import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -45,6 +47,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiPredicate;
+import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 import static org.apache.jackrabbit.JcrConstants.JCR_MIXINTYPES;
@@ -84,7 +87,7 @@ public class ElasticRequestHandler {
     }
 
     public QueryBuilder build() {
-        final BoolQueryBuilder boolQuery = QueryBuilders.boolQuery();
+        final BoolQueryBuilder boolQuery = boolQuery();
 
         Filter filter = indexPlan.getFilter();
         FullTextExpression ft = filter.getFullTextConstraint();
@@ -127,6 +130,17 @@ public class ElasticRequestHandler {
         }
 
         return boolQuery;
+    }
+
+    public Stream<TermsAggregationBuilder> aggregations() {
+        return indexPlan.getFilter().getPropertyRestrictions()
+                .stream()
+                .filter(pr -> QueryConstants.REP_FACET.equals(pr.propertyName))
+                .map(pr -> FulltextIndex.parseFacetField(pr.first.getValue(Type.STRING)))
+                .map(facetProp -> AggregationBuilders
+                        .terms(facetProp)
+                        .field(elasticIndexDefinition.getElasticKeyword(facetProp))
+                        .size(elasticIndexDefinition.getNumberOfTopFacets()));
     }
 
     private QueryBuilder fullTextQuery(FullTextExpression ft, final PlanResult pr) {

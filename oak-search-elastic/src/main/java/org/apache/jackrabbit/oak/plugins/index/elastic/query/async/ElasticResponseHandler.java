@@ -17,6 +17,7 @@
 package org.apache.jackrabbit.oak.plugins.index.elastic.query.async;
 
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
+import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex.FulltextResultRow;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndexPlanner.PlanResult;
 import org.apache.jackrabbit.oak.spi.query.QueryIndex.IndexPlan;
@@ -43,7 +44,7 @@ class ElasticResponseHandler {
         this.rowInclusionPredicate = rowInclusionPredicate;
     }
 
-    public FulltextResultRow toRow(SearchHit hit) {
+    public FulltextResultRow toRow(SearchHit hit, FulltextIndex.FacetProvider facetProvider) {
         final Map<String, Object> sourceMap = hit.getSourceAsMap();
         String path = (String) sourceMap.get(FieldNames.PATH);
 
@@ -60,10 +61,10 @@ class ElasticResponseHandler {
             }
         }
 
-        boolean shouldIncludeForHierarchy = rowInclusionPredicate.test(path, indexPlan);
-        LOG.trace("Matched path {}; shouldIncludeForHierarchy: {}", path, shouldIncludeForHierarchy);
-        return shouldIncludeForHierarchy ? new FulltextResultRow(path, hit.getScore(), null,
-                null, null)
-                : null;
+        if (rowInclusionPredicate != null && !rowInclusionPredicate.test(path, indexPlan)) {
+            LOG.trace("Path {} not included because of hierarchy inclusion rules", path);
+            return null;
+        }
+        return new FulltextResultRow(path, hit.getScore(), null, facetProvider, null);
     }
 }

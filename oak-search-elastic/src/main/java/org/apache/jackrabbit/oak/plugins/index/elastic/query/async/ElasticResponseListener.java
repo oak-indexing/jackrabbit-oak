@@ -16,17 +16,18 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.query.async;
 
-import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex;
+import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.search.aggregations.Aggregations;
 
-interface ElasticResponseListener {
+public interface ElasticResponseListener {
 
     void endData();
 
-    interface RowListener extends ElasticResponseListener {
-        void on(FulltextIndex.FulltextResultRow row);
+    interface SearchHitListener extends ElasticResponseListener {
+        void on(SearchHit searchHit);
     }
 
     interface AggregationListener extends ElasticResponseListener {
-
+        void on(Aggregations aggregations);
     }
 }

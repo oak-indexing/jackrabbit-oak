@@ -543,6 +543,14 @@ public abstract class FulltextIndex implements AdvancedQueryIndex, QueryIndex, N
         public int getCount() {
             return count;
         }
+
+        @Override
+        public String toString() {
+            return "Facet{" +
+                    "label='" + label + '\'' +
+                    ", count=" + count +
+                    '}';
+        }
     }
 
     public static String parseFacetField(String columnName) {
