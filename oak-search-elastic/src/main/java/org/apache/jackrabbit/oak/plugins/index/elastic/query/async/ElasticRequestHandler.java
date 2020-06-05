@@ -132,6 +132,12 @@ public class ElasticRequestHandler {
         return boolQuery;
     }
 
+    public boolean requiresFacets() {
+        return indexPlan.getFilter().getPropertyRestrictions()
+                .stream()
+                .anyMatch(pr -> QueryConstants.REP_FACET.equals(pr.propertyName));
+    }
+
     public Stream<TermsAggregationBuilder> aggregations() {
         return indexPlan.getFilter().getPropertyRestrictions()
                 .stream()

@@ -17,7 +17,7 @@
 package org.apache.jackrabbit.oak.plugins.index.elastic.query.async;
 
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.ElasticIndexNode;
-import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.facets.ElasticInsecureFacetAsyncProvider;
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.facets.ElasticFacetProvider;
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex.FulltextResultRow;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndexPlanner.PlanResult;
@@ -67,7 +67,9 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
     private final LMSEstimator estimator;
 
     private final ElasticQueryScanner elasticQueryScanner;
+    private final ElasticRequestHandler elasticRequestHandler;
     private final ElasticResponseHandler elasticResponseHandler;
+    private final ElasticFacetProvider elasticFacetProvider;
 
     private FulltextResultRow nextRow;
 
@@ -81,7 +83,9 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
         this.planResult = planResult;
         this.estimator = estimator;
 
+        this.elasticRequestHandler = new ElasticRequestHandler(indexPlan, planResult);
         this.elasticResponseHandler = new ElasticResponseHandler(indexPlan, planResult, rowInclusionPredicate);
+        this.elasticFacetProvider = initFacetProvider();
         this.elasticQueryScanner = initScanner();
     }
 
@@ -110,7 +114,7 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
     @Override
     public void on(SearchHit searchHit) {
         try {
-            queue.put(elasticResponseHandler.toRow(searchHit, null));
+            queue.put(elasticResponseHandler.toRow(searchHit, elasticFacetProvider));
         } catch (InterruptedException e) {
             throw new IllegalStateException("Error producing results into the iterator queue", e);
         }
@@ -125,13 +129,18 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
         }
     }
 
+    private ElasticFacetProvider initFacetProvider() {
+        return elasticRequestHandler.requiresFacets() ? ElasticFacetProvider.getProvider(planResult.indexDefinition) : null;
+    }
+
     private ElasticQueryScanner initScanner() {
-        ElasticInsecureFacetAsyncProvider facetProvider = new ElasticInsecureFacetAsyncProvider();
         List<ElasticResponseListener> listeners = new ArrayList<>();
         listeners.add(this);
-        listeners.add(facetProvider);
+        if (elasticFacetProvider != null) {
+            listeners.add(elasticFacetProvider);
+        }
 
-        return new ElasticQueryScanner(new ElasticRequestHandler(indexPlan, planResult), listeners);
+        return new ElasticQueryScanner(elasticRequestHandler, listeners);
     }
 
     /**
@@ -140,7 +149,7 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
     class ElasticQueryScanner implements ActionListener<SearchResponse> {
 
         private static final int SMALL_RESULT_SET_SIZE = 250;
-        private static final int LARGE_RESULT_SET_SIZE = 2500;
+        private static final int LARGE_RESULT_SET_SIZE = 1000;
 
         private final List<SearchHitListener> searchHitListeners = new ArrayList<>();
         private final List<ElasticResponseListener.AggregationListener> aggregationListeners = new ArrayList<>();
@@ -160,17 +169,17 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
                             List<ElasticResponseListener> listeners) {
             this.query = requestHandler.build();
 
-            final Consumer<ElasticResponseListener> registerListener = (listener) -> {
+            AtomicBoolean needsAggregations = new AtomicBoolean(false);
+            final Consumer<ElasticResponseListener> register = (listener) -> {
                 if (listener instanceof SearchHitListener) {
                     searchHitListeners.add((SearchHitListener) listener);
                 } else if (listener instanceof AggregationListener) {
                     aggregationListeners.add((AggregationListener) listener);
+                    needsAggregations.set(true);
                 }
             };
 
-            for (ElasticResponseListener l: listeners) {
-                registerListener.accept(l);
-            }
+            listeners.forEach(register);
 
             final SearchSourceBuilder searchSourceBuilder = SearchSourceBuilder.searchSource()
                     .query(query)
@@ -180,7 +189,9 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
                     .sort(SortBuilders.fieldSort("_score").order(SortOrder.DESC))
                     .sort(SortBuilders.fieldSort(FieldNames.PATH).order(SortOrder.ASC)); // tie-breaker
 
-            requestHandler.aggregations().forEach(searchSourceBuilder::aggregation);
+            if (needsAggregations.get()) {
+                requestHandler.aggregations().forEach(searchSourceBuilder::aggregation);
+            }
 
             final SearchRequest searchRequest = new SearchRequest(indexNode.getDefinition().getRemoteIndexAlias())
                     .source(searchSourceBuilder);
@@ -197,6 +208,8 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
         public void onResponse(SearchResponse searchResponse) {
             final SearchHit[] searchHits = searchResponse.getHits().getHits();
             if (searchHits != null && searchHits.length > 0) {
+                LOG.trace("Processing search response that took {} to read {}/{} docs",
+                        searchResponse.getTook(), searchHits.length, searchResponse.getHits().getTotalHits());
                 lastHitSortValues = searchHits[searchHits.length - 1].getSortValues();
                 scannedRows += searchHits.length;
                 anyDataLeft.set(searchResponse.getHits().getTotalHits().value > scannedRows);

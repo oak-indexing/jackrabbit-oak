@@ -28,7 +28,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-public class ElasticInsecureFacetAsyncProvider implements FulltextIndex.FacetProvider, ElasticResponseListener.AggregationListener {
+class ElasticInsecureFacetAsyncProvider implements ElasticFacetProvider, ElasticResponseListener.AggregationListener {
 
     private static final Logger LOG = LoggerFactory.getLogger(ElasticInsecureFacetAsyncProvider.class);
 
@@ -52,8 +52,6 @@ public class ElasticInsecureFacetAsyncProvider implements FulltextIndex.FacetPro
             for (Terms.Bucket bucket : terms.getBuckets()) {
                 facets.add(new FulltextIndex.Facet(bucket.getKeyAsString(), (int) bucket.getDocCount()));
             }
-            LOG.trace("Returning facets for {} from aggregations {}", columnName, facets);
-            new Throwable().printStackTrace();
             return facets;
         } else return null;
     }
