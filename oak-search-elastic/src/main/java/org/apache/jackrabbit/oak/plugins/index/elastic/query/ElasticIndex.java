@@ -27,6 +27,7 @@ import org.apache.jackrabbit.oak.spi.query.Filter;
 import org.apache.jackrabbit.oak.spi.query.QueryLimits;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.elasticsearch.common.Strings;
+import org.elasticsearch.index.query.QueryBuilder;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Iterator;
@@ -90,9 +91,16 @@ class ElasticIndex extends FulltextIndex {
 
     @Override
     protected String getFulltextRequestString(IndexPlan plan, IndexNode indexNode) {
-        return Strings.toString(new ElasticResultRowIterator(plan.getFilter(), getPlanResult(plan), plan,
+        ElasticRequestFacade elasticRequestFacade = new ElasticResultRowIterator(plan.getFilter(), getPlanResult(plan), plan,
                 acquireIndexNode(plan), FulltextIndex::shouldInclude, getEstimator(plan.getPlanName()))
-                .getElasticQuery(plan, getPlanResult(plan)));
+                .getElasticQueryFacade(plan, getPlanResult(plan));
+        if (elasticRequestFacade.getElasticRequest() instanceof QueryBuilder){
+            return Strings.toString((QueryBuilder)elasticRequestFacade.getElasticRequest());
+        }
+        else {
+            throw new RuntimeException("ElasticRequestFacade not instance of QueryBuilder");
+        }
+
     }
 
     @Override
