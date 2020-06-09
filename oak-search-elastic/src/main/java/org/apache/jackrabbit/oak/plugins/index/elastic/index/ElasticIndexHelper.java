@@ -21,7 +21,6 @@ import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.apache.jackrabbit.oak.plugins.index.search.PropertyDefinition;
 import org.elasticsearch.client.indices.CreateIndexRequest;
-import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentFactory;
 
@@ -40,9 +39,15 @@ class ElasticIndexHelper {
 
         // provision settings
         // https://www.elastic.co/guide/en/elasticsearch/reference/current/analysis-pathhierarchy-tokenizer.html
-        request.settings(Settings.builder()
-                .put("analysis.analyzer.ancestor_analyzer.type", "custom")
-                .put("analysis.analyzer.ancestor_analyzer.tokenizer", "path_hierarchy"));
+        XContentBuilder settingsBuilder = XContentFactory.jsonBuilder();
+        settingsBuilder.startObject();
+        settingsBuilder.field("analysis.analyzer.ancestor_analyzer.type", "custom");
+        settingsBuilder.field("analysis.analyzer.ancestor_analyzer.tokenizer", "path_hierarchy");
+        if (indexDefinition.isSpellcheckEnabled()) {
+            createSpellcheckMapping(indexDefinition, settingsBuilder);
+        }
+        settingsBuilder.endObject();
+        request.settings(settingsBuilder);
 
         // provision mappings
         final XContentBuilder mappingBuilder = XContentFactory.jsonBuilder();
@@ -59,6 +64,40 @@ class ElasticIndexHelper {
         request.mapping(mappingBuilder);
 
         return request;
+    }
+
+    private static void createSpellcheckMapping(ElasticIndexDefinition indexDefinition, XContentBuilder settingsBuilder) throws IOException {
+        if (indexDefinition.isSpellcheckEnabled()) {
+            {
+                settingsBuilder.startObject("index");
+                {
+                    settingsBuilder.startObject("analysis");
+                    {
+                        settingsBuilder.startObject("analyzer");
+                        {
+                            settingsBuilder.startObject("trigram")
+                                    .field("type", "custom")
+                                    .field("tokenizer", "standard")
+                                    .array("filter", "lowercase", "shingle")
+                                    .endObject();
+                        }
+                        settingsBuilder.endObject();
+
+                        settingsBuilder.startObject("filter");
+                        {
+                            settingsBuilder.startObject("shingle")
+                                    .field("type", "shingle")
+                                    .field("min_shingle_size", 2)
+                                    .field("max_shingle_size", 3)
+                                    .endObject();
+                        }
+                        settingsBuilder.endObject();
+                    }
+                    settingsBuilder.endObject();
+                }
+                settingsBuilder.endObject();
+            }
+        }
     }
 
     private static void mapInternalProperties(XContentBuilder mappingBuilder) throws IOException {
@@ -129,6 +168,11 @@ class ElasticIndexHelper {
                             mappingBuilder.startObject("keyword")
                                     .field("type", "keyword")
                                     .endObject();
+                            if (indexDefinition.isSpellcheckEnabled()) {
+                                mappingBuilder.startObject("trigram")
+                                        .field("type", "text").field("analyzer", "trigram")
+                                        .endObject();
+                            }
                         }
                         mappingBuilder.endObject();
                     } else {

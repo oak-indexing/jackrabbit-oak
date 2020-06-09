@@ -20,8 +20,8 @@ import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.commons.PerfLogger;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
-import org.apache.jackrabbit.oak.plugins.index.elastic.query.facets.ElasticFacetHelper;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.facets.ElasticAggregationData;
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.facets.ElasticFacetHelper;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.facets.ElasticFacets;
 import org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticAggregationBuilderUtil;
 import org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticConstants;
@@ -40,12 +40,23 @@ import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextExpression;
 import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextOr;
 import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextTerm;
 import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextVisitor;
+import org.elasticsearch.action.search.MultiSearchResponse;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.index.query.BoolQueryBuilder;
+import org.elasticsearch.index.query.MatchPhraseQueryBuilder;
+import org.elasticsearch.index.query.MultiMatchQueryBuilder;
+import org.elasticsearch.index.query.Operator;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
+import org.elasticsearch.index.search.MatchQuery;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
+import org.elasticsearch.search.suggest.Suggest;
+import org.elasticsearch.search.suggest.SuggestBuilder;
+import org.elasticsearch.search.suggest.SuggestBuilders;
+import org.elasticsearch.search.suggest.SuggestionBuilder;
+import org.elasticsearch.search.suggest.phrase.DirectCandidateGeneratorBuilder;
+import org.elasticsearch.search.suggest.phrase.PhraseSuggestionBuilder;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -58,8 +69,11 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.PriorityQueue;
+import java.util.Queue;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiPredicate;
 import java.util.stream.StreamSupport;
@@ -97,6 +111,7 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
     // TODO: oak-lucene gets this via WildcardQuery class. See if ES also exposes these consts
     private static final char WILDCARD_STRING = '*';
     private static final char WILDCARD_CHAR = '?';
+    final static String SPELLCHECK_PREFIX = "spellcheck?term=";
 
     private final Deque<FulltextIndex.FulltextResultRow> queue = new ArrayDeque<>();
     // TODO : find if ES can return dup docs - if so how to avoid
@@ -154,68 +169,128 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
         SearchHit lastDocToRecord = null;
         try {
             ElasticSearcher searcher = getCurrentElasticSearcher(indexNode);
-            QueryBuilder query = getElasticQuery(plan, planResult);
+            ElasticRequestFacade elasticRequestFacade = getElasticQueryFacade(plan, planResult);
             ElasticIndexDefinition indexDefinition = indexNode.getDefinition();
-            int numberOfFacets = indexDefinition.getNumberOfTopFacets();
-            List<TermsAggregationBuilder> aggregationBuilders = ElasticAggregationBuilderUtil
-                    .getAggregators(plan, indexDefinition, numberOfFacets);
 
-            ElasticSearcherModel elasticSearcherModel = new ElasticSearcherModel.ElasticSearcherModelBuilder()
-                    .withQuery(query)
-                    .withBatchSize(nextBatchSize)
-                    .withAggregation(aggregationBuilders)
-                    .build();
+            if (elasticRequestFacade.getElasticRequest() instanceof QueryBuilder) {
+                QueryBuilder query = (QueryBuilder) elasticRequestFacade.getElasticRequest();
+                int numberOfFacets = indexDefinition.getNumberOfTopFacets();
+                List<TermsAggregationBuilder> aggregationBuilders = ElasticAggregationBuilderUtil
+                        .getAggregators(plan, indexDefinition, numberOfFacets);
 
-            // TODO: custom scoring
+                ElasticSearcherModel elasticSearcherModel = new ElasticSearcherModel.ElasticSearcherModelBuilder()
+                        .withQuery((QueryBuilder) elasticRequestFacade.getElasticRequest())
+                        .withBatchSize(nextBatchSize)
+                        .withAggregation(aggregationBuilders)
+                        .build();
 
-            SearchResponse docs;
-            long start = PERF_LOGGER.start();
-            while (true) {
-                LOG.debug("loading {} entries for query {}", nextBatchSize, query);
-                docs = searcher.search(elasticSearcherModel);
-                long totalHits = docs.getHits().getTotalHits().value;
-                ElasticAggregationData elasticAggregationData =
-                        new ElasticAggregationData(numberOfFacets, totalHits, docs.getAggregations());
+                // TODO: custom scoring
 
-                SearchHit[] searchHits = docs.getHits().getHits();
-                PERF_LOGGER.end(start, -1, "{} ...", searchHits.length);
+                SearchResponse docs;
+                long start = PERF_LOGGER.start();
 
-                estimator.update(filter, docs.getHits().getTotalHits().value);
+                while (true) {
+                    LOG.debug("loading {} entries for query {}", nextBatchSize, elasticRequestFacade);
+                    docs = searcher.search(elasticSearcherModel);
+                    long totalHits = docs.getHits().getTotalHits().value;
+                    ElasticAggregationData elasticAggregationData =
+                            new ElasticAggregationData(numberOfFacets, totalHits, docs.getAggregations());
 
-                if (searchHits.length < nextBatchSize) {
-                    noDocs = true;
-                }
+                    SearchHit[] searchHits = docs.getHits().getHits();
+                    PERF_LOGGER.end(start, -1, "{} ...", searchHits.length);
 
-                nextBatchSize = (int) Math.min(nextBatchSize * 2L, ElasticConstants.ELASTIC_QUERY_MAX_BATCH_SIZE);
+                    estimator.update(filter, docs.getHits().getTotalHits().value);
 
-                ElasticsearchFacetProvider elasticsearchFacetProvider = new ElasticsearchFacetProvider(ElasticFacetHelper.getAggregates(searcher, query, indexNode, plan, elasticAggregationData));
-
-                // TODO: excerpt
-
-                // TODO: explanation
-
-                // TODO: sim search
-
-                for (SearchHit doc : searchHits) {
-                    // TODO : excerpts
-
-                    FulltextIndex.FulltextResultRow row = convertToRow(doc, elasticsearchFacetProvider);
-                    if (row != null) {
-                        queue.add(row);
+                    if (searchHits.length < nextBatchSize) {
+                        noDocs = true;
                     }
-                    lastDocToRecord = doc;
+
+                    nextBatchSize = (int) Math.min(nextBatchSize * 2L, ElasticConstants.ELASTIC_QUERY_MAX_BATCH_SIZE);
+
+                    ElasticsearchFacetProvider elasticsearchFacetProvider = new ElasticsearchFacetProvider(ElasticFacetHelper.getAggregates(searcher, query, indexNode, plan, elasticAggregationData));
+
+                    // TODO: excerpt
+
+                    // TODO: explanation
+
+                    // TODO: sim search
+
+                    for (SearchHit doc : searchHits) {
+                        // TODO : excerpts
+
+                        FulltextIndex.FulltextResultRow row = convertToRow(doc, elasticsearchFacetProvider);
+                        if (row != null) {
+                            queue.add(row);
+                        }
+                        lastDocToRecord = doc;
+                    }
+
+                    if (queue.isEmpty() && searchHits.length > 0) {
+                        //queue is still empty but more results can be fetched
+                        //from Lucene so still continue
+                        lastDoc = lastDocToRecord;
+                    } else {
+                        break;
+                    }
+                }
+            } else if (elasticRequestFacade.getElasticRequest() instanceof SuggestBuilder) {
+                SuggestBuilder suggestBuilder = (SuggestBuilder) elasticRequestFacade.getElasticRequest();
+                noDocs = true;
+                ElasticSearcherModel elasticSearcherModel = new ElasticSearcherModel.ElasticSearcherModelBuilder()
+                        .withSpellCheck(suggestBuilder).build();
+                SearchResponse docs = searcher.search(elasticSearcherModel);
+                Suggest suggest = docs.getSuggest();
+                // Priority queue to get sorted results with decreasing score
+                Queue<Suggest.Suggestion.Entry.Option> pqueue = new PriorityQueue<>((o1, o2) -> Float.compare(o2.getScore(), o1.getScore()));
+
+                Iterator<Suggest.Suggestion<? extends Suggest.Suggestion.Entry<? extends Suggest.Suggestion.Entry.Option>>> suggestionIterator = suggest.iterator();
+                while (suggestionIterator.hasNext()) {
+                    Suggest.Suggestion<? extends Suggest.Suggestion.Entry<? extends Suggest.Suggestion.Entry.Option>> spellCheckResults = suggestionIterator.next();
+                    for (Suggest.Suggestion.Entry spell : spellCheckResults) {
+                        List<Suggest.Suggestion.Entry.Option> options = spell.getOptions();
+                        for (Suggest.Suggestion.Entry.Option option : options) {
+                            if (option.collateMatch()) {
+                                pqueue.add(option);
+                            }
+                        }
+                    }
                 }
 
-                if (queue.isEmpty() && searchHits.length > 0) {
-                    //queue is still empty but more results can be fetched
-                    //from Lucene so still continue
-                    lastDoc = lastDocToRecord;
-                } else {
-                    break;
+                List<ElasticSearcherModel> elasticSearcherModels = new LinkedList<>();
+                for (Suggest.Suggestion.Entry.Option suggestionoption : pqueue) {
+                    String suggestion = suggestionoption.getText().string();
+                    List<QueryBuilder> qbList = new LinkedList<>();
+                    QueryBuilder queryBuilder = new MultiMatchQueryBuilder(suggestion, getSpellCheckFields(indexDefinition)
+                            .toArray(new String[getSpellCheckFields(indexDefinition).size()]))
+                            .operator(Operator.AND).fuzzyTranspositions(false)
+                            .autoGenerateSynonymsPhraseQuery(false)
+                            .type(MatchQuery.Type.PHRASE);
+                    qbList.add(queryBuilder);
+                    addPathRestrictionQuery(qbList, plan, planResult, filter);
+                    QueryBuilder finalqb = performAdditionalWraps(qbList);
+
+                    elasticSearcherModels.add(new ElasticSearcherModel.ElasticSearcherModelBuilder()
+                            .withQuery(finalqb)
+                            .withBatchSize(nextBatchSize)
+                            .build());
+                }
+                MultiSearchResponse res = searcher.search(elasticSearcherModels);
+                for (MultiSearchResponse.Item response : res.getResponses()) {
+                    boolean isResult = false;
+                    for (SearchHit doc : response.getResponse().getHits()) {
+                        if (filter.isAccessible((String) doc.getSourceAsMap().get(":path"))) {
+                            isResult = true;
+                            break;
+                        }
+                    }
+                    if (isResult) {
+                        queue.add(new FulltextIndex.FulltextResultRow(pqueue.remove().getText().string()));
+                    } else {
+                        pqueue.remove();
+                    }
                 }
             }
 
-            // TODO: spellcheck else if (luceneRequestFacade.getLuceneRequest() instanceof SpellcheckHelper.SpellcheckQuery) {
             // TODO: suggest } else if (luceneRequestFacade.getLuceneRequest() instanceof SuggestHelper.SuggestQuery) {
         } catch (Exception e) {
             LOG.warn("query via {} failed.", this, e);
@@ -228,6 +303,25 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
         }
 
         return !queue.isEmpty();
+    }
+
+    private MatchPhraseQueryBuilder getCollateQuery(String fieldName, IndexPlan plan) {
+        MatchPhraseQueryBuilder mb = new MatchPhraseQueryBuilder(fieldName, "{{suggestion}}");
+
+        return mb;
+    }
+
+    private List<String> getSpellCheckFields(ElasticIndexDefinition indexDefinition) {
+        List<String> spellCheckFields = new LinkedList<>();
+        IndexDefinition.IndexingRule indexingRule = indexDefinition.getApplicableIndexingRule("nt:base");
+
+        for (PropertyDefinition propertyDefinition : planResult.indexingRule.getProperties()) {
+            if (propertyDefinition.useInSpellcheck) {
+                spellCheckFields.add(propertyDefinition.name);
+            }
+        }
+
+        return spellCheckFields;
     }
 
     private ElasticSearcher getCurrentElasticSearcher(ElasticIndexNode indexNode) {
@@ -273,7 +367,7 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
      * @param planResult
      * @return the Lucene query
      */
-    public QueryBuilder getElasticQuery(IndexPlan plan, PlanResult planResult) {
+    public ElasticRequestFacade getElasticQueryFacade(IndexPlan plan, PlanResult planResult) {
         List<QueryBuilder> qs = new ArrayList<>();
         Filter filter = plan.getFilter();
         FullTextExpression ft = filter.getFullTextConstraint();
@@ -299,6 +393,23 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
             // TODO: more like this
 
             // TODO: spellcheck
+            if (query.startsWith(SPELLCHECK_PREFIX)) {
+                String spellcheckQueryString = query.replace(SPELLCHECK_PREFIX, "");
+                int i = 0;
+                for (String field : getSpellCheckFields(defn)) {
+                    PhraseSuggestionBuilder.CandidateGenerator g1 = new DirectCandidateGeneratorBuilder(field + ".trigram")
+                            .suggestMode("always");
+                    SuggestionBuilder phraseSuggestionBuilder = SuggestBuilders.phraseSuggestion(field + ".trigram")
+                            .size(10)
+                            .addCandidateGenerator(g1)
+                            .text(spellcheckQueryString)
+                            .collateQuery(getCollateQuery(field, plan).toString()).collatePrune(true);
+
+                    SuggestBuilder suggestBuilder = new SuggestBuilder();
+                    suggestBuilder.addSuggestion("cqsuggestion" + i, phraseSuggestionBuilder);
+                    return new ElasticRequestFacade(suggestBuilder);
+                }
+            }
 
             // TODO: suggest
 
@@ -316,12 +427,13 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
             //For purely nodeType based queries all the documents would have to
             //be returned (if the index definition has a single rule)
             if (planResult.evaluateNodeTypeRestriction()) {
-                return matchAllQuery();
+                return new ElasticRequestFacade(matchAllQuery());
             }
 
             throw new IllegalStateException("No query created for filter " + filter);
         }
-        return performAdditionalWraps(qs);
+        ElasticRequestFacade elasticRequestFacade = new ElasticRequestFacade(performAdditionalWraps(qs));
+        return elasticRequestFacade;
     }
 
     private static QueryBuilder getFullTextQuery(FullTextExpression ft, final PlanResult pr) {
@@ -502,14 +614,65 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
     }
 
     private void addNonFullTextConstraints(List<QueryBuilder> qs,
-                                                  IndexPlan plan, PlanResult planResult) {
-        final BiPredicate<Iterable<String>, String> any = (iterable, value) ->
-                StreamSupport.stream(iterable.spliterator(), false).anyMatch(value::equals);
+                                           IndexPlan plan, PlanResult planResult) {
 
         Filter filter = plan.getFilter();
         if (!filter.matchesAllTypes()) {
             addNodeTypeConstraints(planResult.indexingRule, qs, filter);
         }
+
+        addPathRestrictionQuery(qs, plan, planResult, filter);
+        for (Filter.PropertyRestriction pr : filter.getPropertyRestrictions()) {
+            String name = pr.propertyName;
+
+            if (QueryConstants.REP_EXCERPT.equals(name) || QueryConstants.OAK_SCORE_EXPLANATION.equals(name)
+                    || QueryConstants.REP_FACET.equals(name)) {
+                continue;
+            }
+
+            if (QueryConstants.RESTRICTION_LOCAL_NAME.equals(name)) {
+                if (planResult.evaluateNodeNameRestriction()) {
+                    QueryBuilder q = createNodeNameQuery(pr);
+                    if (q != null) {
+                        qs.add(q);
+                    }
+                }
+                continue;
+            }
+
+            if (pr.first != null && pr.first.equals(pr.last) && pr.firstIncluding
+                    && pr.lastIncluding) {
+                String first = pr.first.getValue(Type.STRING);
+                first = first.replace("\\", "");
+                if (JCR_PATH.equals(name)) {
+                    qs.add(newPathQuery(first));
+                    continue;
+                } else if ("*".equals(name)) {
+                    //TODO Revisit reference constraint. For performant impl
+                    //references need to be indexed in a different manner
+                    addReferenceConstraint(first, qs);
+                    continue;
+                }
+            }
+
+            PropertyDefinition pd = planResult.getPropDefn(pr);
+            if (pd == null) {
+                continue;
+            }
+
+            QueryBuilder q = createQuery(planResult.getPropertyName(pr), pr, pd);
+            if (q != null) {
+                qs.add(q);
+            }
+        }
+    }
+
+    /*
+     Adds path restriction query to @param qs (list of QueryBuilder)
+    */
+    private void addPathRestrictionQuery(List<QueryBuilder> qs, IndexPlan plan, PlanResult planResult, Filter filter) {
+        final BiPredicate<Iterable<String>, String> any = (iterable, value) ->
+                StreamSupport.stream(iterable.spliterator(), false).anyMatch(value::equals);
 
         String path = FulltextIndex.getPathRestriction(plan);
         switch (filter.getPathRestriction()) {
@@ -557,50 +720,6 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
                 break;
             case NO_RESTRICTION:
                 break;
-        }
-
-        for (Filter.PropertyRestriction pr : filter.getPropertyRestrictions()) {
-            String name = pr.propertyName;
-
-            if (QueryConstants.REP_EXCERPT.equals(name) || QueryConstants.OAK_SCORE_EXPLANATION.equals(name)
-                    || QueryConstants.REP_FACET.equals(name)) {
-                continue;
-            }
-
-            if (QueryConstants.RESTRICTION_LOCAL_NAME.equals(name)) {
-                if (planResult.evaluateNodeNameRestriction()) {
-                    QueryBuilder q = createNodeNameQuery(pr);
-                    if (q != null) {
-                        qs.add(q);
-                    }
-                }
-                continue;
-            }
-
-            if (pr.first != null && pr.first.equals(pr.last) && pr.firstIncluding
-                    && pr.lastIncluding) {
-                String first = pr.first.getValue(Type.STRING);
-                first = first.replace("\\", "");
-                if (JCR_PATH.equals(name)) {
-                    qs.add(newPathQuery(first));
-                    continue;
-                } else if ("*".equals(name)) {
-                    //TODO Revisit reference constraint. For performant impl
-                    //references need to be indexed in a different manner
-                    addReferenceConstraint(first, qs);
-                    continue;
-                }
-            }
-
-            PropertyDefinition pd = planResult.getPropDefn(pr);
-            if (pd == null) {
-                continue;
-            }
-
-            QueryBuilder q = createQuery(planResult.getPropertyName(pr), pr, pd);
-            if (q != null) {
-                qs.add(q);
-            }
         }
     }
 
@@ -677,7 +796,7 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
 
     @Nullable
     private QueryBuilder createQuery(String propertyName, Filter.PropertyRestriction pr,
-                                            PropertyDefinition defn) {
+                                     PropertyDefinition defn) {
         int propType = FulltextIndex.determinePropertyType(defn, pr);
 
         if (pr.isNullRestriction()) {
@@ -740,4 +859,5 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
             return cachedResults.get(facetProp);
         }
     }
+
 }
