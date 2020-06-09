@@ -139,14 +139,19 @@ public class ElasticRequestHandler {
     }
 
     public Stream<TermsAggregationBuilder> aggregations() {
+        return facetFields()
+                .map(facetProp ->
+                        AggregationBuilders.terms(facetProp)
+                                .field(elasticIndexDefinition.getElasticKeyword(facetProp))
+                                .size(elasticIndexDefinition.getNumberOfTopFacets())
+                );
+    }
+
+    public Stream<String> facetFields() {
         return indexPlan.getFilter().getPropertyRestrictions()
                 .stream()
                 .filter(pr -> QueryConstants.REP_FACET.equals(pr.propertyName))
-                .map(pr -> FulltextIndex.parseFacetField(pr.first.getValue(Type.STRING)))
-                .map(facetProp -> AggregationBuilders
-                        .terms(facetProp)
-                        .field(elasticIndexDefinition.getElasticKeyword(facetProp))
-                        .size(elasticIndexDefinition.getNumberOfTopFacets()));
+                .map(pr -> FulltextIndex.parseFacetField(pr.first.getValue(Type.STRING)));
     }
 
     private QueryBuilder fullTextQuery(FullTextExpression ft, final PlanResult pr) {

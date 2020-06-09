@@ -17,34 +17,25 @@
 package org.apache.jackrabbit.oak.plugins.index.elastic.query.async;
 
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
-import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex;
-import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex.FulltextResultRow;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndexPlanner.PlanResult;
-import org.apache.jackrabbit.oak.spi.query.QueryIndex.IndexPlan;
 import org.elasticsearch.search.SearchHit;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
-import java.util.function.BiPredicate;
 
-class ElasticResponseHandler {
+public class ElasticResponseHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger(ElasticResponseHandler.class);
 
-    private final IndexPlan indexPlan;
     private final PlanResult planResult;
-    private final BiPredicate<String, IndexPlan> rowInclusionPredicate;
 
-    ElasticResponseHandler(@NotNull IndexPlan indexPlan, @NotNull PlanResult planResult,
-                           BiPredicate<String, IndexPlan> rowInclusionPredicate) {
-        this.indexPlan = indexPlan;
+    ElasticResponseHandler(@NotNull PlanResult planResult) {
         this.planResult = planResult;
-        this.rowInclusionPredicate = rowInclusionPredicate;
     }
 
-    public FulltextResultRow toRow(SearchHit hit, FulltextIndex.FacetProvider facetProvider) {
+    public String getPath(SearchHit hit) {
         final Map<String, Object> sourceMap = hit.getSourceAsMap();
         String path = (String) sourceMap.get(FieldNames.PATH);
 
@@ -61,10 +52,6 @@ class ElasticResponseHandler {
             }
         }
 
-        if (rowInclusionPredicate != null && !rowInclusionPredicate.test(path, indexPlan)) {
-            LOG.trace("Path {} not included because of hierarchy inclusion rules", path);
-            return null;
-        }
-        return new FulltextResultRow(path, hit.getScore(), null, facetProvider, null);
+        return path;
     }
 }

@@ -16,14 +16,30 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.query.async;
 
+import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.aggregations.Aggregations;
 
+import java.util.Collections;
+import java.util.Set;
+
 public interface ElasticResponseListener {
+
+    Set<String> DEFAULT_SOURCE_FIELDS = Collections.singleton(FieldNames.PATH);
+
+    default Set<String> sourceFields() {
+        return DEFAULT_SOURCE_FIELDS;
+    }
 
     void endData();
 
     interface SearchHitListener extends ElasticResponseListener {
+        default boolean isFullScan() {
+            return false;
+        }
+
+        default void startData(long totalHits) { /*empty*/ }
+
         void on(SearchHit searchHit);
     }
 

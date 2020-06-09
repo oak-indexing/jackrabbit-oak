@@ -16,19 +16,35 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.query.async.facets;
 
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.ElasticRequestHandler;
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.ElasticResponseHandler;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.ElasticResponseListener;
-import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
+import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition.SecureFacetConfiguration;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex;
+import org.apache.jackrabbit.oak.spi.query.QueryIndex;
 
 public interface ElasticFacetProvider extends FulltextIndex.FacetProvider, ElasticResponseListener {
 
-    static ElasticFacetProvider getProvider(IndexDefinition indexDefinition) {
+    static ElasticFacetProvider getProvider(
+            SecureFacetConfiguration facetConfiguration,
+            QueryIndex.IndexPlan indexPlan,
+            ElasticRequestHandler requestHandler,
+            ElasticResponseHandler responseHandler
+    ) {
         final ElasticFacetProvider facetProvider;
-        IndexDefinition.SecureFacetConfiguration secureFacetConfiguration = indexDefinition.getSecureFacetConfiguration();
-        switch (secureFacetConfiguration.getMode()) {
+        switch (facetConfiguration.getMode()) {
             case INSECURE:
-            default:
                 facetProvider = new ElasticInsecureFacetAsyncProvider();
+                break;
+            case STATISTICAL:
+                facetProvider = new ElasticStatisticalFacetAsyncProvider(
+                        indexPlan, requestHandler, responseHandler,
+                        facetConfiguration.getRandomSeed(), facetConfiguration.getStatisticalFacetSampleSize()
+                );
+                break;
+            case SECURE:
+            default:
+                facetProvider = new ElasticSecureFacetAsyncProvider(indexPlan, requestHandler, responseHandler);
 
         }
         return facetProvider;

@@ -39,10 +39,13 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiPredicate;
 import java.util.function.Consumer;
@@ -64,6 +67,7 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
     private final ElasticIndexNode indexNode;
     private final IndexPlan indexPlan;
     private final PlanResult planResult;
+    private final BiPredicate<String, IndexPlan> rowInclusionPredicate;
     private final LMSEstimator estimator;
 
     private final ElasticQueryScanner elasticQueryScanner;
@@ -81,10 +85,11 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
         this.indexNode = indexNode;
         this.indexPlan = indexPlan;
         this.planResult = planResult;
+        this.rowInclusionPredicate = rowInclusionPredicate;
         this.estimator = estimator;
 
         this.elasticRequestHandler = new ElasticRequestHandler(indexPlan, planResult);
-        this.elasticResponseHandler = new ElasticResponseHandler(indexPlan, planResult, rowInclusionPredicate);
+        this.elasticResponseHandler = new ElasticResponseHandler(planResult);
         this.elasticFacetProvider = initFacetProvider();
         this.elasticQueryScanner = initScanner();
     }
@@ -113,8 +118,13 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
 
     @Override
     public void on(SearchHit searchHit) {
+        final String path = elasticResponseHandler.getPath(searchHit);
+        if (rowInclusionPredicate != null && !rowInclusionPredicate.test(path, indexPlan)) {
+            LOG.trace("Path {} not included because of hierarchy inclusion rules", path);
+            return;
+        }
         try {
-            queue.put(elasticResponseHandler.toRow(searchHit, elasticFacetProvider));
+            queue.put(new FulltextResultRow(path, searchHit.getScore(), null, elasticFacetProvider, null));
         } catch (InterruptedException e) {
             throw new IllegalStateException("Error producing results into the iterator queue", e);
         }
@@ -130,7 +140,11 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
     }
 
     private ElasticFacetProvider initFacetProvider() {
-        return elasticRequestHandler.requiresFacets() ? ElasticFacetProvider.getProvider(planResult.indexDefinition) : null;
+        return elasticRequestHandler.requiresFacets() ?
+                ElasticFacetProvider.getProvider(
+                        planResult.indexDefinition.getSecureFacetConfiguration(),
+                        indexPlan, elasticRequestHandler, elasticResponseHandler
+                ) : null;
     }
 
     private ElasticQueryScanner initScanner() {
@@ -148,43 +162,56 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
      */
     class ElasticQueryScanner implements ActionListener<SearchResponse> {
 
-        private static final int SMALL_RESULT_SET_SIZE = 250;
+        private static final int SMALL_RESULT_SET_SIZE = 100;
         private static final int LARGE_RESULT_SET_SIZE = 1000;
 
+        private final Set<ElasticResponseListener> allListeners = new HashSet<>();
         private final List<SearchHitListener> searchHitListeners = new ArrayList<>();
-        private final List<ElasticResponseListener.AggregationListener> aggregationListeners = new ArrayList<>();
+        private final List<AggregationListener> aggregationListeners = new ArrayList<>();
 
         private final QueryBuilder query;
+        private final String[] sourceFields;
 
         // concurrent data structures to coordinate chunks loading
         private final AtomicBoolean anyDataLeft = new AtomicBoolean(false);
 
         private int scannedRows = 0;
         private boolean firstRequest = true;
+        private boolean fullScan = false;
 
         // reference to the last document sort values for search_after queries
         private Object[] lastHitSortValues;
+
+        private final Semaphore semaphore = new Semaphore(1);
 
         ElasticQueryScanner(ElasticRequestHandler requestHandler,
                             List<ElasticResponseListener> listeners) {
             this.query = requestHandler.build();
 
-            AtomicBoolean needsAggregations = new AtomicBoolean(false);
+            final Set<String> sourceFieldsSet = new HashSet<>();
+            final AtomicBoolean needsAggregations = new AtomicBoolean(false);
             final Consumer<ElasticResponseListener> register = (listener) -> {
+                allListeners.add(listener);
+                sourceFieldsSet.addAll(listener.sourceFields());
                 if (listener instanceof SearchHitListener) {
                     searchHitListeners.add((SearchHitListener) listener);
-                } else if (listener instanceof AggregationListener) {
+                    if (((SearchHitListener) listener).isFullScan()) {
+                        fullScan = true;
+                    }
+                }
+                if (listener instanceof AggregationListener) {
                     aggregationListeners.add((AggregationListener) listener);
                     needsAggregations.set(true);
                 }
             };
 
             listeners.forEach(register);
+            this.sourceFields = sourceFieldsSet.toArray(new String[0]);
 
             final SearchSourceBuilder searchSourceBuilder = SearchSourceBuilder.searchSource()
                     .query(query)
                     .size(SMALL_RESULT_SET_SIZE)
-                    .fetchSource(FieldNames.PATH, null)
+                    .fetchSource(sourceFields, null)
                     // TODO: this needs to be moved in the requestHandler when sorting will be properly supported
                     .sort(SortBuilders.fieldSort("_score").order(SortOrder.DESC))
                     .sort(SortBuilders.fieldSort(FieldNames.PATH).order(SortOrder.ASC)); // tie-breaker
@@ -196,6 +223,7 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
             final SearchRequest searchRequest = new SearchRequest(indexNode.getDefinition().getRemoteIndexAlias())
                     .source(searchSourceBuilder);
 
+            semaphore.tryAcquire();
             LOG.trace("Kicking initial search for query {}", searchSourceBuilder);
             indexNode.getConnection().getClient().searchAsync(searchRequest, RequestOptions.DEFAULT, this);
         }
@@ -208,19 +236,28 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
         public void onResponse(SearchResponse searchResponse) {
             final SearchHit[] searchHits = searchResponse.getHits().getHits();
             if (searchHits != null && searchHits.length > 0) {
-                LOG.trace("Processing search response that took {} to read {}/{} docs",
+                LOG.info("Processing search response that took {} to read {}/{} docs",
                         searchResponse.getTook(), searchHits.length, searchResponse.getHits().getTotalHits());
                 lastHitSortValues = searchHits[searchHits.length - 1].getSortValues();
                 scannedRows += searchHits.length;
                 anyDataLeft.set(searchResponse.getHits().getTotalHits().value > scannedRows);
                 estimator.update(indexPlan.getFilter(), searchResponse.getHits().getTotalHits().value);
 
-                if (firstRequest && !aggregationListeners.isEmpty()) {
-                    Aggregations aggregations = searchResponse.getAggregations();
-                    LOG.trace("Emitting aggregations {}", aggregations);
-                    for (AggregationListener l : aggregationListeners) {
-                        l.on(aggregations);
+                semaphore.release();
+
+                if (firstRequest) {
+                    for (SearchHitListener l : searchHitListeners) {
+                        l.startData(searchResponse.getHits().getTotalHits().value);
                     }
+
+                    if (!aggregationListeners.isEmpty()) {
+                        Aggregations aggregations = searchResponse.getAggregations();
+                        LOG.trace("Emitting aggregations {}", aggregations);
+                        for (AggregationListener l : aggregationListeners) {
+                            l.on(aggregations);
+                        }
+                    }
+
                     firstRequest = false;
                 }
 
@@ -234,6 +271,8 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
                 if (!anyDataLeft.get()) {
                     LOG.trace("No data left: closing scanner, notifying listeners");
                     close();
+                } else if (fullScan) {
+                    scan();
                 }
             } else {
                 LOG.trace("No results: closing scanner, notifying listeners");
@@ -241,15 +280,23 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
             }
         }
 
+        @Override
+        public void onFailure(Exception e) {
+            LOG.error("Error retrieving data from Elastic: closing scanner, notifying listeners", e);
+            semaphore.release();
+            // closing scanner immediately after a failure avoiding them to hang (potentially) forever
+            close();
+        }
+
         /**
          * Triggers a scan of a new chunk of the result set, if needed.
          */
         public void scan() {
-            if (anyDataLeft.get()) {
+            if (semaphore.tryAcquire() && anyDataLeft.get()) {
                 final SearchSourceBuilder searchSourceBuilder = SearchSourceBuilder.searchSource()
                         .query(query)
                         .size(LARGE_RESULT_SET_SIZE)
-                        .fetchSource(FieldNames.PATH, null)
+                        .fetchSource(sourceFields, null)
                         .searchAfter(lastHitSortValues)
                         // TODO: this needs to be moved in the requestHandler when sorting will be properly supported
                         .sort(SortBuilders.fieldSort("_score").order(SortOrder.DESC))
@@ -265,19 +312,9 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
             }
         }
 
-        @Override
-        public void onFailure(Exception e) {
-            LOG.error("Error retrieving data from Elastic: closing scanner, notifying listeners", e);
-            // closing scanner immediately after a failure avoiding them to hang (potentially) forever
-            close();
-        }
-
         // close all listeners
         private void close() {
-            for (SearchHitListener l : searchHitListeners) {
-                l.endData();
-            }
-            for (AggregationListener l : aggregationListeners) {
+            for (ElasticResponseListener l : allListeners) {
                 l.endData();
             }
         }

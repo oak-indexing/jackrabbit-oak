@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Predicate;
 
 import javax.jcr.PropertyType;
@@ -520,6 +521,7 @@ public abstract class FulltextIndex implements AdvancedQueryIndex, QueryIndex, N
     public static class Facet {
 
         private final String label;
+
         private final int count;
 
         public Facet(String label, int count) {
@@ -550,6 +552,19 @@ public abstract class FulltextIndex implements AdvancedQueryIndex, QueryIndex, N
                     "label='" + label + '\'' +
                     ", count=" + count +
                     '}';
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            Facet facet = (Facet) o;
+            return Objects.equals(label, facet.label);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(label);
         }
     }
 
