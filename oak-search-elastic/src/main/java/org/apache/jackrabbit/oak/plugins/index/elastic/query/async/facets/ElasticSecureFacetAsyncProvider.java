@@ -71,7 +71,7 @@ class ElasticSecureFacetAsyncProvider implements ElasticFacetProvider, ElasticRe
     @Override
     public void on(SearchHit searchHit) {
         final String path = elasticResponseHandler.getPath(searchHit);
-        if (isAccessible.test(path)) {
+        if (path != null && isAccessible.test(path)) {
             Map<String, Object> sourceMap = searchHit.getSourceAsMap();
             for (String field: facetFields) {
                 Object value = sourceMap.get(field);

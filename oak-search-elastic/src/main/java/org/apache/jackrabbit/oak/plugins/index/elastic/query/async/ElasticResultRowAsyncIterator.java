@@ -119,14 +119,16 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
     @Override
     public void on(SearchHit searchHit) {
         final String path = elasticResponseHandler.getPath(searchHit);
-        if (rowInclusionPredicate != null && !rowInclusionPredicate.test(path, indexPlan)) {
-            LOG.trace("Path {} not included because of hierarchy inclusion rules", path);
-            return;
-        }
-        try {
-            queue.put(new FulltextResultRow(path, searchHit.getScore(), null, elasticFacetProvider, null));
-        } catch (InterruptedException e) {
-            throw new IllegalStateException("Error producing results into the iterator queue", e);
+        if (path != null) {
+            if (rowInclusionPredicate != null && !rowInclusionPredicate.test(path, indexPlan)) {
+                LOG.trace("Path {} not included because of hierarchy inclusion rules", path);
+                return;
+            }
+            try {
+                queue.put(new FulltextResultRow(path, searchHit.getScore(), null, elasticFacetProvider, null));
+            } catch (InterruptedException e) {
+                throw new IllegalStateException("Error producing results into the iterator queue", e);
+            }
         }
     }
 

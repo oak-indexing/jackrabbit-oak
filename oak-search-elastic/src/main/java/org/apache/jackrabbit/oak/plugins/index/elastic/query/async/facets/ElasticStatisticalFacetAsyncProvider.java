@@ -83,7 +83,7 @@ public class ElasticStatisticalFacetAsyncProvider
             if (r <= sampleSize - sampled) {
                 sampled++;
                 final String path = elasticResponseHandler.getPath(searchHit);
-                if (isAccessible.test(path)) {
+                if (path != null && isAccessible.test(path)) {
                     accessibleCount++;
                 }
             }
