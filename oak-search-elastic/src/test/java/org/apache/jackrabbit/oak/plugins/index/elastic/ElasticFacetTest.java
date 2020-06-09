@@ -21,6 +21,7 @@ import org.apache.jackrabbit.JcrConstants;
 import org.apache.jackrabbit.commons.jackrabbit.authorization.AccessControlUtils;
 import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.commons.PerfLogger;
 import org.apache.jackrabbit.oak.jcr.Jcr;
 import org.apache.jackrabbit.oak.plugins.index.elastic.index.ElasticIndexEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.ElasticIndexProvider;
@@ -34,6 +35,8 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.jcr.GuestCredentials;
 import javax.jcr.Node;
@@ -70,6 +73,8 @@ import static org.junit.Assert.assertTrue;
 
 public class ElasticFacetTest {
 
+    private static final Logger LOG = LoggerFactory.getLogger(ElasticFacetTest.class);
+    private static final PerfLogger LOG_PERF = new PerfLogger(LOG);
     private static final String FACET_PROP = "facets";
     private Session adminSession;
     private Session anonymousSession;
@@ -401,7 +406,9 @@ public class ElasticFacetTest {
         } catch (RepositoryException e) {
             throw new RuntimeException(e);
         }
+        long start = LOG_PERF.start("Getting the Facet Results...");
         FacetResult facetResult = new FacetResult(queryResult);
+        LOG_PERF.end(start, -1, "Facet Results fetched");
 
         return facetResult.getDimensions()
                 .stream()
