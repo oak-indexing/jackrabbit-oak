@@ -21,15 +21,29 @@ import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.ElasticRespon
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.ElasticResponseListener;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition.SecureFacetConfiguration;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex;
-import org.apache.jackrabbit.oak.spi.query.QueryIndex;
 
+import java.util.function.Predicate;
+
+/**
+ * Provider of facets through an {@link ElasticResponseListener}
+ */
 public interface ElasticFacetProvider extends FulltextIndex.FacetProvider, ElasticResponseListener {
 
+    /**
+     * Returns the appropriate provider based on the {@link SecureFacetConfiguration}
+     * @param facetConfiguration the {@link SecureFacetConfiguration} to extract facet options
+     * @param requestHandler the {@link ElasticRequestHandler} to perform actions at request time
+     * @param responseHandler the {@link ElasticResponseHandler} to decode responses
+     * @param isAccessible a {@link Predicate} to check if a node is accessible
+     *
+     * @return an {@link ElasticFacetProvider} based on {@link SecureFacetConfiguration#getMode()} with
+     * {@link SecureFacetConfiguration.MODE#SECURE} as default
+     */
     static ElasticFacetProvider getProvider(
             SecureFacetConfiguration facetConfiguration,
-            QueryIndex.IndexPlan indexPlan,
             ElasticRequestHandler requestHandler,
-            ElasticResponseHandler responseHandler
+            ElasticResponseHandler responseHandler,
+            Predicate<String> isAccessible
     ) {
         final ElasticFacetProvider facetProvider;
         switch (facetConfiguration.getMode()) {
@@ -38,13 +52,13 @@ public interface ElasticFacetProvider extends FulltextIndex.FacetProvider, Elast
                 break;
             case STATISTICAL:
                 facetProvider = new ElasticStatisticalFacetAsyncProvider(
-                        indexPlan, requestHandler, responseHandler,
+                        requestHandler, responseHandler, isAccessible,
                         facetConfiguration.getRandomSeed(), facetConfiguration.getStatisticalFacetSampleSize()
                 );
                 break;
             case SECURE:
             default:
-                facetProvider = new ElasticSecureFacetAsyncProvider(indexPlan, requestHandler, responseHandler);
+                facetProvider = new ElasticSecureFacetAsyncProvider(requestHandler, responseHandler, isAccessible);
 
         }
         return facetProvider;

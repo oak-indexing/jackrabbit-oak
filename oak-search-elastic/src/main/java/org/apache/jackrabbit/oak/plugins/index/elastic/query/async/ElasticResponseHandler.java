@@ -25,6 +25,9 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 
+/**
+ * Class to process Elastic response objects.
+ */
 public class ElasticResponseHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger(ElasticResponseHandler.class);

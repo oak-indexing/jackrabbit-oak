@@ -28,6 +28,11 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * An {@link ElasticFacetProvider} that subscribes to Elastic Aggregation events.
+ * The provider is async: {@code getFacets} waits until the aggregation is read or for a max of 15 seconds. In the latter
+ * case, an {@link IllegalStateException} is thrown.
+ */
 class ElasticInsecureFacetAsyncProvider implements ElasticFacetProvider, ElasticResponseListener.AggregationListener {
 
     private static final Logger LOG = LoggerFactory.getLogger(ElasticInsecureFacetAsyncProvider.class);

@@ -20,7 +20,6 @@ import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.ElasticReques
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.ElasticResponseHandler;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.ElasticResponseListener;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex;
-import org.apache.jackrabbit.oak.spi.query.QueryIndex;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.aggregations.Aggregations;
 import org.elasticsearch.search.aggregations.bucket.terms.Terms;
@@ -33,7 +32,13 @@ import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 
+/**
+ * An {@link ElasticSecureFacetAsyncProvider} extension that subscribes also on Elastic Aggregation events.
+ * SearchHit events are sampled and then used to adjust facets coming from Aggregations in order to minimize
+ * access checks. This provider could improve facets performance but only when the result set is quite big.
+ */
 public class ElasticStatisticalFacetAsyncProvider
         extends ElasticSecureFacetAsyncProvider
         implements ElasticResponseListener.AggregationListener {
@@ -50,11 +55,11 @@ public class ElasticStatisticalFacetAsyncProvider
 
     private final CountDownLatch latch = new CountDownLatch(1);
 
-    ElasticStatisticalFacetAsyncProvider(QueryIndex.IndexPlan indexPlan,
-                                         ElasticRequestHandler elasticRequestHandler,
+    ElasticStatisticalFacetAsyncProvider(ElasticRequestHandler elasticRequestHandler,
                                          ElasticResponseHandler elasticResponseHandler,
+                                         Predicate<String> isAccessible,
                                          long randomSeed, int sampleSize) {
-        super(indexPlan, elasticRequestHandler, elasticResponseHandler);
+        super(elasticRequestHandler, elasticResponseHandler, isAccessible);
         this.sampleSize = sampleSize;
         this.rGen = new Random(randomSeed);
     }
@@ -78,7 +83,7 @@ public class ElasticStatisticalFacetAsyncProvider
             if (r <= sampleSize - sampled) {
                 sampled++;
                 final String path = elasticResponseHandler.getPath(searchHit);
-                if (indexPlan.getFilter().isAccessible(path)) {
+                if (isAccessible.test(path)) {
                     accessibleCount++;
                 }
             }

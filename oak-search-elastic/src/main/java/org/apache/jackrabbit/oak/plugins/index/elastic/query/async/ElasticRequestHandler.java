@@ -74,6 +74,9 @@ import static org.elasticsearch.index.query.QueryBuilders.matchQuery;
 import static org.elasticsearch.index.query.QueryBuilders.queryStringQuery;
 import static org.elasticsearch.index.query.QueryBuilders.termQuery;
 
+/**
+ * Class to map query plans into Elastic request objects.
+ */
 public class ElasticRequestHandler {
 
     private final IndexPlan indexPlan;

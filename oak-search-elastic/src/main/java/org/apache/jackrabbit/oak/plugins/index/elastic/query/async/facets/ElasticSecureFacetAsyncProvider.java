@@ -20,7 +20,6 @@ import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.ElasticReques
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.ElasticResponseHandler;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.ElasticResponseListener;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex;
-import org.apache.jackrabbit.oak.spi.query.QueryIndex;
 import org.elasticsearch.search.SearchHit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,8 +31,12 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
+/**
+ * An {@link ElasticFacetProvider} that subscribes to Elastic SearchHit events to return only accessible facets.
+ */
 class ElasticSecureFacetAsyncProvider implements ElasticFacetProvider, ElasticResponseListener.SearchHitListener {
 
     protected static final Logger LOG = LoggerFactory.getLogger(ElasticSecureFacetAsyncProvider.class);
@@ -41,17 +44,17 @@ class ElasticSecureFacetAsyncProvider implements ElasticFacetProvider, ElasticRe
     protected final Set<String> facetFields;
     private final Map<String, List<FulltextIndex.Facet>> facets = new ConcurrentHashMap<>();
     protected final ElasticResponseHandler elasticResponseHandler;
-    protected final QueryIndex.IndexPlan indexPlan;
+    protected final Predicate<String> isAccessible;
 
     private final CountDownLatch latch = new CountDownLatch(1);
 
     ElasticSecureFacetAsyncProvider(
-            QueryIndex.IndexPlan indexPlan,
             ElasticRequestHandler elasticRequestHandler,
-            ElasticResponseHandler elasticResponseHandler
+            ElasticResponseHandler elasticResponseHandler,
+            Predicate<String> isAccessible
     ) {
-        this.indexPlan = indexPlan;
         this.elasticResponseHandler = elasticResponseHandler;
+        this.isAccessible = isAccessible;
         this.facetFields = elasticRequestHandler.facetFields().collect(Collectors.toSet());
     }
 
@@ -68,7 +71,7 @@ class ElasticSecureFacetAsyncProvider implements ElasticFacetProvider, ElasticRe
     @Override
     public void on(SearchHit searchHit) {
         final String path = elasticResponseHandler.getPath(searchHit);
-        if (indexPlan.getFilter().isAccessible(path)) {
+        if (isAccessible.test(path)) {
             Map<String, Object> sourceMap = searchHit.getSourceAsMap();
             for (String field: facetFields) {
                 Object value = sourceMap.get(field);

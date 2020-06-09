@@ -143,12 +143,14 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
         return elasticRequestHandler.requiresFacets() ?
                 ElasticFacetProvider.getProvider(
                         planResult.indexDefinition.getSecureFacetConfiguration(),
-                        indexPlan, elasticRequestHandler, elasticResponseHandler
+                        elasticRequestHandler, elasticResponseHandler,
+                        indexPlan.getFilter()::isAccessible
                 ) : null;
     }
 
     private ElasticQueryScanner initScanner() {
         List<ElasticResponseListener> listeners = new ArrayList<>();
+        // TODO: we could avoid to register this listener when the client is interested in facets only. It would save space and time
         listeners.add(this);
         if (elasticFacetProvider != null) {
             listeners.add(elasticFacetProvider);
@@ -182,6 +184,7 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
         // reference to the last document sort values for search_after queries
         private Object[] lastHitSortValues;
 
+        // Semaphore to guarantee only one in-flight request to Elastic
         private final Semaphore semaphore = new Semaphore(1);
 
         ElasticQueryScanner(ElasticRequestHandler requestHandler,
@@ -223,8 +226,8 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
             final SearchRequest searchRequest = new SearchRequest(indexNode.getDefinition().getRemoteIndexAlias())
                     .source(searchSourceBuilder);
 
-            semaphore.tryAcquire();
             LOG.trace("Kicking initial search for query {}", searchSourceBuilder);
+            semaphore.tryAcquire();
             indexNode.getConnection().getClient().searchAsync(searchRequest, RequestOptions.DEFAULT, this);
         }
 
@@ -243,6 +246,7 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
                 anyDataLeft.set(searchResponse.getHits().getTotalHits().value > scannedRows);
                 estimator.update(indexPlan.getFilter(), searchResponse.getHits().getTotalHits().value);
 
+                // now that we got the last hit we can release the semaphore to potentially unlock other requests
                 semaphore.release();
 
                 if (firstRequest) {
@@ -283,7 +287,6 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
         @Override
         public void onFailure(Exception e) {
             LOG.error("Error retrieving data from Elastic: closing scanner, notifying listeners", e);
-            semaphore.release();
             // closing scanner immediately after a failure avoiding them to hang (potentially) forever
             close();
         }
@@ -314,6 +317,7 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
 
         // close all listeners
         private void close() {
+            semaphore.release();
             for (ElasticResponseListener l : allListeners) {
                 l.endData();
             }
