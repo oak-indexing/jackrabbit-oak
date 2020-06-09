@@ -271,7 +271,7 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
 
                     elasticSearcherModels.add(new ElasticSearcherModel.ElasticSearcherModelBuilder()
                             .withQuery(finalqb)
-                            .withBatchSize(nextBatchSize)
+                            .withBatchSize(100)
                             .build());
                 }
                 MultiSearchResponse res = searcher.search(elasticSearcherModels);
@@ -397,11 +397,11 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
                 String spellcheckQueryString = query.replace(SPELLCHECK_PREFIX, "");
                 int i = 0;
                 for (String field : getSpellCheckFields(defn)) {
-                    PhraseSuggestionBuilder.CandidateGenerator g1 = new DirectCandidateGeneratorBuilder(field + ".trigram")
-                            .suggestMode("always");
+                    PhraseSuggestionBuilder.CandidateGenerator candidateGeneratorBuilder = new DirectCandidateGeneratorBuilder(field + ".trigram")
+                            .suggestMode("missing");
                     SuggestionBuilder phraseSuggestionBuilder = SuggestBuilders.phraseSuggestion(field + ".trigram")
                             .size(10)
-                            .addCandidateGenerator(g1)
+                            .addCandidateGenerator(candidateGeneratorBuilder)
                             .text(spellcheckQueryString)
                             .collateQuery(getCollateQuery(field, plan).toString()).collatePrune(true);
 
