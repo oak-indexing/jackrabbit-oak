@@ -142,6 +142,11 @@ public class ElasticIndexDefinition extends IndexDefinition {
         return propertyDefinitions.stream().anyMatch(pd -> pd.analyzed || pd.fulltextEnabled());
     }
 
+    @Override
+    protected String getDefaultFunctionName() {
+        return "lucene";
+    }
+
     /**
      * Class to help with {@link ElasticIndexDefinition} creation.
      * The built object represents the index definition only without the node structure.
