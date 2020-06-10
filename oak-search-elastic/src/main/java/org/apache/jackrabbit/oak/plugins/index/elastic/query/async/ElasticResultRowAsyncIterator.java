@@ -47,8 +47,8 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.BiPredicate;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 /**
  * Class to iterate over Elastic results of a given {@link IndexPlan}.
@@ -67,7 +67,7 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
     private final ElasticIndexNode indexNode;
     private final IndexPlan indexPlan;
     private final PlanResult planResult;
-    private final BiPredicate<String, IndexPlan> rowInclusionPredicate;
+    private final Predicate<String> rowInclusionPredicate;
     private final LMSEstimator estimator;
 
     private final ElasticQueryScanner elasticQueryScanner;
@@ -80,7 +80,7 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
     public ElasticResultRowAsyncIterator(@NotNull ElasticIndexNode indexNode,
                                          @NotNull IndexPlan indexPlan,
                                          @NotNull PlanResult planResult,
-                                         BiPredicate<String, IndexPlan> rowInclusionPredicate,
+                                         Predicate<String> rowInclusionPredicate,
                                          LMSEstimator estimator) {
         this.indexNode = indexNode;
         this.indexPlan = indexPlan;
@@ -120,7 +120,7 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
     public void on(SearchHit searchHit) {
         final String path = elasticResponseHandler.getPath(searchHit);
         if (path != null) {
-            if (rowInclusionPredicate != null && !rowInclusionPredicate.test(path, indexPlan)) {
+            if (rowInclusionPredicate != null && !rowInclusionPredicate.test(path)) {
                 LOG.trace("Path {} not included because of hierarchy inclusion rules", path);
                 return;
             }
@@ -244,19 +244,20 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
         public void onResponse(SearchResponse searchResponse) {
             final SearchHit[] searchHits = searchResponse.getHits().getHits();
             if (searchHits != null && searchHits.length > 0) {
+                long totalHits = searchResponse.getHits().getTotalHits().value;
                 LOG.info("Processing search response that took {} to read {}/{} docs",
-                        searchResponse.getTook(), searchHits.length, searchResponse.getHits().getTotalHits());
+                        searchResponse.getTook(), searchHits.length, totalHits);
                 lastHitSortValues = searchHits[searchHits.length - 1].getSortValues();
                 scannedRows += searchHits.length;
-                anyDataLeft.set(searchResponse.getHits().getTotalHits().value > scannedRows);
-                estimator.update(indexPlan.getFilter(), searchResponse.getHits().getTotalHits().value);
+                anyDataLeft.set(totalHits > scannedRows);
+                estimator.update(indexPlan.getFilter(), totalHits);
 
                 // now that we got the last hit we can release the semaphore to potentially unlock other requests
                 semaphore.release();
 
                 if (firstRequest) {
                     for (SearchHitListener l : searchHitListeners) {
-                        l.startData(searchResponse.getHits().getTotalHits().value);
+                        l.startData(totalHits);
                     }
 
                     if (!aggregationListeners.isEmpty()) {

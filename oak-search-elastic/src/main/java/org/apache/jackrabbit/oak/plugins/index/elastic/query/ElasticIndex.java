@@ -16,6 +16,7 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.query;
 
+import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticConnection;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.ElasticRequestHandler;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.ElasticResultRowAsyncIterator;
@@ -33,6 +34,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.WeakHashMap;
+import java.util.function.BiFunction;
 import java.util.function.Predicate;
 
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.TYPE_PROPERTY_NAME;
@@ -102,11 +104,17 @@ class ElasticIndex extends FulltextIndex {
 
         final FulltextIndexPlanner.PlanResult pr = getPlanResult(plan);
 
+        // this function is called for each extracted row. Passing FulltextIndex::shouldInclude means that for each
+        // row we evaluate getPathRestriction(plan) & plan.getFilter().getPathRestriction(). Providing a partial
+        // function (https://en.wikipedia.org/wiki/Partial_function) we can evaluate them once and still use a predicate as before
+        BiFunction<String, Filter.PathRestriction, Predicate<String>> partialShouldInclude = (path, pathRestriction) -> docPath ->
+                shouldInclude(path, pathRestriction, docPath);
+
         Iterator<FulltextResultRow> itr = new ElasticResultRowAsyncIterator(
                 acquireIndexNode(plan),
                 plan,
                 pr,
-                FulltextIndex::shouldInclude,
+                partialShouldInclude.apply(getPathRestriction(plan), plan.getFilter().getPathRestriction()),
                 getEstimator(plan.getPlanName())
         );
 
@@ -128,6 +136,23 @@ class ElasticIndex extends FulltextIndex {
     private LMSEstimator getEstimator(String path) {
         ESTIMATORS.putIfAbsent(path, new LMSEstimator());
         return ESTIMATORS.get(path);
+    }
+
+    private static boolean shouldInclude(String path, Filter.PathRestriction pathRestriction, String docPath) {
+        boolean include = true;
+        switch (pathRestriction) {
+            case EXACT:
+                include = path.equals(docPath);
+                break;
+            case DIRECT_CHILDREN:
+                include = PathUtils.getParentPath(docPath).equals(path);
+                break;
+            case ALL_CHILDREN:
+                include = PathUtils.isAncestor(path, docPath);
+                break;
+        }
+
+        return include;
     }
 
     @Override
