@@ -166,7 +166,8 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
      */
     class ElasticQueryScanner implements ActionListener<SearchResponse> {
 
-        private static final int SMALL_RESULT_SET_SIZE = 100;
+        private static final int SMALL_RESULT_SET_SIZE = 10;
+        private static final int MEDIUM_RESULT_SET_SIZE = 100;
         private static final int LARGE_RESULT_SET_SIZE = 1000;
 
         private final Set<ElasticResponseListener> allListeners = new HashSet<>();
@@ -215,7 +216,9 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
 
             final SearchSourceBuilder searchSourceBuilder = SearchSourceBuilder.searchSource()
                     .query(query)
-                    .size(SMALL_RESULT_SET_SIZE)
+                    // use a smaller size when the client asks for facets. This improves performance
+                    // when the client is only interested in insecure facets
+                    .size(needsAggregations.get() ? SMALL_RESULT_SET_SIZE : MEDIUM_RESULT_SET_SIZE)
                     .fetchSource(sourceFields, null)
                     // TODO: this needs to be moved in the requestHandler when sorting will be properly supported
                     .sort(SortBuilders.fieldSort("_score").order(SortOrder.DESC))

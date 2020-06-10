@@ -24,7 +24,7 @@ import org.elasticsearch.search.SearchHit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -42,7 +42,8 @@ class ElasticSecureFacetAsyncProvider implements ElasticFacetProvider, ElasticRe
     protected static final Logger LOG = LoggerFactory.getLogger(ElasticSecureFacetAsyncProvider.class);
 
     protected final Set<String> facetFields;
-    private final Map<String, List<FulltextIndex.Facet>> facets = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, Integer>> facetsMap = new ConcurrentHashMap<>();
+    private Map<String, List<FulltextIndex.Facet>> facets;
     protected final ElasticResponseHandler elasticResponseHandler;
     protected final Predicate<String> isAccessible;
 
@@ -76,20 +77,13 @@ class ElasticSecureFacetAsyncProvider implements ElasticFacetProvider, ElasticRe
             for (String field: facetFields) {
                 Object value = sourceMap.get(field);
                 if (value != null) {
-                    facets.compute(field, (facetKey, facetValues) -> {
-                        FulltextIndex.Facet facet = new FulltextIndex.Facet(value.toString(), 1);
+                    facetsMap.compute(field, (column, facetValues) -> {
                         if (facetValues == null) {
-                            List<FulltextIndex.Facet> values = new ArrayList<>();
-                            values.add(facet);
+                            Map<String, Integer> values = new HashMap<>();
+                            values.put(value.toString(), 1);
                             return values;
                         } else {
-                            int index = facetValues.indexOf(facet);
-                            if (index < 0) {
-                                facetValues.add(facet);
-                            } else {
-                                FulltextIndex.Facet oldFacet = facetValues.remove(index);
-                                facetValues.add(new FulltextIndex.Facet(oldFacet.getLabel(), oldFacet.getCount() + 1));
-                            }
+                            facetValues.merge(value.toString(), 1, Integer::sum);
                             return facetValues;
                         }
                     });
@@ -100,13 +94,24 @@ class ElasticSecureFacetAsyncProvider implements ElasticFacetProvider, ElasticRe
 
     @Override
     public void endData() {
-        // order by count (desc) and then by label (asc)
-        facets.values().forEach(facetValues -> facetValues.sort((f1, f2) -> {
-            if (f1.getCount() == f2.getCount()) {
-                return f1.getLabel().compareTo(f2.getLabel());
-            } else return f2.getCount() - f1.getCount();
-        }));
-        LOG.trace("End data {}", facets);
+        // create Facet objects, order by count (desc) and then by label (asc)
+        facets = facetsMap.entrySet()
+                .stream()
+                .collect(Collectors.toMap
+                        (Map.Entry::getKey, x -> x.getValue().entrySet()
+                                .stream()
+                                .map(e -> new FulltextIndex.Facet(e.getKey(), e.getValue()))
+                                .sorted((f1, f2) -> {
+                                    int f1Count = f1.getCount();
+                                    int f2Count = f2.getCount();
+                                    if (f1Count == f2Count) {
+                                        return f1.getLabel().compareTo(f2.getLabel());
+                                    } else return f2Count - f1Count;
+                                })
+                                .collect(Collectors.toList())
+                        )
+                );
+        LOG.trace("End data {}", facetsMap);
         latch.countDown();
     }
 
@@ -118,7 +123,7 @@ class ElasticSecureFacetAsyncProvider implements ElasticFacetProvider, ElasticRe
         } catch (InterruptedException e) {
             throw new IllegalStateException("Error while waiting for facets", e);
         }
-        LOG.trace("Reading facets for {} from {}", columnName, facets);
+        LOG.trace("Reading facets for {} from {}", columnName, facetsMap);
         return facets.get(FulltextIndex.parseFacetField(columnName));
     }
 }
