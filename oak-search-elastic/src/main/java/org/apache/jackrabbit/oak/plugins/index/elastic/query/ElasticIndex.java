@@ -107,19 +107,19 @@ class ElasticIndex extends FulltextIndex {
         // this function is called for each extracted row. Passing FulltextIndex::shouldInclude means that for each
         // row we evaluate getPathRestriction(plan) & plan.getFilter().getPathRestriction(). Providing a partial
         // function (https://en.wikipedia.org/wiki/Partial_function) we can evaluate them once and still use a predicate as before
-        BiFunction<String, Filter.PathRestriction, Predicate<String>> partialShouldInclude = (path, pathRestriction) -> docPath ->
-                shouldInclude(path, pathRestriction, docPath);
+//        BiFunction<String, Filter.PathRestriction, Predicate<String>> partialShouldInclude = (path, pathRestriction) -> docPath ->
+//                shouldInclude(path, pathRestriction, docPath);
+//
+//        Iterator<FulltextResultRow> itr = new ElasticResultRowAsyncIterator(
+//                acquireIndexNode(plan),
+//                plan,
+//                pr,
+//                partialShouldInclude.apply(getPathRestriction(plan), plan.getFilter().getPathRestriction()),
+//                getEstimator(plan.getPlanName())
+//        );
 
-        Iterator<FulltextResultRow> itr = new ElasticResultRowAsyncIterator(
-                acquireIndexNode(plan),
-                plan,
-                pr,
-                partialShouldInclude.apply(getPathRestriction(plan), plan.getFilter().getPathRestriction()),
-                getEstimator(plan.getPlanName())
-        );
-
-//        Iterator<FulltextResultRow> itr = new ElasticResultRowIterator(filter, pr, plan,
-//                acquireIndexNode(plan), FulltextIndex::shouldInclude, getEstimator(plan.getPlanName()));
+        Iterator<FulltextResultRow> itr = new ElasticResultRowIterator(filter, pr, plan,
+                acquireIndexNode(plan), FulltextIndex::shouldInclude, getEstimator(plan.getPlanName()));
 
         /*
         TODO: sync (nrt too??)
