@@ -245,7 +245,7 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
             final SearchHit[] searchHits = searchResponse.getHits().getHits();
             if (searchHits != null && searchHits.length > 0) {
                 long totalHits = searchResponse.getHits().getTotalHits().value;
-                LOG.info("Processing search response that took {} to read {}/{} docs",
+                LOG.debug("Processing search response that took {} to read {}/{} docs",
                         searchResponse.getTook(), searchHits.length, totalHits);
                 lastHitSortValues = searchHits[searchHits.length - 1].getSortValues();
                 scannedRows += searchHits.length;
