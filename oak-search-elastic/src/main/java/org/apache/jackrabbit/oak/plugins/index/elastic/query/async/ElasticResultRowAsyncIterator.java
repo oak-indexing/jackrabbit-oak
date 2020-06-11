@@ -200,8 +200,9 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
                 allListeners.add(listener);
                 sourceFieldsSet.addAll(listener.sourceFields());
                 if (listener instanceof SearchHitListener) {
-                    searchHitListeners.add((SearchHitListener) listener);
-                    if (((SearchHitListener) listener).isFullScan()) {
+                    SearchHitListener searchHitListener = (SearchHitListener) listener;
+                    searchHitListeners.add(searchHitListener);
+                    if (searchHitListener.isFullScan()) {
                         fullScan = true;
                     }
                 }
