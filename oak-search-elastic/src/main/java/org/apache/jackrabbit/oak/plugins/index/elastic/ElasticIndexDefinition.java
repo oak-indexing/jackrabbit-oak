@@ -144,6 +144,10 @@ public class ElasticIndexDefinition extends IndexDefinition {
 
     @Override
     protected String getDefaultFunctionName() {
+        /*
+        This has nothing to do with lucene index. While parsing queries, spellCheck queries are handled
+        via PropertyRestriction having native*lucene as key.
+         */
         return "lucene";
     }
 

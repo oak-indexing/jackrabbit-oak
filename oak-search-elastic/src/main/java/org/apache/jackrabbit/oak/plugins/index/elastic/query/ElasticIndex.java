@@ -91,15 +91,10 @@ class ElasticIndex extends FulltextIndex {
 
     @Override
     protected String getFulltextRequestString(IndexPlan plan, IndexNode indexNode) {
-        ElasticRequestFacade elasticRequestFacade = new ElasticResultRowIterator(plan.getFilter(), getPlanResult(plan), plan,
+        ElasticProcess elasticProcess = new ElasticResultRowIterator(plan.getFilter(), getPlanResult(plan), plan,
                 acquireIndexNode(plan), FulltextIndex::shouldInclude, getEstimator(plan.getPlanName()))
-                .getElasticQueryFacade(plan, getPlanResult(plan));
-        if (elasticRequestFacade.getElasticRequest() instanceof QueryBuilder){
-            return Strings.toString((QueryBuilder)elasticRequestFacade.getElasticRequest());
-        }
-        else {
-            throw new RuntimeException("ElasticRequestFacade not instance of QueryBuilder");
-        }
+                .getElasticProcess(plan, getPlanResult(plan));
+        return elasticProcess.getQuery();
 
     }
 
