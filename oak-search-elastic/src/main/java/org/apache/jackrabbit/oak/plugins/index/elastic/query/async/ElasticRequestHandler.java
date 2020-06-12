@@ -14,20 +14,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.jackrabbit.oak.plugins.index.elastic.query;
+package org.apache.jackrabbit.oak.plugins.index.elastic.query.async;
 
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
-import org.apache.jackrabbit.oak.plugins.index.elastic.query.facets.ElasticFacets;
-import org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticQueryUtil;
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.PropertyDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndexPlanner;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndexPlanner.PlanResult;
-import org.apache.jackrabbit.oak.plugins.index.search.util.LMSEstimator;
 import org.apache.jackrabbit.oak.spi.query.Filter;
 import org.apache.jackrabbit.oak.spi.query.QueryConstants;
 import org.apache.jackrabbit.oak.spi.query.QueryIndex;
@@ -38,32 +35,29 @@ import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextExpression;
 import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextOr;
 import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextTerm;
 import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextVisitor;
+import org.apache.lucene.search.WildcardQuery;
 import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
-import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.search.aggregations.AggregationBuilders;
+import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import javax.jcr.PropertyType;
-import java.io.IOException;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiPredicate;
+import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 import static org.apache.jackrabbit.JcrConstants.JCR_MIXINTYPES;
 import static org.apache.jackrabbit.JcrConstants.JCR_PRIMARYTYPE;
+import static org.apache.jackrabbit.oak.commons.PathUtils.denotesRoot;
+import static org.apache.jackrabbit.oak.commons.PathUtils.getParentPath;
+import static org.apache.jackrabbit.oak.plugins.index.elastic.util.TermQueryBuilderFactory.newAncestorQuery;
+import static org.apache.jackrabbit.oak.plugins.index.elastic.util.TermQueryBuilderFactory.newDepthQuery;
 import static org.apache.jackrabbit.oak.plugins.index.elastic.util.TermQueryBuilderFactory.newMixinTypeQuery;
 import static org.apache.jackrabbit.oak.plugins.index.elastic.util.TermQueryBuilderFactory.newNodeTypeQuery;
 import static org.apache.jackrabbit.oak.plugins.index.elastic.util.TermQueryBuilderFactory.newNotNullPropQuery;
@@ -79,105 +73,39 @@ import static org.apache.jackrabbit.util.ISO8601.parse;
 import static org.elasticsearch.index.query.QueryBuilders.boolQuery;
 import static org.elasticsearch.index.query.QueryBuilders.matchAllQuery;
 import static org.elasticsearch.index.query.QueryBuilders.matchQuery;
+import static org.elasticsearch.index.query.QueryBuilders.queryStringQuery;
 import static org.elasticsearch.index.query.QueryBuilders.termQuery;
 
-class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultRow> {
-    private static final Logger LOG = LoggerFactory
-            .getLogger(ElasticResultRowIterator.class);
+/**
+ * Class to map query plans into Elastic request objects.
+ */
+public class ElasticRequestHandler {
 
-    final static String SPELLCHECK_PREFIX = "spellcheck?term=";
-    // TODO: oak-lucene gets this via WildcardQuery class. See if ES also exposes these consts
-    private static final char WILDCARD_STRING = '*';
-    private static final char WILDCARD_CHAR = '?';
-    private ElasticRowIteratorState rowIteratorState;
+    private final IndexPlan indexPlan;
+    private final PlanResult planResult;
+    private final ElasticIndexDefinition elasticIndexDefinition;
 
-    ElasticResultRowIterator(@NotNull Filter filter,
-                             @NotNull FulltextIndexPlanner.PlanResult planResult,
-                             @NotNull QueryIndex.IndexPlan plan,
-                             ElasticIndexNode indexNode,
-                             RowInclusionPredicate rowInclusionPredicate,
-                             LMSEstimator estimator) {
-        this.rowIteratorState = new ElasticRowIteratorState(filter, planResult,
-                plan, indexNode, rowInclusionPredicate, estimator);
+    public ElasticRequestHandler(@NotNull QueryIndex.IndexPlan indexPlan, @NotNull FulltextIndexPlanner.PlanResult planResult) {
+        this.indexPlan = indexPlan;
+        this.planResult = planResult;
+        this.elasticIndexDefinition = (ElasticIndexDefinition) planResult.indexDefinition;
     }
 
-    @Override
-    public boolean hasNext() {
-        return !rowIteratorState.queue.isEmpty() || loadDocs();
-    }
+    public QueryBuilder build() {
+        final BoolQueryBuilder boolQuery = boolQuery();
 
-    @Override
-    public FulltextIndex.FulltextResultRow next() {
-        return rowIteratorState.queue.remove();
-    }
-
-    /**
-     * Loads the lucene documents in batches
-     *
-     * @return true if any document is loaded
-     */
-    private boolean loadDocs() {
-
-        if (rowIteratorState.noDocs) {
-            return false;
-        }
-
-        if (rowIteratorState.indexNode == null) {
-            throw new IllegalStateException("indexNode cannot be null");
-        }
-
-        SearchHit lastDocToRecord = null;
-        try {
-            ElasticProcess elasticProcess = getElasticProcess(rowIteratorState.plan, rowIteratorState.planResult);
-
-            lastDocToRecord = elasticProcess.process();
-
-            // TODO: suggest } else if (luceneRequestFacade.getLuceneRequest() instanceof SuggestHelper.SuggestQuery) {
-        } catch (Exception e) {
-            LOG.warn("query via {} failed.", this, e);
-        } finally {
-            rowIteratorState.indexNode.release();
-        }
-
-        if (lastDocToRecord != null) {
-            this.rowIteratorState.lastDoc = lastDocToRecord;
-        }
-
-        return !rowIteratorState.queue.isEmpty();
-    }
-
-    public interface RowInclusionPredicate {
-        boolean shouldInclude(@NotNull String path, @NotNull QueryIndex.IndexPlan plan);
-
-        RowInclusionPredicate NOOP = (@NotNull String path, @NotNull QueryIndex.IndexPlan plan) -> true;
-    }
-
-    /**
-     * Get the Elasticsearch query for the given filter.
-     *
-     * @param plan       index plan containing filter details
-     * @param planResult
-     * @return the Lucene query
-     */
-    public ElasticProcess getElasticProcess(IndexPlan plan, PlanResult planResult) {
-        List<QueryBuilder> qs = new ArrayList<>();
-        Filter filter = plan.getFilter();
+        Filter filter = indexPlan.getFilter();
         FullTextExpression ft = filter.getFullTextConstraint();
-        ElasticIndexDefinition defn = (ElasticIndexDefinition) planResult.indexDefinition;
 
         if (ft != null) {
-            qs.add(getFullTextQuery(ft, planResult));
-        } else {
-            // there might be no full-text constraint
-            // when using the LowCostLuceneIndexProvider
-            // which is used for testing
+            boolQuery.must(fullTextQuery(ft, planResult));
         }
 
-
+        // TODO: this code block should be removed? Or should we throw a NotSupported exception in this case?
         //Check if native function is supported
         Filter.PropertyRestriction pr = null;
-        if (defn.hasFunctionDefined()) {
-            pr = filter.getPropertyRestriction(defn.getFunctionName());
+        if (elasticIndexDefinition.hasFunctionDefined()) {
+            pr = filter.getPropertyRestriction(elasticIndexDefinition.getFunctionName());
         }
 
         if (pr != null) {
@@ -185,37 +113,53 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
             // TODO: more like this
 
             // TODO: spellcheck
-            if (query.startsWith(SPELLCHECK_PREFIX)) {
-                return new ElasticSpellcheckProcess(query, rowIteratorState);
-            }
 
             // TODO: suggest
 
-            qs.add(QueryBuilders.queryStringQuery(query));
+            boolQuery.must(queryStringQuery(query));
         } else if (planResult.evaluateNonFullTextConstraints()) {
-            addNonFullTextConstraints(qs, plan, planResult);
+            for (QueryBuilder constraint: nonFullTextConstraints(indexPlan, planResult)) {
+                boolQuery.filter(constraint);
+            }
         }
 
         // TODO: sort with no other restriction
 
-        if (qs.size() == 0) {
-
+        if (!boolQuery.hasClauses()) {
             // TODO: what happens here in planning mode (specially, apparently for things like rep:similar)
-
             //For purely nodeType based queries all the documents would have to
             //be returned (if the index definition has a single rule)
             if (planResult.evaluateNodeTypeRestriction()) {
-                return new ElasticQueryProcess(matchAllQuery(), rowIteratorState, new ElasticFacetProvider());
+                boolQuery.must(matchAllQuery());
             }
-
-            throw new IllegalStateException("No query created for filter " + filter);
         }
-        ElasticProcess elasticProcess = new ElasticQueryProcess(ElasticQueryUtil.performAdditionalWraps(qs),
-                rowIteratorState, new ElasticFacetProvider());
-        return elasticProcess;
+
+        return boolQuery;
     }
 
-    private static QueryBuilder getFullTextQuery(FullTextExpression ft, final PlanResult pr) {
+    public boolean requiresFacets() {
+        return indexPlan.getFilter().getPropertyRestrictions()
+                .stream()
+                .anyMatch(pr -> QueryConstants.REP_FACET.equals(pr.propertyName));
+    }
+
+    public Stream<TermsAggregationBuilder> aggregations() {
+        return facetFields()
+                .map(facetProp ->
+                        AggregationBuilders.terms(facetProp)
+                                .field(elasticIndexDefinition.getElasticKeyword(facetProp))
+                                .size(elasticIndexDefinition.getNumberOfTopFacets())
+                );
+    }
+
+    public Stream<String> facetFields() {
+        return indexPlan.getFilter().getPropertyRestrictions()
+                .stream()
+                .filter(pr -> QueryConstants.REP_FACET.equals(pr.propertyName))
+                .map(pr -> FulltextIndex.parseFacetField(pr.first.getValue(Type.STRING)));
+    }
+
+    private QueryBuilder fullTextQuery(FullTextExpression ft, final PlanResult pr) {
         // a reference to the query, so it can be set in the visitor
         // (a "non-local return")
         final AtomicReference<QueryBuilder> result = new AtomicReference<>();
@@ -231,8 +175,7 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
             public boolean visit(FullTextOr or) {
                 BoolQueryBuilder q = boolQuery();
                 for (FullTextExpression e : or.list) {
-                    QueryBuilder x = getFullTextQuery(e, pr);
-                    q.should(x);
+                    q.should(fullTextQuery(e, pr));
                 }
                 result.set(q);
                 return true;
@@ -242,7 +185,7 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
             public boolean visit(FullTextAnd and) {
                 BoolQueryBuilder q = boolQuery();
                 for (FullTextExpression e : and.list) {
-                    QueryBuilder x = getFullTextQuery(e, pr);
+                    QueryBuilder x = fullTextQuery(e, pr);
                     // TODO: see OAK-2434 and see if ES also can't work without unwrapping
                     /* Only unwrap the clause if MUST_NOT(x) */
                     boolean hasMustNot = false;
@@ -276,8 +219,7 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
                     q.boost(Float.parseFloat(boost));
                 }
                 if (not) {
-                    BoolQueryBuilder bq = boolQuery();
-                    bq.mustNot(q);
+                    BoolQueryBuilder bq = boolQuery().mustNot(q);
                     result.set(bq);
                 } else {
                     result.set(q);
@@ -288,56 +230,65 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
         return result.get();
     }
 
-    private static QueryBuilder tokenToQuery(String text, String fieldName, PlanResult pr) {
-        QueryBuilder ret;
-        IndexDefinition.IndexingRule indexingRule = pr.indexingRule;
-        //Expand the query on fulltext field
-        if (FieldNames.FULLTEXT.equals(fieldName) &&
-                !indexingRule.getNodeScopeAnalyzedProps().isEmpty()) {
-            BoolQueryBuilder in = boolQuery();
-            for (PropertyDefinition pd : indexingRule.getNodeScopeAnalyzedProps()) {
-                QueryBuilder q = matchQuery(FieldNames.createAnalyzedFieldName(pd.name), text);
-                q.boost(pd.boost);
-                in.should(q);
-            }
-
-            //Add the query for actual fulltext field also. That query would
-            //not be boosted
-            in.should(matchQuery(fieldName, text));
-            ret = in;
-        } else {
-            ret = matchQuery(fieldName, text);
-        }
-
-        return ret;
-    }
-
-    private static String getLuceneFieldName(@Nullable String p, PlanResult pr) {
-        if (p == null) {
-            return FieldNames.FULLTEXT;
-        }
-
-        if (pr.isPathTransformed()) {
-            p = PathUtils.getName(p);
-        }
-
-        if ("*".equals(p)) {
-            p = FieldNames.FULLTEXT;
-        }
-        return p;
-    }
-
-    private void addNonFullTextConstraints(List<QueryBuilder> qs,
-                                           IndexPlan plan, PlanResult planResult) {
+    private List<QueryBuilder> nonFullTextConstraints(IndexPlan plan, PlanResult planResult) {
         final BiPredicate<Iterable<String>, String> any = (iterable, value) ->
                 StreamSupport.stream(iterable.spliterator(), false).anyMatch(value::equals);
 
+        final List<QueryBuilder> queries = new ArrayList<>();
+
         Filter filter = plan.getFilter();
         if (!filter.matchesAllTypes()) {
-            addNodeTypeConstraints(planResult.indexingRule, qs, filter);
+            queries.add(nodeTypeConstraints(planResult.indexingRule, filter));
         }
 
-        qs.addAll(ElasticQueryUtil.getPathRestrictionQuery(plan, planResult, filter));
+        String path = FulltextIndex.getPathRestriction(plan);
+        switch (filter.getPathRestriction()) {
+            case ALL_CHILDREN:
+                if (!"/".equals(path)) {
+                    queries.add(newAncestorQuery(path));
+                }
+                break;
+            case DIRECT_CHILDREN:
+                BoolQueryBuilder bq = boolQuery()
+                    .must(newAncestorQuery(path))
+                    .must(newDepthQuery(path, planResult));
+                queries.add(bq);
+                break;
+            case EXACT:
+                // For transformed paths, we can only add path restriction if absolute path to property can be
+                // deduced
+                if (planResult.isPathTransformed()) {
+                    String parentPathSegment = planResult.getParentPathSegment();
+                    if (!any.test(PathUtils.elements(parentPathSegment), "*")) {
+                        queries.add(newPathQuery(path + parentPathSegment));
+                    }
+                } else {
+                    queries.add(newPathQuery(path));
+                }
+                break;
+            case PARENT:
+                if (denotesRoot(path)) {
+                    // there's no parent of the root node
+                    // we add a path that can not possibly occur because there
+                    // is no way to say "match no documents" in Lucene
+                    queries.add(newPathQuery("///"));
+                } else {
+                    // For transformed paths, we can only add path restriction if absolute path to property can be
+                    // deduced
+                    if (planResult.isPathTransformed()) {
+                        String parentPathSegment = planResult.getParentPathSegment();
+                        if (!any.test(PathUtils.elements(parentPathSegment), "*")) {
+                            queries.add(newPathQuery(getParentPath(path) + parentPathSegment));
+                        }
+                    } else {
+                        queries.add(newPathQuery(getParentPath(path)));
+                    }
+                }
+                break;
+            case NO_RESTRICTION:
+                break;
+        }
+
         for (Filter.PropertyRestriction pr : filter.getPropertyRestrictions()) {
             String name = pr.propertyName;
 
@@ -348,25 +299,24 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
 
             if (QueryConstants.RESTRICTION_LOCAL_NAME.equals(name)) {
                 if (planResult.evaluateNodeNameRestriction()) {
-                    QueryBuilder q = createNodeNameQuery(pr);
+                    QueryBuilder q = nodeName(pr);
                     if (q != null) {
-                        qs.add(q);
+                        queries.add(q);
                     }
                 }
                 continue;
             }
 
-            if (pr.first != null && pr.first.equals(pr.last) && pr.firstIncluding
-                    && pr.lastIncluding) {
+            if (pr.first != null && pr.first.equals(pr.last) && pr.firstIncluding && pr.lastIncluding) {
                 String first = pr.first.getValue(Type.STRING);
                 first = first.replace("\\", "");
                 if (JCR_PATH.equals(name)) {
-                    qs.add(newPathQuery(first));
+                    queries.add(newPathQuery(first));
                     continue;
                 } else if ("*".equals(name)) {
                     //TODO Revisit reference constraint. For performant impl
                     //references need to be indexed in a different manner
-                    addReferenceConstraint(first, qs);
+                    queries.add(referenceConstraint(first));
                     continue;
                 }
             }
@@ -378,14 +328,14 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
 
             QueryBuilder q = createQuery(planResult.getPropertyName(pr), pr, pd);
             if (q != null) {
-                qs.add(q);
+                queries.add(q);
             }
         }
+        return queries;
     }
 
-
-    private static void addNodeTypeConstraints(IndexDefinition.IndexingRule defn, List<QueryBuilder> qs, Filter filter) {
-        BoolQueryBuilder bq = boolQuery();
+    private static QueryBuilder nodeTypeConstraints(IndexDefinition.IndexingRule defn, Filter filter) {
+        final BoolQueryBuilder bq = boolQuery();
         PropertyDefinition primaryType = defn.getConfig(JCR_PRIMARYTYPE);
         //TODO OAK-2198 Add proper nodeType query support
 
@@ -402,12 +352,10 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
             }
         }
 
-        if (bq.hasClauses()) {
-            qs.add(bq);
-        }
+        return bq;
     }
 
-    private static QueryBuilder createNodeNameQuery(Filter.PropertyRestriction pr) {
+    private static QueryBuilder nodeName(Filter.PropertyRestriction pr) {
         String first = pr.first != null ? pr.first.getValue(Type.STRING) : null;
         if (pr.first != null && pr.first.equals(pr.last) && pr.firstIncluding
                 && pr.lastIncluding) {
@@ -416,24 +364,22 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
         }
 
         if (pr.isLike) {
-            return createLikeQuery(FieldNames.NODE_NAME, first);
+            return like(FieldNames.NODE_NAME, first);
         }
 
         throw new IllegalStateException("For nodeName queries only EQUALS and LIKE are supported " + pr);
     }
 
-    private static QueryBuilder createLikeQuery(String name, String first) {
-        first = first.replace('%', WILDCARD_STRING);
-        first = first.replace('_', WILDCARD_CHAR);
+    private static QueryBuilder like(String name, String first) {
+        first = first.replace('%', WildcardQuery.WILDCARD_STRING);
+        first = first.replace('_', WildcardQuery.WILDCARD_CHAR);
 
-        QueryBuilders.wildcardQuery(name, first);
-
-        int indexOfWS = first.indexOf(WILDCARD_STRING);
-        int indexOfWC = first.indexOf(WILDCARD_CHAR);
+        int indexOfWS = first.indexOf(WildcardQuery.WILDCARD_STRING);
+        int indexOfWC = first.indexOf(WildcardQuery.WILDCARD_CHAR);
         int len = first.length();
 
         if (indexOfWS == len || indexOfWC == len) {
-            // remove trailing "*" for prefixquery
+            // remove trailing "*" for prefix query
             first = first.substring(0, first.length() - 1);
             if (JCR_PATH.equals(name)) {
                 return newPrefixPathQuery(first);
@@ -449,13 +395,34 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
         }
     }
 
-    private static void addReferenceConstraint(String uuid, List<QueryBuilder> qs) {
+    private static QueryBuilder referenceConstraint(String uuid) {
         // TODO: this seems very bad as a query - do we really want to support it. In fact, is it even used?
         // reference query
-        qs.add(QueryBuilders.multiMatchQuery(uuid));
+        return QueryBuilders.multiMatchQuery(uuid);
     }
 
-    @Nullable
+    private static QueryBuilder tokenToQuery(String text, String fieldName, PlanResult pr) {
+        QueryBuilder ret;
+        IndexDefinition.IndexingRule indexingRule = pr.indexingRule;
+        //Expand the query on fulltext field
+        if (FieldNames.FULLTEXT.equals(fieldName) &&
+                !indexingRule.getNodeScopeAnalyzedProps().isEmpty()) {
+            BoolQueryBuilder in = boolQuery();
+            for (PropertyDefinition pd : indexingRule.getNodeScopeAnalyzedProps()) {
+                QueryBuilder q = matchQuery(pd.name, text).boost(pd.boost);
+                in.should(q);
+            }
+
+            //Add the query for actual fulltext field also. That query would not be boosted
+            // TODO: do we need this if all the analyzed fields are queried?
+            ret = in.should(matchQuery(fieldName, text));
+        } else {
+            ret = matchQuery(fieldName, text);
+        }
+
+        return ret;
+    }
+
     private QueryBuilder createQuery(String propertyName, Filter.PropertyRestriction pr,
                                      PropertyDefinition defn) {
         int propType = FulltextIndex.determinePropertyType(defn, pr);
@@ -470,7 +437,7 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
             return newNotNullPropQuery(defn.name);
         }
 
-        final String field = rowIteratorState.indexNode.getDefinition().getElasticKeyword(propertyName);
+        final String field = elasticIndexDefinition.getElasticKeyword(propertyName);
 
         QueryBuilder in;
         switch (propType) {
@@ -488,7 +455,7 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
             }
             default: {
                 if (pr.isLike) {
-                    return createLikeQuery(propertyName, pr.first.getValue(Type.STRING));
+                    return like(propertyName, pr.first.getValue(Type.STRING));
                 }
 
                 //TODO Confirm that all other types can be treated as string
@@ -503,60 +470,18 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
         throw new IllegalStateException("PropertyRestriction not handled " + pr + " for index " + defn);
     }
 
-    class ElasticFacetProvider implements FulltextIndex.FacetProvider {
-        private ElasticFacets elasticFacets;
-        private Map<String, List<FulltextIndex.Facet>> cachedResults = new HashMap<>();
-        private AtomicBoolean isInitialized = new AtomicBoolean();
-
-        @Override
-        public List<FulltextIndex.Facet> getFacets(int numberOfFacets, String columnName) throws IOException {
-            if (isInitiliazed()) {
-                String facetProp = FulltextIndex.parseFacetField(columnName);
-                if (cachedResults.get(facetProp) == null) {
-                    cachedResults = elasticFacets.getFacets(rowIteratorState.indexNode.getDefinition(), numberOfFacets);
-                }
-                return cachedResults.get(facetProp);
-            } else {
-                LOG.error("FacetProvider not initialized");
-            }
-            return Collections.emptyList();
+    private static String getLuceneFieldName(@Nullable String p, PlanResult pr) {
+        if (p == null) {
+            return FieldNames.FULLTEXT;
         }
 
-        public boolean isInitiliazed() {
-            return isInitialized.get();
+        if (pr.isPathTransformed()) {
+            p = PathUtils.getName(p);
         }
 
-        public void initialize(ElasticFacets elasticFacets) {
-            isInitialized.set(true);
-            this.elasticFacets = elasticFacets;
+        if ("*".equals(p)) {
+            p = FieldNames.FULLTEXT;
         }
+        return p;
     }
-
-    class ElasticRowIteratorState {
-
-        final Deque<FulltextIndex.FulltextResultRow> queue = new ArrayDeque<>();
-        // TODO : find if ES can return dup docs - if so how to avoid
-        SearchHit lastDoc;
-        boolean noDocs = false;
-
-        final Filter filter;
-        final FulltextIndexPlanner.PlanResult planResult;
-        final QueryIndex.IndexPlan plan;
-        final ElasticIndexNode indexNode;
-        final ElasticResultRowIterator.RowInclusionPredicate rowInclusionPredicate;
-        final LMSEstimator estimator;
-
-        public ElasticRowIteratorState(Filter filter, FulltextIndexPlanner.PlanResult planResult,
-                                       QueryIndex.IndexPlan plan, ElasticIndexNode indexNode,
-                                       ElasticResultRowIterator.RowInclusionPredicate rowInclusionPredicate,
-                                       LMSEstimator estimator) {
-            this.filter = filter;
-            this.planResult = planResult;
-            this.plan = plan;
-            this.indexNode = indexNode;
-            this.rowInclusionPredicate = rowInclusionPredicate;
-            this.estimator = estimator;
-        }
-    }
-
 }
