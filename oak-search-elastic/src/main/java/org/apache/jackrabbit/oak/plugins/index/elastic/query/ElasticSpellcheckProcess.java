@@ -118,7 +118,7 @@ class ElasticSpellcheckProcess implements ElasticProcess {
             String suggestion = suggestionoption.getText().string();
             List<QueryBuilder> qbList = new LinkedList<>();
             QueryBuilder queryBuilder = new MultiMatchQueryBuilder(suggestion, getSpellCheckFields()
-                    .toArray(new String[getSpellCheckFields().size()]))
+                    .toArray(new String[0]))
                     .operator(Operator.AND).fuzzyTranspositions(false)
                     .autoGenerateSynonymsPhraseQuery(false)
                     .type(MatchQuery.Type.PHRASE);
