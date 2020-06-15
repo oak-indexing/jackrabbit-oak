@@ -16,9 +16,7 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.query;
 
-import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticQueryUtil;
-import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.PropertyDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex;
 import org.apache.jackrabbit.oak.spi.query.QueryIndex;
@@ -44,19 +42,18 @@ import java.util.List;
 import java.util.PriorityQueue;
 import java.util.Queue;
 
-public class ElasticSpellcheckProcess implements ElasticProcess {
+class ElasticSpellcheckProcess implements ElasticProcess {
     final static String SPELLCHECK_PREFIX = "spellcheck?term=";
     private final String query;
-    private ElasticResultRowIterator.ElasticRowIteratorState rowIteratorState;
+    private final ElasticResultRowIterator.ElasticRowIteratorState rowIteratorState;
 
     public ElasticSpellcheckProcess(String query, ElasticResultRowIterator.ElasticRowIteratorState rowIteratorState) {
         this.query = query;
         this.rowIteratorState = rowIteratorState;
     }
 
-    private List<String> getSpellCheckFields(ElasticIndexDefinition indexDefinition) {
+    private List<String> getSpellCheckFields() {
         List<String> spellCheckFields = new LinkedList<>();
-        IndexDefinition.IndexingRule indexingRule = indexDefinition.getApplicableIndexingRule("nt:base");
 
         for (PropertyDefinition propertyDefinition : rowIteratorState.planResult.indexingRule.getProperties()) {
             if (propertyDefinition.useInSpellcheck) {
@@ -72,12 +69,11 @@ public class ElasticSpellcheckProcess implements ElasticProcess {
         return mb;
     }
 
-    private SuggestBuilder getSuggestBuilder(){
+    private SuggestBuilder getSuggestBuilder() {
         SuggestBuilder suggestBuilder = new SuggestBuilder();
-        ElasticIndexDefinition defn = (ElasticIndexDefinition) rowIteratorState.planResult.indexDefinition;
         String spellcheckQueryString = query.replace(SPELLCHECK_PREFIX, "");
         int i = 0;
-        for (String field : getSpellCheckFields(defn)) {
+        for (String field : getSpellCheckFields()) {
             PhraseSuggestionBuilder.CandidateGenerator candidateGeneratorBuilder = new DirectCandidateGeneratorBuilder(field + ".trigram")
                     .suggestMode("missing");
             SuggestionBuilder phraseSuggestionBuilder = SuggestBuilders.phraseSuggestion(field + ".trigram")
@@ -93,11 +89,9 @@ public class ElasticSpellcheckProcess implements ElasticProcess {
     @Override
     public SearchHit process() throws IOException {
 
-        SearchHit lastDocToRecord = null;
         rowIteratorState.noDocs = true;
-        ElasticSearcher searcher = new ElasticSearcher(rowIteratorState.indexNode);//getCurrentElasticSearcher(indexNode);
+        ElasticSearcher searcher = new ElasticSearcher(rowIteratorState.indexNode);
         SuggestBuilder suggestBuilder = getSuggestBuilder();
-        ElasticIndexDefinition indexDefinition = (ElasticIndexDefinition) rowIteratorState.planResult.indexDefinition;
 
         ElasticSearcherModel elasticSearcherModel = new ElasticSearcherModel.ElasticSearcherModelBuilder()
                 .withSpellCheck(suggestBuilder).build();
@@ -123,8 +117,8 @@ public class ElasticSpellcheckProcess implements ElasticProcess {
         for (Suggest.Suggestion.Entry.Option suggestionoption : pqueue) {
             String suggestion = suggestionoption.getText().string();
             List<QueryBuilder> qbList = new LinkedList<>();
-            QueryBuilder queryBuilder = new MultiMatchQueryBuilder(suggestion, getSpellCheckFields(indexDefinition)
-                    .toArray(new String[getSpellCheckFields(indexDefinition).size()]))
+            QueryBuilder queryBuilder = new MultiMatchQueryBuilder(suggestion, getSpellCheckFields()
+                    .toArray(new String[getSpellCheckFields().size()]))
                     .operator(Operator.AND).fuzzyTranspositions(false)
                     .autoGenerateSynonymsPhraseQuery(false)
                     .type(MatchQuery.Type.PHRASE);
@@ -154,7 +148,8 @@ public class ElasticSpellcheckProcess implements ElasticProcess {
             }
         }
 
-        return lastDocToRecord;
+        // Spellcheck return string result wrapped as nodes.
+        return null;
     }
 
     @Override

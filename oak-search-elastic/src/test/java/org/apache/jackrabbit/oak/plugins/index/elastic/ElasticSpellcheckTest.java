@@ -33,8 +33,10 @@ import org.apache.jackrabbit.oak.plugins.index.search.util.IndexDefinitionBuilde
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.elasticsearch.Version;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.slf4j.Logger;
@@ -54,7 +56,9 @@ import javax.jcr.query.QueryResult;
 import javax.jcr.query.Row;
 import javax.jcr.query.RowIterator;
 import javax.jcr.security.Privilege;
+import java.io.IOException;
 import java.util.List;
+import java.util.UUID;
 
 import static org.apache.jackrabbit.commons.JcrUtils.getOrCreateByPath;
 import static org.apache.jackrabbit.oak.InitialContentHelper.INITIAL_CONTENT;
@@ -68,44 +72,42 @@ import static org.junit.Assume.assumeNotNull;
 public class ElasticSpellcheckTest {
 
     private static final Logger LOG = LoggerFactory.getLogger(ElasticSpellcheckTest.class);
-    private Closer closer;
-    private Session session;
+    private Session adminSession;
+    private Session anonymousSession;
     private QueryManager qe;
-    Repository repository;
     private Node indexNode;
     private static final String TEST_INDEX = "testIndex";
 
-    @Rule
-    public final ElasticsearchContainer elastic =
-            new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:" + Version.CURRENT);
+    // Set this connection string as
+    // <scheme>://<hostname>:<port>?key_id=<>,key_secret=<>
+    // key_id and key_secret are optional in case the ES server
+    // needs authentication
+    // Do not set this if docker is running and you want to run the tests on docker instead.
+    private static final String elasticConnectionString = System.getProperty("elasticConnectionString");
 
-    @BeforeClass
-    public static void beforeMethod() {
-        DockerClient client = null;
-        try {
-            client = DockerClientFactory.instance().client();
-        } catch (Exception e) {
-            LOG.warn("Docker is not available, ElasticFacetTest will be skipped");
-        }
-        assumeNotNull(client);
+    @ClassRule
+    public static final ElasticConnectionRule elasticRule = new ElasticConnectionRule(elasticConnectionString);
+
+    /*
+    Close the ES connection after every test method execution
+     */
+    @After
+    public void cleanup() throws IOException {
+        anonymousSession.logout();
+        adminSession.logout();
+        elasticRule.closeElasticConnection();
     }
 
     @Before
     public void setup() throws Exception {
-        closer = Closer.create();
         createRepository();
-        createIndex();
-        indexNode = session.getRootNode().getNode(INDEX_DEFINITIONS_NAME).getNode(TEST_INDEX);
+        final String indexName = createIndex();
+        indexNode = adminSession.getRootNode().getNode(INDEX_DEFINITIONS_NAME).getNode(indexName);
     }
 
     private void createRepository() throws RepositoryException {
-        ElasticConnection connection = ElasticConnection.newBuilder()
-                .withIndexPrefix("" + System.nanoTime())
-                .withConnectionParameters(
-                        ElasticConnection.DEFAULT_SCHEME,
-                        elastic.getContainerIpAddress(),
-                        elastic.getMappedPort(ElasticConnection.DEFAULT_PORT)
-                ).build();
+        ElasticConnection connection = elasticRule.useDocker() ? elasticRule.getElasticConnectionForDocker() :
+                elasticRule.getElasticConnectionFromString();
         ElasticIndexEditorProvider editorProvider = new ElasticIndexEditorProvider(connection,
                 new ExtractedTextCache(10 * FileUtils.ONE_MB, 100));
         ElasticIndexProvider indexProvider = new ElasticIndexProvider(connection);
@@ -116,17 +118,16 @@ public class ElasticSpellcheckTest {
                 .with(indexProvider);
 
         Jcr jcr = new Jcr(oak);
-        repository = jcr.createRepository();
+        Repository repository = jcr.createRepository();
 
-        session = repository.login(new SimpleCredentials("admin", "admin".toCharArray()), null);
-        closer.register(session::logout);
+        adminSession = repository.login(new SimpleCredentials("admin", "admin".toCharArray()), null);
 
         // we'd always query anonymously
-        Session anonSession = repository.login(new GuestCredentials(), null);
-        anonSession.refresh(true);
-        anonSession.save();
-        closer.register(anonSession::logout);
-        qe = anonSession.getWorkspace().getQueryManager();
+        anonymousSession = repository.login(new GuestCredentials(), null);
+        anonymousSession.refresh(true);
+        anonymousSession.save();
+
+        qe = anonymousSession.getWorkspace().getQueryManager();
     }
 
     private class IndexSkeleton {
@@ -139,38 +140,38 @@ public class ElasticSpellcheckTest {
 
         void initialize(String nodeType) {
             indexDefinitionBuilder = new ElasticIndexDefinitionBuilder();
-            indexDefinitionBuilder.evaluatePathRestrictions();
             indexRule = indexDefinitionBuilder.indexRule(nodeType);
         }
 
-        void build() throws RepositoryException {
-            indexDefinitionBuilder.build(session.getRootNode().getNode(INDEX_DEFINITIONS_NAME).addNode(TEST_INDEX));
+        String build() throws RepositoryException {
+            final String indexName = UUID.randomUUID().toString();
+            indexDefinitionBuilder.build(adminSession.getRootNode().getNode(INDEX_DEFINITIONS_NAME).addNode(indexName));
+            return indexName;
         }
     }
 
-    private void createIndex() throws RepositoryException {
+    private String createIndex() throws RepositoryException {
         IndexSkeleton indexSkeleton = new IndexSkeleton();
         indexSkeleton.initialize();
         indexSkeleton.indexDefinitionBuilder.noAsync();
         indexSkeleton.indexRule.property("cons").propertyIndex();
-        indexSkeleton.indexRule.property("foo").propertyIndex();//.getBuilderTree().setProperty(FACET_PROP, true, Type.BOOLEAN);
+        indexSkeleton.indexRule.property("foo").propertyIndex();
         indexSkeleton.indexRule.property("foo").getBuilderTree().setProperty(PROP_USE_IN_SPELLCHECK, true, Type.BOOLEAN);
         indexSkeleton.indexRule.property("foo").getBuilderTree().setProperty(PROP_ANALYZED, true, Type.BOOLEAN);
 
-        //indexSkeleton.indexRule.property("bar").propertyIndex().getBuilderTree().setProperty(FACET_PROP, true, Type.BOOLEAN);
-        indexSkeleton.build();
+        return indexSkeleton.build();
     }
 
     @Test
     public void testSpellcheckSingleWord() throws Exception {
         //Session session = superuser;
-        QueryManager qm = session.getWorkspace().getQueryManager();
-        Node par = allow(getOrCreateByPath("/parent", "oak:Unstructured", session));
+        QueryManager qm = adminSession.getWorkspace().getQueryManager();
+        Node par = allow(getOrCreateByPath("/parent", "oak:Unstructured", adminSession));
         Node n1 = par.addNode("node1");
         n1.setProperty("foo", "descent");
         Node n2 = n1.addNode("node2");
         n2.setProperty("foo", "decent");
-        session.save();
+        adminSession.save();
 
         String sql = "SELECT [rep:spellcheck()] FROM nt:base WHERE SPELLCHECK('desent')";
         Query q = qm.createQuery(sql, Query.SQL);
@@ -186,13 +187,13 @@ public class ElasticSpellcheckTest {
     @Test
     public void testSpellcheckSingleWordWithDescendantNode() throws Exception {
         //Session session = superuser;
-        QueryManager qm = session.getWorkspace().getQueryManager();
-        Node par = allow(getOrCreateByPath("/parent", "oak:Unstructured", session));
+        QueryManager qm = adminSession.getWorkspace().getQueryManager();
+        Node par = allow(getOrCreateByPath("/parent", "oak:Unstructured", adminSession));
         Node n1 = par.addNode("node1");
         n1.setProperty("foo", "descent");
         Node n2 = n1.addNode("node2");
         n2.setProperty("foo", "decent");
-        session.save();
+        adminSession.save();
 
         String sql = "SELECT [rep:spellcheck()] FROM nt:base WHERE SPELLCHECK('desent') and isDescendantNode('/parent/node1')";
         Query q = qm.createQuery(sql, Query.SQL);
@@ -207,9 +208,9 @@ public class ElasticSpellcheckTest {
 
     @Test
     public void testSpellcheckMultipleWords() throws Exception {
-        session.save();
-        QueryManager qm = session.getWorkspace().getQueryManager();
-        Node par = allow(getOrCreateByPath("/parent", "oak:Unstructured", session));
+        adminSession.save();
+        QueryManager qm = adminSession.getWorkspace().getQueryManager();
+        Node par = allow(getOrCreateByPath("/parent", "oak:Unstructured", adminSession));
         Node n1 = par.addNode("node1");
         n1.setProperty("foo", "it is always a good idea to go visiting ontario");
         Node n2 = par.addNode("node2");
@@ -218,7 +219,7 @@ public class ElasticSpellcheckTest {
         n2.setProperty("foo", "I flied to ontario for voting for the major polls");
         Node n4 = par.addNode("node4");
         n2.setProperty("foo", "I will go voting in ontario, I always voted since I've been allowed to");
-        session.save();
+        adminSession.save();
 
         String sql = "SELECT [rep:spellcheck()] FROM nt:base WHERE SPELLCHECK('votin in ontari')";
         Query q = qm.createQuery(sql, Query.SQL);
@@ -246,12 +247,11 @@ public class ElasticSpellcheckTest {
         List<String> results = Lists.newArrayList();
         RowIterator it = null;
 
-            it = result.getRows();
-            while (it.hasNext()) {
-                Row row = it.nextRow();
-                results.add(row.getValue(propertyName).getString());
-            }
-
+        it = result.getRows();
+        while (it.hasNext()) {
+            Row row = it.nextRow();
+            results.add(row.getValue(propertyName).getString());
+        }
         return results;
     }
 

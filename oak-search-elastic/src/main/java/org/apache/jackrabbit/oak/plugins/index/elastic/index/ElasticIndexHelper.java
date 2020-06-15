@@ -67,37 +67,33 @@ class ElasticIndexHelper {
     }
 
     private static void createSpellcheckMapping(ElasticIndexDefinition indexDefinition, XContentBuilder settingsBuilder) throws IOException {
-        if (indexDefinition.isSpellcheckEnabled()) {
+        settingsBuilder.startObject("index");
+        {
+            settingsBuilder.startObject("analysis");
             {
-                settingsBuilder.startObject("index");
+                settingsBuilder.startObject("analyzer");
                 {
-                    settingsBuilder.startObject("analysis");
-                    {
-                        settingsBuilder.startObject("analyzer");
-                        {
-                            settingsBuilder.startObject("trigram")
-                                    .field("type", "custom")
-                                    .field("tokenizer", "standard")
-                                    .array("filter", "lowercase", "shingle")
-                                    .endObject();
-                        }
-                        settingsBuilder.endObject();
+                    settingsBuilder.startObject("trigram")
+                            .field("type", "custom")
+                            .field("tokenizer", "standard")
+                            .array("filter", "lowercase", "shingle")
+                            .endObject();
+                }
+                settingsBuilder.endObject();
 
-                        settingsBuilder.startObject("filter");
-                        {
-                            settingsBuilder.startObject("shingle")
-                                    .field("type", "shingle")
-                                    .field("min_shingle_size", 2)
-                                    .field("max_shingle_size", 3)
-                                    .endObject();
-                        }
-                        settingsBuilder.endObject();
-                    }
-                    settingsBuilder.endObject();
+                settingsBuilder.startObject("filter");
+                {
+                    settingsBuilder.startObject("shingle")
+                            .field("type", "shingle")
+                            .field("min_shingle_size", 2)
+                            .field("max_shingle_size", 3)
+                            .endObject();
                 }
                 settingsBuilder.endObject();
             }
+            settingsBuilder.endObject();
         }
+        settingsBuilder.endObject();
     }
 
     private static void mapInternalProperties(XContentBuilder mappingBuilder) throws IOException {

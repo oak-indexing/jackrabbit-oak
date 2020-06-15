@@ -85,11 +85,11 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
     private static final Logger LOG = LoggerFactory
             .getLogger(ElasticResultRowIterator.class);
 
-    final static String SPELLCHECK_PREFIX = "spellcheck?term=";
+    private final static String SPELLCHECK_PREFIX = "spellcheck?term=";
     // TODO: oak-lucene gets this via WildcardQuery class. See if ES also exposes these consts
     private static final char WILDCARD_STRING = '*';
     private static final char WILDCARD_CHAR = '?';
-    private ElasticRowIteratorState rowIteratorState;
+    private final ElasticRowIteratorState rowIteratorState;
 
     ElasticResultRowIterator(@NotNull Filter filter,
                              @NotNull FulltextIndexPlanner.PlanResult planResult,
