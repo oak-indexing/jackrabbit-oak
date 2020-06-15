@@ -36,7 +36,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
-public class ElasticQueryProcess implements ElasticProcess {
+class ElasticQueryProcess implements ElasticProcess {
 
     private static final Logger LOG = LoggerFactory
             .getLogger(ElasticQueryProcess.class);
