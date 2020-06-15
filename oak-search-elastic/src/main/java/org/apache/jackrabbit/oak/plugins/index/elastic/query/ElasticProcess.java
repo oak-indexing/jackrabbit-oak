@@ -20,9 +20,8 @@ import org.elasticsearch.search.SearchHit;
 
 import java.io.IOException;
 
-public interface ElasticProcess {
+interface ElasticProcess {
     /**
-     *
      * @return Last SearchDocument
      * @throws IOException
      */
