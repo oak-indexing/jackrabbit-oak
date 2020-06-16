@@ -20,6 +20,10 @@ import org.elasticsearch.search.SearchHit;
 
 import java.io.IOException;
 
+/**
+ * ElasticProcess extracts out elastic implementation which was part of ElasticResultRowIterator
+ * ElasticRowIteratorState is used to manage and return result from ElasticResultRowIterator
+ */
 interface ElasticProcess {
     /**
      * @return Last SearchDocument
@@ -27,5 +31,8 @@ interface ElasticProcess {
      */
     SearchHit process() throws IOException;
 
+    /**
+     * @return query string
+     */
     String getQuery();
 }

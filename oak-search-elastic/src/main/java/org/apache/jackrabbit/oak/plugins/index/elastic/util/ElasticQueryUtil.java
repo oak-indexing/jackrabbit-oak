@@ -94,6 +94,7 @@ public final class ElasticQueryUtil {
     }
 
     /**
+     * Get path restrictions from plan and create elastic's queryBuilder objects with these restrictions.
      *
      * @param plan
      * @param planResult
@@ -101,7 +102,7 @@ public final class ElasticQueryUtil {
      * @return List of QueryBuilder with pathRestrictions
      */
     public static List<QueryBuilder> getPathRestrictionQuery(QueryIndex.IndexPlan plan,
-                                               FulltextIndexPlanner.PlanResult planResult, Filter filter) {
+                                                             FulltextIndexPlanner.PlanResult planResult, Filter filter) {
         final BiPredicate<Iterable<String>, String> any = (iterable, value) ->
                 StreamSupport.stream(iterable.spliterator(), false).anyMatch(value::equals);
         List<QueryBuilder> qs = new LinkedList<>();

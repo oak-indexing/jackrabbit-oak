@@ -16,10 +16,10 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.query;
 
+import org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticConstants;
 import org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticQueryUtil;
 import org.apache.jackrabbit.oak.plugins.index.search.PropertyDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex;
-import org.apache.jackrabbit.oak.spi.query.QueryIndex;
 import org.elasticsearch.action.search.MultiSearchResponse;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.index.query.MatchPhraseQueryBuilder;
@@ -55,7 +55,7 @@ class ElasticSpellcheckProcess implements ElasticProcess {
     private List<String> getSpellCheckFields() {
         List<String> spellCheckFields = new LinkedList<>();
 
-        for (PropertyDefinition propertyDefinition : rowIteratorState.planResult.indexingRule.getProperties()) {
+        for (PropertyDefinition propertyDefinition : rowIteratorState.getPlanResult().indexingRule.getProperties()) {
             if (propertyDefinition.useInSpellcheck) {
                 spellCheckFields.add(propertyDefinition.name);
             }
@@ -64,7 +64,7 @@ class ElasticSpellcheckProcess implements ElasticProcess {
         return spellCheckFields;
     }
 
-    private MatchPhraseQueryBuilder getCollateQuery(String fieldName, QueryIndex.IndexPlan plan) {
+    private MatchPhraseQueryBuilder getCollateQuery(String fieldName) {
         MatchPhraseQueryBuilder mb = new MatchPhraseQueryBuilder(fieldName, "{{suggestion}}");
         return mb;
     }
@@ -74,13 +74,13 @@ class ElasticSpellcheckProcess implements ElasticProcess {
         String spellcheckQueryString = query.replace(SPELLCHECK_PREFIX, "");
         int i = 0;
         for (String field : getSpellCheckFields()) {
-            PhraseSuggestionBuilder.CandidateGenerator candidateGeneratorBuilder = new DirectCandidateGeneratorBuilder(field + ".trigram")
+            PhraseSuggestionBuilder.CandidateGenerator candidateGeneratorBuilder = new DirectCandidateGeneratorBuilder(getTrigramField(field))
                     .suggestMode("missing");
-            SuggestionBuilder phraseSuggestionBuilder = SuggestBuilders.phraseSuggestion(field + ".trigram")
+            SuggestionBuilder phraseSuggestionBuilder = SuggestBuilders.phraseSuggestion(getTrigramField(field))
                     .size(10)
                     .addCandidateGenerator(candidateGeneratorBuilder)
                     .text(spellcheckQueryString)
-                    .collateQuery(getCollateQuery(field, rowIteratorState.plan).toString()).collatePrune(true);
+                    .collateQuery(getCollateQuery(field).toString()).collatePrune(true);
             suggestBuilder.addSuggestion("cqsuggestion" + i, phraseSuggestionBuilder);
         }
         return suggestBuilder;
@@ -89,8 +89,8 @@ class ElasticSpellcheckProcess implements ElasticProcess {
     @Override
     public SearchHit process() throws IOException {
 
-        rowIteratorState.noDocs = true;
-        ElasticSearcher searcher = new ElasticSearcher(rowIteratorState.indexNode);
+        rowIteratorState.setLastDoc(true);
+        ElasticSearcher searcher = new ElasticSearcher(rowIteratorState.getIndexNode());
         SuggestBuilder suggestBuilder = getSuggestBuilder();
 
         ElasticSearcherModel elasticSearcherModel = new ElasticSearcherModel.ElasticSearcherModelBuilder()
@@ -123,8 +123,8 @@ class ElasticSpellcheckProcess implements ElasticProcess {
                     .autoGenerateSynonymsPhraseQuery(false)
                     .type(MatchQuery.Type.PHRASE);
             qbList.add(queryBuilder);
-            qbList.addAll(ElasticQueryUtil.getPathRestrictionQuery(rowIteratorState.plan, rowIteratorState.planResult,
-                    rowIteratorState.filter));
+            qbList.addAll(ElasticQueryUtil.getPathRestrictionQuery(rowIteratorState.getPlan(), rowIteratorState.getPlanResult(),
+                    rowIteratorState.getFilter()));
             QueryBuilder finalqb = ElasticQueryUtil.performAdditionalWraps(qbList);
 
             elasticSearcherModels.add(new ElasticSearcherModel.ElasticSearcherModelBuilder()
@@ -136,13 +136,13 @@ class ElasticSpellcheckProcess implements ElasticProcess {
         for (MultiSearchResponse.Item response : res.getResponses()) {
             boolean isResult = false;
             for (SearchHit doc : response.getResponse().getHits()) {
-                if (rowIteratorState.filter.isAccessible((String) doc.getSourceAsMap().get(":path"))) {
+                if (rowIteratorState.getFilter().isAccessible((String) doc.getSourceAsMap().get(ElasticConstants.ES_PATH_FIELD))) {
                     isResult = true;
                     break;
                 }
             }
             if (isResult) {
-                rowIteratorState.queue.add(new FulltextIndex.FulltextResultRow(pqueue.remove().getText().string()));
+                rowIteratorState.getQueue().add(new FulltextIndex.FulltextResultRow(pqueue.remove().getText().string()));
             } else {
                 pqueue.remove();
             }
@@ -155,5 +155,9 @@ class ElasticSpellcheckProcess implements ElasticProcess {
     @Override
     public String getQuery() {
         return null;
+    }
+
+    private String getTrigramField(String field) {
+        return field + ElasticConstants.ES_TRIGRAM_SUFFIX;
     }
 }

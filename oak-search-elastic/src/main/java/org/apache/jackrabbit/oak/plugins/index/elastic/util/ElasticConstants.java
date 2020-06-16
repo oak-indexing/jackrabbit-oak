@@ -23,6 +23,9 @@ public final class ElasticConstants {
     public static final int ELASTIC_QUERY_BATCH_SIZE = 1000;
     public static final int ELASTIC_QUERY_MAX_BATCH_SIZE = 10000;
 
+    public static final String ES_PATH_FIELD = ":path";
+    public static final String ES_TRIGRAM_SUFFIX = ".trigram";
+
     private ElasticConstants() {
     }
 }

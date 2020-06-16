@@ -118,7 +118,7 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
      */
     private boolean loadDocs() {
 
-        if (rowIteratorState.noDocs) {
+        if (rowIteratorState.isLastDoc) {
             return false;
         }
 
@@ -140,7 +140,7 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
         }
 
         if (lastDocToRecord != null) {
-            this.rowIteratorState.lastDoc = lastDocToRecord;
+            this.rowIteratorState.lastIteratedDoc = lastDocToRecord;
         }
 
         return !rowIteratorState.queue.isEmpty();
@@ -532,24 +532,23 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
         }
     }
 
-    class ElasticRowIteratorState {
+    static class ElasticRowIteratorState {
 
-        final Deque<FulltextIndex.FulltextResultRow> queue = new ArrayDeque<>();
+        private final Deque<FulltextIndex.FulltextResultRow> queue = new ArrayDeque<>();
         // TODO : find if ES can return dup docs - if so how to avoid
-        SearchHit lastDoc;
-        boolean noDocs = false;
+        SearchHit lastIteratedDoc;
+        private boolean isLastDoc = false;
+        private final Filter filter;
+        private final FulltextIndexPlanner.PlanResult planResult;
+        private final QueryIndex.IndexPlan plan;
+        private final ElasticIndexNode indexNode;
+        private final ElasticResultRowIterator.RowInclusionPredicate rowInclusionPredicate;
+        private final LMSEstimator estimator;
 
-        final Filter filter;
-        final FulltextIndexPlanner.PlanResult planResult;
-        final QueryIndex.IndexPlan plan;
-        final ElasticIndexNode indexNode;
-        final ElasticResultRowIterator.RowInclusionPredicate rowInclusionPredicate;
-        final LMSEstimator estimator;
-
-        public ElasticRowIteratorState(Filter filter, FulltextIndexPlanner.PlanResult planResult,
-                                       QueryIndex.IndexPlan plan, ElasticIndexNode indexNode,
-                                       ElasticResultRowIterator.RowInclusionPredicate rowInclusionPredicate,
-                                       LMSEstimator estimator) {
+        private ElasticRowIteratorState(Filter filter, FulltextIndexPlanner.PlanResult planResult,
+                                        QueryIndex.IndexPlan plan, ElasticIndexNode indexNode,
+                                        ElasticResultRowIterator.RowInclusionPredicate rowInclusionPredicate,
+                                        LMSEstimator estimator) {
             this.filter = filter;
             this.planResult = planResult;
             this.plan = plan;
@@ -557,6 +556,41 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
             this.rowInclusionPredicate = rowInclusionPredicate;
             this.estimator = estimator;
         }
+
+        void setLastDoc(boolean lastDoc) {
+            this.isLastDoc = lastDoc;
+        }
+
+        IndexPlan getPlan() {
+            return plan;
+        }
+
+
+        ElasticIndexNode getIndexNode() {
+            return indexNode;
+        }
+
+
+        RowInclusionPredicate getRowInclusionPredicate() {
+            return rowInclusionPredicate;
+        }
+
+        Deque<FulltextIndex.FulltextResultRow> getQueue() {
+            return queue;
+        }
+
+        Filter getFilter() {
+            return filter;
+        }
+
+        PlanResult getPlanResult() {
+            return planResult;
+        }
+
+        LMSEstimator getEstimator() {
+            return estimator;
+        }
+
     }
 
 }

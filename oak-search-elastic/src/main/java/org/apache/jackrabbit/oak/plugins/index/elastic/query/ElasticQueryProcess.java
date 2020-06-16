@@ -59,11 +59,11 @@ class ElasticQueryProcess implements ElasticProcess {
     @Override
     public SearchHit process() throws IOException {
 
-        ElasticIndexDefinition indexDefinition = elasticRowIteratorState.indexNode.getDefinition();
-        ElasticSearcher searcher = new ElasticSearcher(elasticRowIteratorState.indexNode);
-        int numberOfFacets = elasticRowIteratorState.indexNode.getDefinition().getNumberOfTopFacets();
+        ElasticIndexDefinition indexDefinition = elasticRowIteratorState.getIndexNode().getDefinition();
+        ElasticSearcher searcher = new ElasticSearcher(elasticRowIteratorState.getIndexNode());
+        int numberOfFacets = elasticRowIteratorState.getIndexNode().getDefinition().getNumberOfTopFacets();
         List<TermsAggregationBuilder> aggregationBuilders = ElasticAggregationBuilderUtil
-                .getAggregators(elasticRowIteratorState.plan, indexDefinition, numberOfFacets);
+                .getAggregators(elasticRowIteratorState.getPlan(), indexDefinition, numberOfFacets);
 
         ElasticSearcherModel elasticSearcherModel = new ElasticSearcherModel.ElasticSearcherModelBuilder()
                 .withQuery(this.queryBuilder)
@@ -87,14 +87,14 @@ class ElasticQueryProcess implements ElasticProcess {
             SearchHit[] searchHits = docs.getHits().getHits();
             PERF_LOGGER.end(start, -1, "{} ...", searchHits.length);
 
-            elasticRowIteratorState.estimator.update(elasticRowIteratorState.filter, docs.getHits().getTotalHits().value);
+            elasticRowIteratorState.getEstimator().update(elasticRowIteratorState.getFilter(), docs.getHits().getTotalHits().value);
             if (searchHits.length < nextBatchSize) {
-                elasticRowIteratorState.noDocs = true;
+                elasticRowIteratorState.setLastDoc(true);
             }
             nextBatchSize = (int) Math.min(nextBatchSize * 2L, ElasticConstants.ELASTIC_QUERY_MAX_BATCH_SIZE);
             if (aggregationBuilders.size() > 0 && !elasticsearchFacetProvider.isInitiliazed()) {
                 elasticsearchFacetProvider.initialize(ElasticFacetHelper.getAggregates(searcher, queryBuilder,
-                        elasticRowIteratorState.indexNode, elasticRowIteratorState.plan, elasticAggregationData));
+                        elasticRowIteratorState.getIndexNode(), elasticRowIteratorState.getPlan(), elasticAggregationData));
             }
 
             // TODO: excerpt
@@ -108,15 +108,15 @@ class ElasticQueryProcess implements ElasticProcess {
 
                 FulltextIndex.FulltextResultRow row = convertToRow(doc, elasticsearchFacetProvider);
                 if (row != null) {
-                    elasticRowIteratorState.queue.add(row);
+                    elasticRowIteratorState.getQueue().add(row);
                 }
                 lastDocToRecord = doc;
             }
 
-            if (elasticRowIteratorState.queue.isEmpty() && searchHits.length > 0) {
+            if (elasticRowIteratorState.getQueue().isEmpty() && searchHits.length > 0) {
                 //queue is still empty but more results can be fetched
                 //from Lucene so still continue
-                elasticRowIteratorState.lastDoc = lastDocToRecord;
+                elasticRowIteratorState.lastIteratedDoc = lastDocToRecord;
             } else {
                 break;
             }
@@ -136,17 +136,16 @@ class ElasticQueryProcess implements ElasticProcess {
             if ("".equals(path)) {
                 path = "/";
             }
-            if (elasticRowIteratorState.planResult.isPathTransformed()) {
-                String originalPath = path;
-                path = elasticRowIteratorState.planResult.transformPath(path);
+            String originalPath = path;
+            path = elasticRowIteratorState.getPlanResult().transformPath(path);
 
-                if (path == null) {
-                    LOG.trace("Ignoring path {} : Transformation returned null", originalPath);
-                    return null;
-                }
+            if (path == null) {
+                LOG.trace("Ignoring path {} : Transformation returned null", originalPath);
+                return null;
             }
 
-            boolean shouldIncludeForHierarchy = elasticRowIteratorState.rowInclusionPredicate.shouldInclude(path, elasticRowIteratorState.plan);
+            boolean shouldIncludeForHierarchy = elasticRowIteratorState.getRowInclusionPredicate()
+                    .shouldInclude(path, elasticRowIteratorState.getPlan());
             LOG.trace("Matched path {}; shouldIncludeForHierarchy: {}", path, shouldIncludeForHierarchy);
             return shouldIncludeForHierarchy ? new FulltextIndex.FulltextResultRow(path, hit.getScore(), null,
                     elasticsearchFacetProvider, null)
