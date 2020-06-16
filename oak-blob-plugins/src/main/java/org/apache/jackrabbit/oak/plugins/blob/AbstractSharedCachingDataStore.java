@@ -145,6 +145,8 @@ public abstract class AbstractSharedCachingDataStore extends AbstractDataStore
 
     protected ExecutorService executor;
 
+    private MVStoreCache mvStoreCache;
+
     public void init(String homeDir) throws DataStoreException {
         if (path == null) {
             path = homeDir + "/repository/datastore";
@@ -154,6 +156,7 @@ public abstract class AbstractSharedCachingDataStore extends AbstractDataStore
             "Staging percentage cache should be between 0 and 50");
 
         this.rootDirectory = new File(path);
+        this.mvStoreCache = MVStoreCache.open(path);
         this.tmp = new File(rootDirectory, "tmp");
         LOG.trace("Temporary file created [{}]", tmp.mkdirs());
 
@@ -198,6 +201,11 @@ public abstract class AbstractSharedCachingDataStore extends AbstractDataStore
     @Nullable
     public DataRecord getRecordIfStored(DataIdentifier dataIdentifier)
         throws DataStoreException {
+        DataRecord mvStoreCached = mvStoreCache.readIfExists(dataIdentifier);
+        if (mvStoreCached != null) {
+            return mvStoreCached;
+        }
+
         // Return file attributes from cache only if corresponding file is cached
         // This avoids downloading the file for just accessing the meta data.
         File cached = cache.getIfPresent(dataIdentifier.toString());
@@ -293,6 +301,7 @@ public abstract class AbstractSharedCachingDataStore extends AbstractDataStore
     public void close() throws DataStoreException {
         backend.close();
         cache.close();
+        mvStoreCache.close();
     }
 
     /**

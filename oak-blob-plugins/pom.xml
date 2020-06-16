@@ -116,7 +116,15 @@
       <artifactId>oak-store-spi</artifactId>
       <version>${project.version}</version>
     </dependency>
-
+    
+    <!-- Optional dependency for the key-value cache -->
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <version>${h2.version}</version>
+      <optional>true</optional>
+    </dependency>
+    
     <!--  Optional dependency for jclouds s3 to enable s3 cloud store -->
     <dependency>
       <groupId>org.apache.jclouds.provider</groupId>
