@@ -43,11 +43,11 @@ import java.util.PriorityQueue;
 import java.util.Queue;
 
 class ElasticSpellcheckProcess implements ElasticProcess {
-    final static String SPELLCHECK_PREFIX = "spellcheck?term=";
+    private final static String SPELLCHECK_PREFIX = "spellcheck?term=";
     private final String query;
     private final ElasticResultRowIterator.ElasticRowIteratorState rowIteratorState;
 
-    public ElasticSpellcheckProcess(String query, ElasticResultRowIterator.ElasticRowIteratorState rowIteratorState) {
+    ElasticSpellcheckProcess(String query, ElasticResultRowIterator.ElasticRowIteratorState rowIteratorState) {
         this.query = query;
         this.rowIteratorState = rowIteratorState;
     }
