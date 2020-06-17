@@ -49,8 +49,8 @@ class ElasticQueryProcess implements ElasticProcess {
     private final ElasticResultRowIterator.ElasticFacetProvider elasticsearchFacetProvider;
 
 
-    public ElasticQueryProcess(QueryBuilder queryBuilder, ElasticResultRowIterator.ElasticRowIteratorState elasticRowIteratorState,
-                               ElasticResultRowIterator.ElasticFacetProvider elasticFacetProvider) {
+    ElasticQueryProcess(QueryBuilder queryBuilder, ElasticResultRowIterator.ElasticRowIteratorState elasticRowIteratorState,
+                        ElasticResultRowIterator.ElasticFacetProvider elasticFacetProvider) {
         this.queryBuilder = queryBuilder;
         this.elasticRowIteratorState = elasticRowIteratorState;
         this.elasticsearchFacetProvider = elasticFacetProvider;
