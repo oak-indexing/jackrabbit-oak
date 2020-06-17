@@ -87,7 +87,7 @@ class ElasticQueryProcess implements ElasticProcess {
             SearchHit[] searchHits = docs.getHits().getHits();
             PERF_LOGGER.end(start, -1, "{} ...", searchHits.length);
 
-            elasticRowIteratorState.getEstimator().update(elasticRowIteratorState.getFilter(), docs.getHits().getTotalHits().value);
+            elasticRowIteratorState.updateEstimator(docs.getHits().getTotalHits().value);
             if (searchHits.length < nextBatchSize) {
                 elasticRowIteratorState.setLastDoc(true);
             }
@@ -108,12 +108,12 @@ class ElasticQueryProcess implements ElasticProcess {
 
                 FulltextIndex.FulltextResultRow row = convertToRow(doc, elasticsearchFacetProvider);
                 if (row != null) {
-                    elasticRowIteratorState.getQueue().add(row);
+                    elasticRowIteratorState.addResultRow(row);
                 }
                 lastDocToRecord = doc;
             }
 
-            if (elasticRowIteratorState.getQueue().isEmpty() && searchHits.length > 0) {
+            if (elasticRowIteratorState.isEmpty() && searchHits.length > 0) {
                 //queue is still empty but more results can be fetched
                 //from Lucene so still continue
                 elasticRowIteratorState.lastIteratedDoc = lastDocToRecord;

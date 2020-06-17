@@ -81,7 +81,7 @@ class ElasticSpellcheckProcess implements ElasticProcess {
                     .addCandidateGenerator(candidateGeneratorBuilder)
                     .text(spellcheckQueryString)
                     .collateQuery(getCollateQuery(field).toString()).collatePrune(true);
-            suggestBuilder.addSuggestion("cqsuggestion" + i, phraseSuggestionBuilder);
+            suggestBuilder.addSuggestion("oak:suggestion" + i, phraseSuggestionBuilder);
         }
         return suggestBuilder;
     }
@@ -142,7 +142,7 @@ class ElasticSpellcheckProcess implements ElasticProcess {
                 }
             }
             if (isResult) {
-                rowIteratorState.getQueue().add(new FulltextIndex.FulltextResultRow(pqueue.remove().getText().string()));
+                rowIteratorState.addResultRow(new FulltextIndex.FulltextResultRow(pqueue.remove().getText().string()));
             } else {
                 pqueue.remove();
             }

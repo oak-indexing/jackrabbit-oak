@@ -557,6 +557,14 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
             this.estimator = estimator;
         }
 
+        void updateEstimator(long value) {
+            estimator.update(filter, value);
+        }
+
+        void addResultRow(FulltextIndex.FulltextResultRow row) {
+            queue.add(row);
+        }
+
         void setLastDoc(boolean lastDoc) {
             this.isLastDoc = lastDoc;
         }
@@ -575,10 +583,6 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
             return rowInclusionPredicate;
         }
 
-        Deque<FulltextIndex.FulltextResultRow> getQueue() {
-            return queue;
-        }
-
         Filter getFilter() {
             return filter;
         }
@@ -587,8 +591,8 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
             return planResult;
         }
 
-        LMSEstimator getEstimator() {
-            return estimator;
+        boolean isEmpty(){
+            return queue.isEmpty();
         }
 
     }
