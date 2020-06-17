@@ -159,7 +159,7 @@ class ElasticResultRowIterator implements Iterator<FulltextIndex.FulltextResultR
      * @param planResult
      * @return the Lucene query
      */
-    public ElasticProcess getElasticProcess(IndexPlan plan, PlanResult planResult) {
+    private ElasticProcess getElasticProcess(IndexPlan plan, PlanResult planResult) {
         List<QueryBuilder> qs = new ArrayList<>();
         Filter filter = plan.getFilter();
         FullTextExpression ft = filter.getFullTextConstraint();
