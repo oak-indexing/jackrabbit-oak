@@ -80,7 +80,7 @@ class ElasticSpellcheckProcess implements ElasticProcess {
                     .size(10)
                     .addCandidateGenerator(candidateGeneratorBuilder)
                     .text(spellcheckQueryString)
-                    .collateQuery(getCollateQuery(field).toString()).collatePrune(true);
+                    .collateQuery(getCollateQuery(field).toString());
             suggestBuilder.addSuggestion("oak:suggestion" + i, phraseSuggestionBuilder);
         }
         return suggestBuilder;
@@ -106,9 +106,7 @@ class ElasticSpellcheckProcess implements ElasticProcess {
             for (Suggest.Suggestion.Entry spell : spellCheckResults) {
                 List<Suggest.Suggestion.Entry.Option> options = spell.getOptions();
                 for (Suggest.Suggestion.Entry.Option option : options) {
-                    if (option.collateMatch()) {
-                        pqueue.add(option);
-                    }
+                    pqueue.add(option);
                 }
             }
         }
