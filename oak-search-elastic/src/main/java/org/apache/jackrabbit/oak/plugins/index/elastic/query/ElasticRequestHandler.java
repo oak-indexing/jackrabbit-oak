@@ -19,9 +19,7 @@ package org.apache.jackrabbit.oak.plugins.index.elastic.query;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
-import org.apache.jackrabbit.oak.plugins.index.elastic.query.ElasticResponseHandler;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.facets.ElasticFacetProvider;
-import org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticConstants;
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.PropertyDefinition;
@@ -58,7 +56,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiPredicate;
-import java.util.function.Predicate;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
@@ -92,6 +89,7 @@ import static org.elasticsearch.index.query.QueryBuilders.termQuery;
 public class ElasticRequestHandler {
 
     private final static String SPELLCHECK_PREFIX = "spellcheck?term=";
+    private static final String ES_TRIGRAM_SUFFIX = ".trigram";
 
     private final IndexPlan indexPlan;
     private final Filter filter;
@@ -158,7 +156,7 @@ public class ElasticRequestHandler {
                 ElasticFacetProvider.getProvider(
                         planResult.indexDefinition.getSecureFacetConfiguration(),
                         this, responseHandler,
-                        indexPlan.getFilter()::isAccessible
+                        filter::isAccessible
                 ) : null;
     }
 
@@ -219,12 +217,8 @@ public class ElasticRequestHandler {
         return query;
     }
 
-    public Predicate<String> pathPredicate() {
-        return indexPlan.getFilter()::isAccessible;
-    }
-
     private String getTrigramField(String field) {
-        return field + ElasticConstants.ES_TRIGRAM_SUFFIX;
+        return field + ES_TRIGRAM_SUFFIX;
     }
 
     private QueryBuilder fullTextQuery(FullTextExpression ft, final PlanResult pr) {
