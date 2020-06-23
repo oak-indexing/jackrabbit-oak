@@ -155,6 +155,7 @@ class ElasticIndexHelper {
                 type = Type.fromTag(pd.getType(), false);
                 if (pd.useInSpellcheck) {
                     useInSpellCheck = true;
+                    break;
                 }
 
             }
