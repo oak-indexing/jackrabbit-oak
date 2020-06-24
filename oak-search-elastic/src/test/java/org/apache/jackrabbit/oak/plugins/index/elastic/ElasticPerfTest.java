@@ -16,7 +16,6 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic;
 
-
 import org.apache.jackrabbit.oak.api.Result;
 import org.apache.jackrabbit.oak.api.ResultRow;
 import org.apache.jackrabbit.oak.api.Tree;
@@ -32,7 +31,8 @@ import java.util.Iterator;
 import java.util.Random;
 
 import static org.apache.jackrabbit.oak.api.QueryEngine.NO_BINDINGS;
-
+import static org.hamcrest.CoreMatchers.equalTo;
+import static org.hamcrest.MatcherAssert.assertThat;
 
 /*
 This can be used as a quick means to get some numbers around elastic query perf during dev cycles 
@@ -41,20 +41,20 @@ Disabled by default as these tests don't assert anything and might be time consu
 To enable perf logs add <logger name="org.apache.jackrabbit.oak.plugins.index.elastic.ElasticPerfTest" level="TRACE"/>
  to logback-test.xml in test resources.
  */
-@Ignore
+//@Ignore
 public class ElasticPerfTest extends ElasticAbstractQueryTest {
 
     private static final Logger LOG = LoggerFactory.getLogger(ElasticPerfTest.class.getName());
     private static final PerfLogger LOG_PERF = new PerfLogger(LOG);
     // Change these to modify the amount of test data created/indexed
     // and the number of times the queries will be executed
-    private int NUM_SUB_CONTENT = 500;
-    private int NUM_NODES = 500;
-    private int NUM_ITERATIONS = 500;
-    private String PROP_1 = "foo";
-    private String PROP_2 = "title";
-    private String PROP_3 = "text";
-    private String SAMPLE_TEXT = "Lorem ipsum dolor sit amet, consectetur adipiscing elit";
+    private static final int NUM_SUB_CONTENT = 100;
+    private static final int NUM_NODES = 100;
+    private static final int NUM_ITERATIONS = 500;
+    private static final String PROP_1 = "foo";
+    private static final String PROP_2 = "title";
+    private static final String PROP_3 = "text";
+    private static final String SAMPLE_TEXT = "Lorem ipsum dolor sit amet, consectetur adipiscing elit";
 
     @Before
     public void createIndexes() throws Exception {
@@ -64,13 +64,14 @@ public class ElasticPerfTest extends ElasticAbstractQueryTest {
         builder.indexRule("nt:base").property(PROP_3).analyzed();
         builder.indexRule("nt:base").property(PROP_1).analyzed();
 
-        setIndex("testIndex", builder);
+        Tree index = setIndex("testIndex", builder);
         root.commit();
 
         createTestData();
-        // Allow indexing to catch up .
-        Thread.sleep(2500);
-
+        // Allow indexing to catch up
+        assertEventually(() ->
+                assertThat(countDocuments(index), equalTo((long) ((NUM_SUB_CONTENT * NUM_NODES) + NUM_SUB_CONTENT)))
+        );
     }
 
     // Executes the same query multiple times for NUM_ITERATIONS
@@ -134,7 +135,6 @@ public class ElasticPerfTest extends ElasticAbstractQueryTest {
             }
         }
         root.commit();
-
     }
 
     private void testQuery(String query, String language) throws Exception {
@@ -144,7 +144,6 @@ public class ElasticPerfTest extends ElasticAbstractQueryTest {
         long start = LOG_PERF.start("Getting result rows");
         int i = 0;
         while (iterator.hasNext()) {
-            i++;
             ResultRow row = iterator.next();
         }
         LOG_PERF.end(start, -1, "{} Results fetched", i);
