@@ -159,6 +159,9 @@ public class DynamicBoostTest extends AbstractQueryTest {
 
     private Tree createIndex(String nodeType) throws Exception {
         Tree rootTree = root.getTree("/");
+        if (System.getProperty("index.type").equals("elastic")){
+            System.out.println("ELASTIC INDEX");
+        }
         Tree index = createTestIndexNode(rootTree, LuceneIndexConstants.TYPE_LUCENE);
         index.setProperty(FulltextIndexConstants.COMPAT_MODE, IndexFormatVersion.V2.getVersion());
         return TestUtil.newRulePropTree(index, nodeType);

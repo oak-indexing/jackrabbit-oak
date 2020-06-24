@@ -3424,10 +3424,10 @@ public class LucenePropertyIndexTest extends AbstractQueryTest {
         assertThat(explainXpath(query), containsString(planExpectation));
     }
 
-    private String explain(String query){
-        String explain = "explain " + query;
-        return executeQuery(explain, "JCR-SQL2").get(0);
-    }
+//    private String explain(String query){
+//        String explain = "explain " + query;
+//        return executeQuery(explain, "JCR-SQL2").get(0);
+//    }
 
     private String explainXpath(String query) throws ParseException {
         String explain = "explain " + query;

@@ -36,6 +36,7 @@ import javax.jcr.PropertyType;
 
 import com.google.common.collect.Lists;
 
+import com.google.common.io.Closer;
 import org.apache.jackrabbit.JcrConstants;
 import org.apache.jackrabbit.oak.api.ContentRepository;
 import org.apache.jackrabbit.oak.api.ContentSession;
@@ -85,10 +86,20 @@ public abstract class AbstractQueryTest {
     protected QueryEngine qe;
     protected ContentSession session;
     protected Root root;
+    protected ContentRepository oakRepository;
+    protected Closer closer;
+
+//    protected abstract String getIndexType();
+
+//    protected abstract String setIndexType();
+
+
 
     @Before
     public void before() throws Exception {
-        session = createRepository().login(null, null);
+        closer = Closer.create();
+        oakRepository = createRepository();
+        session = oakRepository.login(null, null);
         root = session.getLatestRoot();
         qe = root.getQueryEngine();
         createTestIndexNode();
@@ -119,7 +130,7 @@ public abstract class AbstractQueryTest {
     }
 
     protected Result executeQuery(String statement, String language,
-            Map<String, PropertyValue> sv) throws ParseException {
+                                  Map<String, PropertyValue> sv) throws ParseException {
         return qe.executeQuery(statement, language, sv, NO_MAPPINGS);
     }
 
@@ -307,7 +318,7 @@ public abstract class AbstractQueryTest {
     }
 
     protected List<String> assertQuery(String sql, String language,
-            List<String> expected) {
+                                       List<String> expected) {
         return assertQuery(sql, language, expected, false);
     }
 
@@ -322,7 +333,7 @@ public abstract class AbstractQueryTest {
     protected static void assertResult(@NotNull List<String> expected, @NotNull List<String> actual) {
         for (String p : checkNotNull(expected)) {
             assertTrue("Expected path " + p + " not found, got " + actual, checkNotNull(actual)
-                .contains(p));
+                    .contains(p));
         }
         assertEquals("Result set size is different: " + actual, expected.size(),
                 actual.size());
@@ -371,7 +382,7 @@ public abstract class AbstractQueryTest {
 
     /**
      * Check whether the test is running in debug mode.
-     * 
+     *
      * @return true if debug most is (most likely) enabled
      */
     protected static boolean isDebugModeEnabled() {
@@ -414,7 +425,7 @@ public abstract class AbstractQueryTest {
         } else {
             throw new UnsupportedOperationException(
                     "Unsupported " + (char) tokenizer.read()
-                    + ". This should be either '+' or '-'.");
+                            + ". This should be either '+' or '-'.");
         }
     }
 
@@ -526,7 +537,7 @@ public abstract class AbstractQueryTest {
         }
         return createProperty(name, values, Type.fromTag(type, true));
     }
-    
+
     static String formatSQL(String sql) {
         int start = 0;
         while (true) {
@@ -539,7 +550,7 @@ public abstract class AbstractQueryTest {
             sql = sql.trim();
             start = index + 7;
         }
-        
+
         // the "(?s)" is enabling the "dot all" flag
         // keep /* xpath ... */ to ensure the xpath comment
         // is really there (and at the right position)
@@ -554,7 +565,7 @@ public abstract class AbstractQueryTest {
         sql = sql.replaceAll(" order by ", "\n  order by ");
         return sql;
     }
-    
+
     static String formatPlan(String plan) {
         plan = plan.replaceAll(" where ", "\n  where ");
         plan = plan.replaceAll(" inner join ", "\n  inner join ");
@@ -562,23 +573,23 @@ public abstract class AbstractQueryTest {
         plan = plan.replaceAll(" and ", "\n  and ");
         return plan;
     }
-    
+
     /**
      * A line reader that supports multi-line statements, where lines that start
      * with a space belong to the previous line.
      */
     class ContinueLineReader {
-        
+
         private final LineNumberReader reader;
-        
+
         ContinueLineReader(LineNumberReader reader) {
             this.reader = reader;
         }
-        
+
         public void close() throws IOException {
             reader.close();
         }
-        
+
         public String readLine() throws IOException {
             String line = reader.readLine();
             if (line == null || line.trim().length() == 0) {
@@ -594,6 +605,15 @@ public abstract class AbstractQueryTest {
                 line = (line.trim() + "\n" + next).trim();
             }
         }
+    }
+
+    protected String explain(String query) {
+        return explain(query, SQL2);
+    }
+
+    protected String explain(String query, String language) {
+        String explain = "explain " + query;
+        return executeQuery(explain, language).get(0);
     }
 
 }

@@ -66,7 +66,7 @@
     <jackson.version>2.10.3</jackson.version>
     <java.version>1.8</java.version>
     <java.version.signature>java18</java.version.signature>
-    
+    <index.type>lucene</index.type>
    <!-- specifies on which fixture to run the integration testing tests. 
       override in profiles or provide from command line to change behaviour. Provide 
       more fixtures space separated. See org.apache.jackrabbit.oak.jcr.FixturesHelper#AVAILABLE_FIXTURES 
@@ -298,6 +298,9 @@
               <mongo.url>${mongo.url}</mongo.url>
               <segment.db>${segment.db}</segment.db>
               <nsfixtures>${fixtures}</nsfixtures>
+              <!--<profileId>${project.activeProfiles[0].id}</profileId>-->
+              <index.type>${index.type}</index.type>
+              <XYZA>HOWRYU</XYZA>
               <derby.stream.error.file>${project.build.directory}/derby.log</derby.stream.error.file>
             </systemPropertyVariables>
             <redirectTestOutputToFile>true</redirectTestOutputToFile>
@@ -584,6 +587,7 @@
         <artifactId>slf4j-simple</artifactId>
         <version>${slf4j.version}</version>
       </dependency>
+
       <dependency>
         <groupId>org.slf4j</groupId>
         <artifactId>log4j-over-slf4j</artifactId>
@@ -1270,6 +1274,21 @@
             </plugin>
           </plugins>
         </pluginManagement>
+      </build>
+    </profile>
+    <profile>
+      <id>elastic</id>
+      <properties>
+        <FLAG>a-flag-value</FLAG>
+        <!-- emptying $fixtures means run on all -->
+        <fixtures />
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <artifactId>maven-surefire-plugin</artifactId>
+          </plugin>
+        </plugins>
       </build>
     </profile>
   </profiles>

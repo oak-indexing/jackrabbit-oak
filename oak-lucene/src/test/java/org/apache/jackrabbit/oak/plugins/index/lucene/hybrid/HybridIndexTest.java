@@ -476,10 +476,10 @@ public class HybridIndexTest extends AbstractQueryTest {
         System.out.println(new String(baos.toByteArray()));
     }
 
-    private String explain(String query){
-        String explain = "explain " + query;
-        return executeQuery(explain, "JCR-SQL2").get(0);
-    }
+//    private String explain(String query){
+//        String explain = "explain " + query;
+//        return executeQuery(explain, "JCR-SQL2").get(0);
+//    }
 
     private void runAsyncIndex() {
         AsyncIndexUpdate async = (AsyncIndexUpdate) WhiteboardUtils.getService(wb, Runnable.class, new Predicate<Runnable>() {

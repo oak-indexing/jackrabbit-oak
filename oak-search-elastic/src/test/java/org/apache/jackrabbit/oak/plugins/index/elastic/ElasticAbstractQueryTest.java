@@ -63,7 +63,7 @@ public abstract class ElasticAbstractQueryTest extends AbstractQueryTest {
     // key_id and key_secret are optional in case the ES server
     // needs authentication
     // Do not set this if docker is running and you want to run the tests on docker instead.
-    private static final String elasticConnectionString = System.getProperty("elasticConnectionString");
+    private static final String elasticConnectionString = "http://mokatari-ubuntu:9200";//System.getProperty("elasticConnectionString");
     private ElasticConnection esConnection;
 
     // This is instantiated during repo creation but not hooked up to the async indexing lane
@@ -171,7 +171,7 @@ public abstract class ElasticAbstractQueryTest extends AbstractQueryTest {
     }
 
     protected IndexDefinitionBuilder createIndex(String... propNames) {
-        IndexDefinitionBuilder builder = new ElasticIndexDefinitionBuilder();
+        IndexDefinitionBuilder builder = getIndexBuilder();//new ElasticIndexDefinitionBuilder();
         if (!useAsyncIndexing()) {
             builder = builder.noAsync();
         }
@@ -180,6 +180,10 @@ public abstract class ElasticAbstractQueryTest extends AbstractQueryTest {
             indexRule.property(propName).propertyIndex();
         }
         return builder;
+    }
+
+    private IndexDefinitionBuilder getIndexBuilder() {
+        return new ElasticIndexDefinitionBuilder();
     }
 
     protected Tree setIndex(String idxName, IndexDefinitionBuilder builder) {

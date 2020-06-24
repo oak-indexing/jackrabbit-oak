@@ -1,24 +1,23 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
-
 package org.apache.jackrabbit.oak.plugins.index.lucene;
 
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.apache.commons.io.FileUtils;
 import org.apache.jackrabbit.JcrConstants;
 import org.apache.jackrabbit.oak.InitialContentHelper;
@@ -28,24 +27,25 @@ import org.apache.jackrabbit.oak.api.ContentRepository;
 import org.apache.jackrabbit.oak.api.StrictPathRestriction;
 import org.apache.jackrabbit.oak.api.Tree;
 import org.apache.jackrabbit.oak.api.Type;
-import org.apache.jackrabbit.oak.commons.concurrent.ExecutorCloser;
+import org.apache.jackrabbit.oak.plugins.index.LuceneIndexOptions;
+import org.apache.jackrabbit.oak.plugins.index.PropertyIndexTest;
+import org.apache.jackrabbit.oak.plugins.index.RepositoryOptionsUtil;
 import org.apache.jackrabbit.oak.plugins.index.lucene.directory.CopyOnReadDirectory;
 import org.apache.jackrabbit.oak.plugins.index.nodetype.NodeTypeIndexProvider;
 import org.apache.jackrabbit.oak.plugins.index.property.PropertyIndexEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.search.ExtractedTextCache;
 import org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants;
-import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
+import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeBuilder;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
 import org.apache.jackrabbit.oak.plugins.memory.PropertyStates;
-import org.apache.jackrabbit.oak.query.AbstractQueryTest;
 import org.apache.jackrabbit.oak.query.QueryEngineSettings;
 import org.apache.jackrabbit.oak.spi.commit.Observer;
 import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
+import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.store.FilterDirectory;
-import org.junit.After;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -64,63 +64,31 @@ import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.REINDEX_PRO
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.TYPE_PROPERTY_NAME;
 import static org.apache.jackrabbit.oak.plugins.memory.PropertyStates.createProperty;
 import static org.apache.jackrabbit.oak.spi.filter.PathFilter.PROP_EXCLUDED_PATHS;
-import static org.apache.jackrabbit.oak.spi.filter.PathFilter.PROP_INCLUDED_PATHS;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 
-@SuppressWarnings("ArraysAsListWithZeroOrOneArgument")
-public class LuceneStrictPathRestrictionEnableTest extends AbstractQueryTest {
+public class LucenePropertyIndexTest1 extends PropertyIndexTest {
+
+//    protected RepositoryOptionsUtil repositoryOptionsUtil;
+    //protected ElasticIndexOptions indexOptions;
+    private static String elasticConnectionString = "http://mokatari-ubuntu:9200";//System.getProperty("elasticConnectionString");
+    private NodeStore nodeStore;
+
+    public LucenePropertyIndexTest1() {
+//        elasticConnectionString = "http://mokatari-ubuntu:9200";//System.getProperty("elasticConnectionString");
+        repositoryOptionsUtil = new RepositoryOptionsUtil();
+        indexOptions = new LuceneIndexOptions();
+    }
 
     private ExecutorService executorService = Executors.newFixedThreadPool(2);
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder(new File("target"));
 
+    ListAppender<ILoggingEvent> listAppender = null;
+
     private String corDir = null;
     private String cowDir = null;
-
-    private LuceneIndexEditorProvider editorProvider;
-
-    private TestUtil.OptionalEditorProvider optionalEditorProvider = new TestUtil.OptionalEditorProvider();
-
-    private NodeStore nodeStore;
-
-    private LuceneIndexProvider provider;
-
-    private ResultCountingIndexProvider queryIndexProvider;
-
-    private QueryEngineSettings queryEngineSettings = new QueryEngineSettings();
-
-    @After
-    public void after() {
-        new ExecutorCloser(executorService).close();
-        IndexDefinition.setDisableStoredIndexDefinition(false);
-    }
-
-    @Override
-    protected void createTestIndexNode() throws Exception {
-        setTraversalEnabled(false);
-    }
-
-    @Override
-    protected ContentRepository createRepository() {
-        IndexCopier copier = createIndexCopier();
-        editorProvider = new LuceneIndexEditorProvider(copier, new ExtractedTextCache(10 * FileUtils.ONE_MB, 100));
-        provider = new LuceneIndexProvider(copier);
-        queryIndexProvider = new ResultCountingIndexProvider(provider);
-        nodeStore = new MemoryNodeStore(InitialContentHelper.INITIAL_CONTENT);
-        queryEngineSettings.setStrictPathRestriction(StrictPathRestriction.ENABLE.name());
-        return new Oak(nodeStore)
-                .with(new OpenSecurityProvider())
-                .with(queryIndexProvider)
-                .with((Observer) provider)
-                .with(editorProvider)
-                .with(optionalEditorProvider)
-                .with(new PropertyIndexEditorProvider())
-                .with(new NodeTypeIndexProvider())
-                .with(queryEngineSettings)
-                .createContentRepository();
-    }
 
     private IndexCopier createIndexCopier() {
         try {
@@ -168,28 +136,56 @@ public class LuceneStrictPathRestrictionEnableTest extends AbstractQueryTest {
         }
     }
 
-    @After
-    public void shutdownExecutor() {
-        executorService.shutdown();
+    private LuceneIndexEditorProvider editorProvider;
+//    private NodeStore nodeStore;
+
+    private LuceneIndexProvider provider;
+
+    private ResultCountingIndexProvider queryIndexProvider;
+
+    private QueryEngineSettings queryEngineSettings = new QueryEngineSettings();
+
+    private TestUtil.OptionalEditorProvider optionalEditorProvider = new TestUtil.OptionalEditorProvider();
+
+
+    @Override
+    protected ContentRepository createRepository() {
+        IndexCopier copier = createIndexCopier();
+        editorProvider = new LuceneIndexEditorProvider(copier, new ExtractedTextCache(10 * FileUtils.ONE_MB, 100));
+        provider = new LuceneIndexProvider(copier);
+        queryIndexProvider = new ResultCountingIndexProvider(provider);
+       // nodeStore = repositoryOptionsUtil.createNodeStore();
+        nodeStore = new MemoryNodeStore(InitialContentHelper.INITIAL_CONTENT);
+        //NodeBuilder nodeBuilder = new MemoryNodeBuilder(nodeStore.getRoot());
+        queryEngineSettings.setStrictPathRestriction(StrictPathRestriction.ENABLE.name());
+        return new Oak(nodeStore)
+                .with(new OpenSecurityProvider())
+                .with(queryIndexProvider)
+                .with((Observer) provider)
+                .with(editorProvider)
+                .with(optionalEditorProvider)
+                .with(new PropertyIndexEditorProvider())
+                .with(new NodeTypeIndexProvider())
+                .with(queryEngineSettings)
+                .createContentRepository();
     }
 
-    @Test
-    public void pathIncludeWithPathRestrictionsEnabled() throws Exception {
 
-        Tree idx = createIndex("test1", of("propa", "propb"));
-        idx.setProperty(createProperty(PROP_INCLUDED_PATHS, of("/test/a"), Type.STRINGS));
-        root.commit();
+    private Tree createIndex(String name, Set<String> propNames) throws CommitFailedException {
+        Tree index = root.getTree("/");
+        return createIndex(index, name, propNames);
+    }
 
-        Tree test = root.getTree("/").addChild("test");
-        test.addChild("a").setProperty("propa", 10);
-        test.addChild("a").addChild("b").setProperty("propa", 10);
-        test.addChild("c").setProperty("propa", 10);
-        root.commit();
-
-        assertFalse(explain("select [jcr:path] from [nt:base] where [propa] = 10").contains("lucene:test1"));
-        assertThat(explain("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/a')"), containsString("lucene:test1"));
-        assertQuery("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/a')", asList("/test/a/b"));
-
+    public static Tree createIndex(Tree index, String name, Set<String> propNames) throws CommitFailedException {
+        Tree def = index.addChild(INDEX_DEFINITIONS_NAME).addChild(name);
+        def.setProperty(JcrConstants.JCR_PRIMARYTYPE,
+                INDEX_DEFINITIONS_NODE_TYPE, Type.NAME);
+        def.setProperty(TYPE_PROPERTY_NAME, LuceneIndexConstants.TYPE_LUCENE);
+        def.setProperty(REINDEX_PROPERTY_NAME, true);
+        def.setProperty(FulltextIndexConstants.FULL_TEXT_ENABLED, false);
+        def.setProperty(PropertyStates.createProperty(FulltextIndexConstants.INCLUDE_PROPERTY_NAMES, propNames, Type.STRINGS));
+        def.setProperty(LuceneIndexConstants.SAVE_DIR_LISTING, true);
+        return index.getChild(INDEX_DEFINITIONS_NAME).getChild(name);
     }
 
     @Test
@@ -219,26 +215,38 @@ public class LuceneStrictPathRestrictionEnableTest extends AbstractQueryTest {
         assertQuery("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/c') and not(isDescendantNode('/test/c/e'))", asList("/test/c/d"));
     }
 
-//    private String explain(String query) {
-//        String explain = "explain " + query;
-//        return executeQuery(explain, "JCR-SQL2").get(0);
+//    @Override
+//    protected ContentRepository createRepository() {
+//        LuceneIndexEditorProvider editorProvider = (LuceneIndexEditorProvider) indexOptions.getIndexEditorProvider();
+//        LuceneIndexProvider indexProvider = new LuceneIndexProvider();
+//        nodeStore = repositoryOptionsUtil.createNodeStore();
+//
+//        AsyncIndexUpdate asyncIndexUpdate = indexOptions.getAsyncIndexUpdate("async", nodeStore, compose(newArrayList(
+//                editorProvider,
+//                new NodeCounterEditorProvider()
+//        )));
+//
+//        TrackingCorruptIndexHandler trackingCorruptIndexHandler = new TrackingCorruptIndexHandler();
+//        trackingCorruptIndexHandler.setCorruptInterval(indexOptions.getIndexCorruptIntervalInMillis(), TimeUnit.MILLISECONDS);
+//        asyncIndexUpdate.setCorruptIndexHandler(trackingCorruptIndexHandler);
+//
+//        Oak oak = new Oak(nodeStore)
+//                .with(repositoryOptionsUtil.getInitialContent())
+//                .with(new OpenSecurityProvider())
+//                .with(editorProvider)
+//                .with((QueryIndexProvider)indexProvider)
+//                .with(new PropertyIndexEditorProvider())
+//                .with(new NodeTypeIndexProvider());
+//
+//        if (indexOptions.isAsyncIndex()) {
+//            oak = indexOptions.addAsyncIndexingLanesToOak(oak);
+//        }
+//        return oak.createContentRepository();
 //    }
 
-    private Tree createIndex(String name, Set<String> propNames) throws CommitFailedException {
-        Tree index = root.getTree("/");
-        return createIndex(index, name, propNames);
-    }
-
-    public static Tree createIndex(Tree index, String name, Set<String> propNames) throws CommitFailedException {
-        Tree def = index.addChild(INDEX_DEFINITIONS_NAME).addChild(name);
-        def.setProperty(JcrConstants.JCR_PRIMARYTYPE,
-                INDEX_DEFINITIONS_NODE_TYPE, Type.NAME);
-        def.setProperty(TYPE_PROPERTY_NAME, LuceneIndexConstants.TYPE_LUCENE);
-        def.setProperty(REINDEX_PROPERTY_NAME, true);
-        def.setProperty(FulltextIndexConstants.FULL_TEXT_ENABLED, false);
-        def.setProperty(PropertyStates.createProperty(FulltextIndexConstants.INCLUDE_PROPERTY_NAMES, propNames, Type.STRINGS));
-        def.setProperty(LuceneIndexConstants.SAVE_DIR_LISTING, true);
-        return index.getChild(INDEX_DEFINITIONS_NAME).getChild(name);
+    @Override
+    protected void createTestIndexNode() throws Exception {
+        setTraversalEnabled(false);
     }
 
 }

@@ -490,10 +490,10 @@ public class SynchronousPropertyIndexTest extends AbstractQueryTest {
         root.refresh();
     }
 
-    private String explain(String query){
-        String explain = "explain " + query;
-        return executeQuery(explain, "JCR-SQL2").get(0);
-    }
+//    private String explain(String query){
+//        String explain = "explain " + query;
+//        return executeQuery(explain, "JCR-SQL2").get(0);
+//    }
 
     private void addIndex(String indexPath, LuceneIndexDefinitionBuilder defnb){
         defnb.build(createPath(indexPath));

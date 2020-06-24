@@ -254,10 +254,10 @@ public class LuceneStrictPathRestrictionWarnTest extends AbstractQueryTest {
         return false;
     }
 
-    private String explain(String query) {
-        String explain = "explain " + query;
-        return executeQuery(explain, "JCR-SQL2").get(0);
-    }
+//    private String explain(String query) {
+//        String explain = "explain " + query;
+//        return executeQuery(explain, "JCR-SQL2").get(0);
+//    }
 
     private Tree createIndex(String name, Set<String> propNames) throws CommitFailedException {
         Tree index = root.getTree("/");

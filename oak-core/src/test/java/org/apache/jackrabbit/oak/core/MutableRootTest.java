@@ -70,7 +70,7 @@ public class MutableRootTest {
             }
         };
         ContentSessionImpl cs = Mockito.mock(ContentSessionImpl.class);
-        when(cs.toString()).thenReturn("contentSession");
+        when(cs.toString()).thenReturn("session");
         when(cs.getAuthInfo()).thenReturn(AuthInfoImpl.EMPTY);
         when(cs.getWorkspaceName()).thenReturn("default");
         root = new MutableRoot(store, new EmptyHook(), "default", new Subject(), sp, null, null, cs);

@@ -17,26 +17,7 @@
  * under the License.
  */
 
-package org.apache.jackrabbit.oak.plugins.index.lucene;
-
-import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.collect.ImmutableSet.of;
-import static org.apache.jackrabbit.JcrConstants.JCR_CONTENT;
-import static org.apache.jackrabbit.oak.api.Type.STRINGS;
-import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NAME;
-import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NODE_TYPE;
-import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.REINDEX_PROPERTY_NAME;
-import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.TYPE_PROPERTY_NAME;
-import static org.apache.jackrabbit.oak.plugins.index.lucene.FieldFactory.newPathField;
-import static org.apache.jackrabbit.oak.plugins.memory.PropertyStates.createProperty;
-
-import java.io.IOException;
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import javax.jcr.PropertyType;
-import javax.jcr.Repository;
+package org.apache.jackrabbit.oak.plugins.index;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.jackrabbit.JcrConstants;
@@ -48,7 +29,6 @@ import org.apache.jackrabbit.oak.api.Root;
 import org.apache.jackrabbit.oak.api.Tree;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.commons.PathUtils;
-import org.apache.jackrabbit.oak.plugins.index.IndexConstants;
 import org.apache.jackrabbit.oak.plugins.index.lucene.util.LuceneIndexHelper;
 import org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants;
 import org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.IndexingMode;
@@ -75,7 +55,25 @@ import org.apache.lucene.store.IndexOutput;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class TestUtil {
+import javax.jcr.PropertyType;
+import javax.jcr.Repository;
+import java.io.IOException;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.collect.ImmutableSet.of;
+import static org.apache.jackrabbit.JcrConstants.JCR_CONTENT;
+import static org.apache.jackrabbit.oak.api.Type.STRINGS;
+import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NAME;
+import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NODE_TYPE;
+import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.REINDEX_PROPERTY_NAME;
+import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.TYPE_PROPERTY_NAME;
+import static org.apache.jackrabbit.oak.plugins.index.lucene.FieldFactory.newPathField;
+import static org.apache.jackrabbit.oak.plugins.memory.PropertyStates.createProperty;
+
+public class TestUtil1 {
     private static final AtomicInteger COUNTER = new AtomicInteger();
 
     public static final String NT_TEST = "oak:TestNode";
@@ -83,13 +81,13 @@ public class TestUtil {
     public static final String TEST_NODE_TYPE = "[oak:TestNode]\n" + " - * (UNDEFINED) multiple\n"
         + " - * (UNDEFINED)\n" + " + * (nt:base) = oak:TestNode VERSION";
 
-    public static void useV2(NodeBuilder idxNb) {
+    static void useV2(NodeBuilder idxNb) {
         if (!IndexFormatVersion.getDefault().isAtLeast(IndexFormatVersion.V2)) {
             idxNb.setProperty(FulltextIndexConstants.COMPAT_MODE, IndexFormatVersion.V2.getVersion());
         }
     }
 
-    public static void useV2(Tree idxTree) {
+    static void useV2(Tree idxTree) {
         if (!IndexFormatVersion.getDefault().isAtLeast(IndexFormatVersion.V2)) {
             idxTree.setProperty(FulltextIndexConstants.COMPAT_MODE, IndexFormatVersion.V2.getVersion());
         }

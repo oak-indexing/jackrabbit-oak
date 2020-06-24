@@ -289,10 +289,10 @@ public class TraversalAvoidanceTest extends AbstractQueryTest {
         }
     }
 
-    private String explain(String query){
-        String explain = "explain " + query;
-        return executeQuery(explain, SQL2).get(0);
-    }
+//    private String explain(String query){
+//        String explain = "explain " + query;
+//        return executeQuery(explain, SQL2).get(0);
+//    }
 
     private void assertPlanSelection(String query, String expectedPlan, String message) {
         String explain = explain(query);
