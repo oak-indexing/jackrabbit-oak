@@ -73,8 +73,8 @@ import org.apache.jackrabbit.oak.plugins.index.lucene.property.PropertyIndexClea
 import org.apache.jackrabbit.oak.plugins.index.lucene.reader.DefaultIndexReaderFactory;
 import org.apache.jackrabbit.oak.plugins.index.lucene.reader.LuceneIndexReaderFactory;
 import org.apache.jackrabbit.oak.plugins.index.lucene.util.LuceneIndexDefinitionBuilder;
-import org.apache.jackrabbit.oak.plugins.index.lucene.util.LuceneIndexDefinitionBuilder.PropertyRule;
 import org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants;
+import org.apache.jackrabbit.oak.plugins.index.search.util.IndexDefinitionBuilder;
 import org.apache.jackrabbit.oak.spi.commit.BackgroundObserver;
 import org.apache.jackrabbit.oak.spi.lifecycle.RepositoryInitializer;
 import org.apache.jackrabbit.oak.spi.mount.MountInfoProvider;
@@ -471,7 +471,7 @@ public class HybridIndexTest extends AbstractTest<HybridIndexTest.TestContext> {
             LuceneIndexDefinitionBuilder defnBuilder = new LuceneIndexDefinitionBuilder();
             defnBuilder.evaluatePathRestrictions();
             defnBuilder.async("async", indexingMode, "async");
-            PropertyRule pr = defnBuilder.indexRule("nt:base").property(indexedPropName).propertyIndex();
+            IndexDefinitionBuilder.PropertyRule pr = defnBuilder.indexRule("nt:base").property(indexedPropName).propertyIndex();
             if (syncIndexing) {
                 pr.sync();
             }
