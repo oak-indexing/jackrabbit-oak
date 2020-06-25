@@ -35,12 +35,12 @@ public abstract class PropertyIndexTest extends AbstractQueryTest {
 
     protected void assertEventually(Runnable r) {
         TestUtils.assertEventually(r,
-                ((indexOptions.isAsyncIndex() ? indexOptions.getAsyncIndexingTimeInSeconds() : 0)+3000) * 5);
+                ((repositoryOptionsUtil.isAsync() ? repositoryOptionsUtil.defaultAsyncIndexingTimeInSeconds : 0)+3000) * 5);
     }
 
     @Test
     public void testBulkProcessorFlushLimit() throws Exception {
-        indexOptions.setIndex(root,"test1", indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(),"propa"));
+        indexOptions.setIndex(root,"test1", indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(),false,"propa"));
 
         Tree test = root.getTree("/").addChild("test");
         for (int i = 1; i < 249; i++) {
@@ -74,8 +74,8 @@ public abstract class PropertyIndexTest extends AbstractQueryTest {
 
     @Test
     public void indexSelection() throws Exception {
-        indexOptions.setIndex(root,"test1", indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(),"propa", "propb"));
-        indexOptions.setIndex(root,"test2", indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(),"propc"));
+        indexOptions.setIndex(root,"test1", indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(), false,"propa", "propb"));
+        indexOptions.setIndex(root,"test2", indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(), false,"propc"));
 
         Tree test = root.getTree("/").addChild("test");
         test.addChild("a").setProperty("propa", "foo");
@@ -102,7 +102,7 @@ public abstract class PropertyIndexTest extends AbstractQueryTest {
     @Test
     public void nodeNameViaPropDefinition() throws Exception {
         //make index
-        IndexDefinitionBuilder builder = indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder());
+        IndexDefinitionBuilder builder = indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(), false);
         builder.includedPaths("/test")
                 .indexRule("nt:base")
                 .property("nodeName", PROPDEF_PROP_NODE_NAME);
@@ -122,8 +122,8 @@ public abstract class PropertyIndexTest extends AbstractQueryTest {
 
         assertEventually(() -> {
             String explanation = explain(propabQuery);
-            assertThat(explanation, containsString("elasticsearch:test1(/oak:index/test1) "));
-            assertThat(explanation, containsString("{\"term\":{\":nodeName\":{\"value\":\"foo\","));
+            assertThat(explanation, containsString(indexOptions.getIndexType()+":test1(/oak:index/test1) "));
+            //assertThat(explanation, containsString("{\"term\":{\":nodeName\":{\"value\":\"foo\","));
             assertQuery(propabQuery, singletonList("/test/foo"));
 
             assertQuery(queryPrefix + "LOCALNAME() = 'bar'", singletonList("/test/sc/bar"));
@@ -138,14 +138,13 @@ public abstract class PropertyIndexTest extends AbstractQueryTest {
 
     @Test
     public void emptyIndex() throws Exception {
-        indexOptions.setIndex(root,"test1", indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(),"propa", "propb"));
+        indexOptions.setIndex(root,"test1", indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(), false, "propa", "propb"));
         root.commit();
 
         Tree test = root.getTree("/").addChild("test");
         test.addChild("a");
         test.addChild("b");
         root.commit();
-int b =100;
         assertEventually(() -> assertThat(explain("select [jcr:path] from [nt:base] where [propa] = 'foo'"),
                 containsString(indexOptions.getIndexType()+":test1")));
     }
@@ -155,7 +154,7 @@ int b =100;
 //        IndexDefinitionBuilder indexDefinitionBuilder = indexOptions.createIndexDefinitionBuilder();
 //        indexDefinitionBuilder = indexOptions.createIndex(indexDefinitionBuilder, "propa", "propb");
 //        indexDefinitionBuilder.isReindexRequired()
-        indexOptions.setIndex(root,"test1", indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(),"propa", "propb"));
+        indexOptions.setIndex(root,"test1", indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(),false,"propa", "propb"));
         root.commit();
 
         Tree test = root.getTree("/").addChild("test");

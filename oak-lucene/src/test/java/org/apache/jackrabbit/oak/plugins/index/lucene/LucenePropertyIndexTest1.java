@@ -29,19 +29,16 @@ import org.apache.jackrabbit.oak.api.Tree;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.plugins.index.LuceneIndexOptions;
 import org.apache.jackrabbit.oak.plugins.index.PropertyIndexTest;
-import org.apache.jackrabbit.oak.plugins.index.RepositoryOptionsUtil;
 import org.apache.jackrabbit.oak.plugins.index.lucene.directory.CopyOnReadDirectory;
 import org.apache.jackrabbit.oak.plugins.index.nodetype.NodeTypeIndexProvider;
 import org.apache.jackrabbit.oak.plugins.index.property.PropertyIndexEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.search.ExtractedTextCache;
 import org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants;
-import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeBuilder;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
 import org.apache.jackrabbit.oak.plugins.memory.PropertyStates;
 import org.apache.jackrabbit.oak.query.QueryEngineSettings;
 import org.apache.jackrabbit.oak.spi.commit.Observer;
 import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
-import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
@@ -70,106 +67,17 @@ import static org.junit.Assert.assertThat;
 
 public class LucenePropertyIndexTest1 extends PropertyIndexTest {
 
-//    protected RepositoryOptionsUtil repositoryOptionsUtil;
-    //protected ElasticIndexOptions indexOptions;
-    private static String elasticConnectionString = "http://mokatari-ubuntu:9200";//System.getProperty("elasticConnectionString");
-    private NodeStore nodeStore;
-
-    public LucenePropertyIndexTest1() {
-//        elasticConnectionString = "http://mokatari-ubuntu:9200";//System.getProperty("elasticConnectionString");
-        repositoryOptionsUtil = new RepositoryOptionsUtil();
-        indexOptions = new LuceneIndexOptions();
-    }
-
     private ExecutorService executorService = Executors.newFixedThreadPool(2);
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder(new File("target"));
 
-    ListAppender<ILoggingEvent> listAppender = null;
-
-    private String corDir = null;
-    private String cowDir = null;
-
-    private IndexCopier createIndexCopier() {
-        try {
-            return new IndexCopier(executorService, temporaryFolder.getRoot()) {
-                @Override
-                public Directory wrapForRead(String indexPath, LuceneIndexDefinition definition,
-                                             Directory remote, String dirName) throws IOException {
-                    Directory ret = super.wrapForRead(indexPath, definition, remote, dirName);
-                    corDir = getFSDirPath(ret);
-                    return ret;
-                }
-
-                @Override
-                public Directory wrapForWrite(LuceneIndexDefinition definition,
-                                              Directory remote, boolean reindexMode, String dirName,
-                                              COWDirectoryTracker cowDirectoryTracker) throws IOException {
-                    Directory ret = super.wrapForWrite(definition, remote, reindexMode, dirName, cowDirectoryTracker);
-                    cowDir = getFSDirPath(ret);
-                    return ret;
-                }
-
-                private String getFSDirPath(Directory dir) {
-                    if (dir instanceof CopyOnReadDirectory) {
-                        dir = ((CopyOnReadDirectory) dir).getLocal();
-                    }
-
-                    dir = unwrap(dir);
-
-                    if (dir instanceof FSDirectory) {
-                        return ((FSDirectory) dir).getDirectory().getAbsolutePath();
-                    }
-                    return null;
-                }
-
-                private Directory unwrap(Directory dir) {
-                    if (dir instanceof FilterDirectory) {
-                        return unwrap(((FilterDirectory) dir).getDelegate());
-                    }
-                    return dir;
-                }
-
-            };
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private LuceneIndexEditorProvider editorProvider;
-//    private NodeStore nodeStore;
-
-    private LuceneIndexProvider provider;
-
-    private ResultCountingIndexProvider queryIndexProvider;
-
-    private QueryEngineSettings queryEngineSettings = new QueryEngineSettings();
-
-    private TestUtil.OptionalEditorProvider optionalEditorProvider = new TestUtil.OptionalEditorProvider();
-
-
     @Override
     protected ContentRepository createRepository() {
-        IndexCopier copier = createIndexCopier();
-        editorProvider = new LuceneIndexEditorProvider(copier, new ExtractedTextCache(10 * FileUtils.ONE_MB, 100));
-        provider = new LuceneIndexProvider(copier);
-        queryIndexProvider = new ResultCountingIndexProvider(provider);
-       // nodeStore = repositoryOptionsUtil.createNodeStore();
-        nodeStore = new MemoryNodeStore(InitialContentHelper.INITIAL_CONTENT);
-        //NodeBuilder nodeBuilder = new MemoryNodeBuilder(nodeStore.getRoot());
-        queryEngineSettings.setStrictPathRestriction(StrictPathRestriction.ENABLE.name());
-        return new Oak(nodeStore)
-                .with(new OpenSecurityProvider())
-                .with(queryIndexProvider)
-                .with((Observer) provider)
-                .with(editorProvider)
-                .with(optionalEditorProvider)
-                .with(new PropertyIndexEditorProvider())
-                .with(new NodeTypeIndexProvider())
-                .with(queryEngineSettings)
-                .createContentRepository();
+        repositoryOptionsUtil = new LuceneRepositoryOptionsUtil(executorService, temporaryFolder, false);
+        //repositoryOptionsUtil.initialize();
+        indexOptions = new LuceneIndexOptions();
+        return repositoryOptionsUtil.getOak().createContentRepository();
     }
-
 
     private Tree createIndex(String name, Set<String> propNames) throws CommitFailedException {
         Tree index = root.getTree("/");
@@ -188,7 +96,7 @@ public class LucenePropertyIndexTest1 extends PropertyIndexTest {
         return index.getChild(INDEX_DEFINITIONS_NAME).getChild(name);
     }
 
-    @Test
+    /*@Test
     public void pathExcludeWithPathRestrictionsEnabled() throws Exception {
         Tree idx = createIndex("test1", of("propa", "propb"));
         idx.setProperty(createProperty(PROP_EXCLUDED_PATHS, of("/test/a"), Type.STRINGS));
@@ -213,36 +121,7 @@ public class LucenePropertyIndexTest1 extends PropertyIndexTest {
         assertQuery("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/c')", asList("/test/c/d", "/test/c/e/f"));
         assertThat(explain("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/c') and not(isDescendantNode('/test/c/e'))"), containsString("lucene:test1"));
         assertQuery("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/c') and not(isDescendantNode('/test/c/e'))", asList("/test/c/d"));
-    }
-
-//    @Override
-//    protected ContentRepository createRepository() {
-//        LuceneIndexEditorProvider editorProvider = (LuceneIndexEditorProvider) indexOptions.getIndexEditorProvider();
-//        LuceneIndexProvider indexProvider = new LuceneIndexProvider();
-//        nodeStore = repositoryOptionsUtil.createNodeStore();
-//
-//        AsyncIndexUpdate asyncIndexUpdate = indexOptions.getAsyncIndexUpdate("async", nodeStore, compose(newArrayList(
-//                editorProvider,
-//                new NodeCounterEditorProvider()
-//        )));
-//
-//        TrackingCorruptIndexHandler trackingCorruptIndexHandler = new TrackingCorruptIndexHandler();
-//        trackingCorruptIndexHandler.setCorruptInterval(indexOptions.getIndexCorruptIntervalInMillis(), TimeUnit.MILLISECONDS);
-//        asyncIndexUpdate.setCorruptIndexHandler(trackingCorruptIndexHandler);
-//
-//        Oak oak = new Oak(nodeStore)
-//                .with(repositoryOptionsUtil.getInitialContent())
-//                .with(new OpenSecurityProvider())
-//                .with(editorProvider)
-//                .with((QueryIndexProvider)indexProvider)
-//                .with(new PropertyIndexEditorProvider())
-//                .with(new NodeTypeIndexProvider());
-//
-//        if (indexOptions.isAsyncIndex()) {
-//            oak = indexOptions.addAsyncIndexingLanesToOak(oak);
-//        }
-//        return oak.createContentRepository();
-//    }
+    }*/
 
     @Override
     protected void createTestIndexNode() throws Exception {
