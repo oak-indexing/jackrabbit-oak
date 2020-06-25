@@ -106,15 +106,17 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
         } catch (InterruptedException e) {
             throw new IllegalStateException("Error reading next result from Elastic", e);
         }
-        if (POISON_PILL.path.equals(nextRow.path)) {
-            nextRow = null;
-        }
-        return nextRow != null;
+        return !POISON_PILL.path.equals(nextRow.path);
     }
 
     @Override
     public FulltextResultRow next() {
-        return nextRow;
+        if (nextRow == null) { // next is called without hasNext
+            if (!hasNext()) {
+                return null;
+            }
+        }
+        return nextRow != null && POISON_PILL.path.equals(nextRow.path) ? null : nextRow;
     }
 
     @Override
@@ -232,6 +234,9 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
         /**
          * Handle the response action notifying the registered listeners. Depending on the listeners' configuration
          * it could keep loading chunks or wait for a {@code #scan} call to resume scanning.
+         *
+         * Some code in this method relies on structure that are not thread safe. We need to make sure
+         * these data structures are modified before releasing the semaphore.
          */
         @Override
         public void onResponse(SearchResponse searchResponse) {
@@ -293,7 +298,7 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
         /**
          * Triggers a scan of a new chunk of the result set, if needed.
          */
-        public void scan() {
+        private void scan() {
             if (semaphore.tryAcquire() && anyDataLeft.get()) {
                 final SearchSourceBuilder searchSourceBuilder = SearchSourceBuilder.searchSource()
                         .query(query)

@@ -123,7 +123,7 @@ class ElasticSecureFacetAsyncProvider implements ElasticFacetProvider, ElasticRe
         } catch (InterruptedException e) {
             throw new IllegalStateException("Error while waiting for facets", e);
         }
-        LOG.trace("Reading facets for {} from {}", columnName, facetsMap);
-        return facets.get(FulltextIndex.parseFacetField(columnName));
+        LOG.trace("Reading facets for {} from {}", columnName, facets);
+        return facets != null ? facets.get(FulltextIndex.parseFacetField(columnName)) : null;
     }
 }
