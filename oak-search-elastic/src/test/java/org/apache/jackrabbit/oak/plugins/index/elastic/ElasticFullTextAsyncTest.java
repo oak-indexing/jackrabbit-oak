@@ -40,7 +40,8 @@ public class ElasticFullTextAsyncTest extends ElasticAbstractQueryTest {
         builder.async("async");
         builder.indexRule("nt:base").property("propa").analyzed();
 
-        setIndex(UUID.randomUUID().toString(), builder);
+        String indexId = UUID.randomUUID().toString();
+        setIndex(indexId, builder);
         root.commit();
 
         //add content
@@ -55,7 +56,7 @@ public class ElasticFullTextAsyncTest extends ElasticAbstractQueryTest {
         String query = "//*[jcr:contains(@propa, 'Hello')] ";
 
         assertEventually(() -> {
-            assertThat(explain(query, XPATH), containsString("elasticsearch:test1"));
+            assertThat(explain(query, XPATH), containsString("elasticsearch:" + indexId));
             assertQuery(query, XPATH, Arrays.asList("/test/a", "/test/c", "/test/d"));
         });
     }
