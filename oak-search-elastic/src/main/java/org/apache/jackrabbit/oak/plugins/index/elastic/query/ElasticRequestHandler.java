@@ -479,6 +479,9 @@ public class ElasticRequestHandler {
             // TODO: do we need this if all the analyzed fields are queried?
             ret = in.should(matchQuery(fieldName, text));
         } else {
+            // default match query are executed in OR, we need to use AND instead to avoid that
+            // every document having at least one term in the `text` will match. If there are multiple
+            // contains clause they will go to different match queries and will be executed in OR
             ret = matchQuery(fieldName, text).operator(Operator.AND);
         }
 
