@@ -35,12 +35,12 @@ public abstract class PropertyIndexTest extends AbstractQueryTest {
 
     protected void assertEventually(Runnable r) {
         TestUtils.assertEventually(r,
-                ((repositoryOptionsUtil.isAsync() ? repositoryOptionsUtil.defaultAsyncIndexingTimeInSeconds : 0)+3000) * 5);
+                ((repositoryOptionsUtil.isAsync() ? repositoryOptionsUtil.defaultAsyncIndexingTimeInSeconds : 0) + 3000) * 5);
     }
 
     @Test
     public void testBulkProcessorFlushLimit() throws Exception {
-        indexOptions.setIndex(root,"test1", indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(),false,"propa"));
+        indexOptions.setIndex(root, "test1", indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(), false, "propa"));
 
         Tree test = root.getTree("/").addChild("test");
         for (int i = 1; i < 249; i++) {
@@ -53,20 +53,20 @@ public abstract class PropertyIndexTest extends AbstractQueryTest {
         // Make sure that the last entry is indexed correctly.
         String propaQuery = "select [jcr:path] from [nt:base] where [propa] = 'foo248'";
         assertEventually(() -> {
-            assertThat(explain(propaQuery), containsString(indexOptions.getIndexType()+":test1"));
+            assertThat(explain(propaQuery), containsString(indexOptions.getIndexType() + ":test1"));
 
             assertQuery(propaQuery, singletonList("/test/a248"));
         });
 
         // Now we test for 250 < nodes < 500
 
-        for (int i = 250 ; i < 300 ; i ++) {
+        for (int i = 250; i < 300; i++) {
             test.addChild("a" + i).setProperty("propa", "foo" + i);
         }
         root.commit();
         String propaQuery2 = "select [jcr:path] from [nt:base] where [propa] = 'foo299'";
         assertEventually(() -> {
-            assertThat(explain(propaQuery2), containsString(indexOptions.getIndexType()+":test1"));
+            assertThat(explain(propaQuery2), containsString(indexOptions.getIndexType() + ":test1"));
 
             assertQuery(propaQuery2, singletonList("/test/a299"));
         });
@@ -74,8 +74,8 @@ public abstract class PropertyIndexTest extends AbstractQueryTest {
 
     @Test
     public void indexSelection() throws Exception {
-        indexOptions.setIndex(root,"test1", indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(), false,"propa", "propb"));
-        indexOptions.setIndex(root,"test2", indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(), false,"propc"));
+        indexOptions.setIndex(root, "test1", indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(), false, "propa", "propb"));
+        indexOptions.setIndex(root, "test2", indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(), false, "propc"));
 
         Tree test = root.getTree("/").addChild("test");
         test.addChild("a").setProperty("propa", "foo");
@@ -87,14 +87,15 @@ public abstract class PropertyIndexTest extends AbstractQueryTest {
 
         String propaQuery = "select [jcr:path] from [nt:base] where [propa] = 'foo'";
 
-        assertEventually(() -> {IndexDefinitionBuilder builder = indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(), false);
+        assertEventually(() -> {
+            IndexDefinitionBuilder builder = indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(), false);
             builder.includedPaths("/test")
                     .indexRule("nt:base")
                     .property("nodeName", PROPDEF_PROP_NODE_NAME);
-            indexOptions.setIndex(root,"test1", builder);
-            assertThat(explain(propaQuery), containsString(indexOptions.getIndexType()+":test1"));
+            indexOptions.setIndex(root, "test1", builder);
+            assertThat(explain(propaQuery), containsString(indexOptions.getIndexType() + ":test1"));
             assertThat(explain("select [jcr:path] from [nt:base] where [propc] = 'foo'"),
-                    containsString(indexOptions.getIndexType()+":test2"));
+                    containsString(indexOptions.getIndexType() + ":test2"));
 
             assertQuery(propaQuery, Arrays.asList("/test/a", "/test/b"));
             assertQuery("select [jcr:path] from [nt:base] where [propa] = 'foo2'", singletonList("/test/c"));
@@ -105,8 +106,12 @@ public abstract class PropertyIndexTest extends AbstractQueryTest {
     //OAK-3825
     @Test
     public void nodeNameViaPropDefinition() throws Exception {
-        //make index
-
+        IndexDefinitionBuilder builder = indexOptions.createIndexDefinitionBuilder();
+        builder.noAsync();
+        builder.includedPaths("/test")
+                .indexRule("nt:base")
+                .property("nodeName", PROPDEF_PROP_NODE_NAME);
+        indexOptions.setIndex(root, "test1", builder);
         root.commit();
 
         //add content
@@ -122,7 +127,7 @@ public abstract class PropertyIndexTest extends AbstractQueryTest {
 
         assertEventually(() -> {
             String explanation = explain(propabQuery);
-            assertThat(explanation, containsString(indexOptions.getIndexType()+":test1(/oak:index/test1) "));
+            assertThat(explanation, containsString(indexOptions.getIndexType() + ":test1(/oak:index/test1) "));
             //assertThat(explanation, containsString("{\"term\":{\":nodeName\":{\"value\":\"foo\","));
             assertQuery(propabQuery, singletonList("/test/foo"));
 
@@ -138,7 +143,7 @@ public abstract class PropertyIndexTest extends AbstractQueryTest {
 
     @Test
     public void emptyIndex() throws Exception {
-        indexOptions.setIndex(root,"test1", indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(), false, "propa", "propb"));
+        indexOptions.setIndex(root, "test1", indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(), false, "propa", "propb"));
         root.commit();
 
         Tree test = root.getTree("/").addChild("test");
@@ -146,7 +151,7 @@ public abstract class PropertyIndexTest extends AbstractQueryTest {
         test.addChild("b");
         root.commit();
         assertEventually(() -> assertThat(explain("select [jcr:path] from [nt:base] where [propa] = 'foo'"),
-                containsString(indexOptions.getIndexType()+":test1")));
+                containsString(indexOptions.getIndexType() + ":test1")));
     }
 
     @Test
@@ -154,7 +159,7 @@ public abstract class PropertyIndexTest extends AbstractQueryTest {
 //        IndexDefinitionBuilder indexDefinitionBuilder = indexOptions.createIndexDefinitionBuilder();
 //        indexDefinitionBuilder = indexOptions.createIndex(indexDefinitionBuilder, "propa", "propb");
 //        indexDefinitionBuilder.isReindexRequired()
-        indexOptions.setIndex(root,"test1", indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(),false,"propa", "propb"));
+        indexOptions.setIndex(root, "test1", indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(), false, "propa", "propb"));
         root.commit();
 
         Tree test = root.getTree("/").addChild("test");

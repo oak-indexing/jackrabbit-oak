@@ -17,35 +17,23 @@
 package org.apache.jackrabbit.oak.plugins.index.elastic;
 
 import org.apache.jackrabbit.oak.api.ContentRepository;
+import org.apache.jackrabbit.oak.plugins.index.ElasticTestRepositoryBuilder;
 import org.apache.jackrabbit.oak.plugins.index.PropertyIndexTest;
-import org.apache.jackrabbit.oak.plugins.index.RepositoryOptionsUtil;
-import org.apache.jackrabbit.oak.spi.state.NodeStore;
+import org.junit.ClassRule;
 
 public class ElasticPropertyIndexTest1 extends PropertyIndexTest {
 
-    //protected ElasticRepositoryOptionsUtil repositoryOptionsUtil;
     private static String elasticConnectionString = "http://mokatari-ubuntu:9200";//System.getProperty("elasticConnectionString");
-    private ElasticConnection esConnection;
-    private NodeStore nodeStore;
-
-    //    @ClassRule
-    public static ElasticConnectionRule elasticRule;// = new ElasticConnectionRule(elasticConnectionString);
-
+    @ClassRule
+    public static ElasticConnectionRule elasticRule = new ElasticConnectionRule(elasticConnectionString);
 
     public ElasticPropertyIndexTest1() {
-        repositoryOptionsUtil = new ElasticRepositoryOptionsUtil(RepositoryOptionsUtil.NodeStoreType.MEMORY_NODE_STORE, false);
-//        repositoryOptionsUtil.initialize();
-        elasticRule = ElasticRepositoryOptionsUtil.elasticRule;
-//        elasticConnectionString = "http://mokatari-ubuntu:9200";//System.getProperty("elasticConnectionString");
-//        esConnection = elasticRule.useDocker() ? elasticRule.getElasticConnectionForDocker() :
-//                elasticRule.getElasticConnectionFromString();
         indexOptions = new ElasticIndexOptions();
-        //repositoryOptionsUtil = new RepositoryOptionsUtil();
     }
-
 
     @Override
     protected ContentRepository createRepository() {
+        repositoryOptionsUtil = new ElasticTestRepositoryBuilder(elasticRule).build();
         return repositoryOptionsUtil.getOak().createContentRepository();
     }
 

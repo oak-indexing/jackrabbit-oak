@@ -73,8 +73,7 @@ public class LucenePropertyIndexTest1 extends PropertyIndexTest {
 
     @Override
     protected ContentRepository createRepository() {
-        repositoryOptionsUtil = new LuceneRepositoryOptionsUtil(executorService, temporaryFolder, false);
-        //repositoryOptionsUtil.initialize();
+        repositoryOptionsUtil = new LuceneTestRepositoryBuilder(executorService, temporaryFolder).build();
         indexOptions = new LuceneIndexOptions();
         return repositoryOptionsUtil.getOak().createContentRepository();
     }

@@ -25,67 +25,66 @@ import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFIN
 
 public class LuceneRepositoryOptionsUtil extends RepositoryOptionsUtil {
 
-    private ExecutorService executorService;
-    public TemporaryFolder temporaryFolder;
+//    private ExecutorService executorService;
+//    public TemporaryFolder temporaryFolder;
 
-    public LuceneRepositoryOptionsUtil(ExecutorService executorService, TemporaryFolder temporaryFolder, boolean isAsync) {
-        this(NodeStoreType.MEMORY_NODE_STORE, executorService, temporaryFolder, isAsync);
+//    public LuceneRepositoryOptionsUtil(ExecutorService executorService, TemporaryFolder temporaryFolder, boolean isAsync) {
+//        this(NodeStoreType.MEMORY_NODE_STORE, executorService, temporaryFolder, isAsync);
+//    }
+//
+//    public LuceneRepositoryOptionsUtil(NodeStoreType nodeStoreType, ExecutorService executorService, TemporaryFolder temporaryFolder, boolean isAsync) {
+//        this.executorService = executorService;
+//        this.temporaryFolder = temporaryFolder;
+//        this.isAsync = isAsync;
+//        nodeStore = createNodeStore(nodeStoreType);
+//        createDefaultOak(nodeStoreType, nodeStore, isAsync);
+//    }
+
+    public LuceneRepositoryOptionsUtil(Oak oak) {
+        this.oak = oak;
     }
-
-    public LuceneRepositoryOptionsUtil(NodeStoreType nodeStoreType, ExecutorService executorService, TemporaryFolder temporaryFolder, boolean isAsync) {
-        this.executorService = executorService;
-        this.temporaryFolder = temporaryFolder;
-        this.isAsync = isAsync;
-        nodeStore = createNodeStore(nodeStoreType);
-        createDefaultOak(nodeStoreType, nodeStore, isAsync);
-    }
-
-    /**
-     * default initialization without Async lane
-     */
-    private boolean isAsync;
 
 
     /*
 Override this to create some other repo initializer if needed
 // Make sure to call super.initialize(builder)
  */
-    private InitialContent getInitialContent() {
-        return new InitialContent() {
-            @Override
-            public void initialize(@NotNull NodeBuilder builder) {
-                super.initialize(builder);
-                // remove all indexes to avoid cost competition (essentially a TODO for fixing cost ES cost estimation)
-                NodeBuilder oiBuilder = builder.child(INDEX_DEFINITIONS_NAME);
-                oiBuilder.getChildNodeNames().forEach(idxName -> oiBuilder.child(idxName).remove());
-            }
-        };
-    }
+//    private InitialContent getInitialContent() {
+//        return new InitialContent() {
+//            @Override
+//            public void initialize(@NotNull NodeBuilder builder) {
+//                super.initialize(builder);
+//                // remove all indexes to avoid cost competition (essentially a TODO for fixing cost ES cost estimation)
+//                NodeBuilder oiBuilder = builder.child(INDEX_DEFINITIONS_NAME);
+//                oiBuilder.getChildNodeNames().forEach(idxName -> oiBuilder.child(idxName).remove());
+//            }
+//        };
+//    }
 
-    @Override
-    protected void createDefaultOak(RepositoryOptionsUtil.NodeStoreType nodeStoreType, NodeStore nodeStore, boolean isAsync) {
-        IndexCopier copier = null;
-        try {
-            copier = new IndexCopier(executorService, temporaryFolder.getRoot());
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        LuceneIndexEditorProvider editorProvider = new LuceneIndexEditorProvider(copier, new ExtractedTextCache(10 * FileUtils.ONE_MB, 100));
-        LuceneIndexProvider provider = new LuceneIndexProvider(copier);
-        ResultCountingIndexProvider queryIndexProvider = new ResultCountingIndexProvider(provider);
-        QueryEngineSettings queryEngineSettings = new QueryEngineSettings();
-        queryEngineSettings.setStrictPathRestriction(StrictPathRestriction.ENABLE.name());
-        TestUtil.OptionalEditorProvider optionalEditorProvider = new TestUtil.OptionalEditorProvider();
-        oak = new Oak(nodeStore)
-                .with(getInitialContent())
-                .with(new OpenSecurityProvider())
-                .with(queryIndexProvider)
-                .with((Observer) provider)
-                .with(editorProvider)
-                .with(optionalEditorProvider)
-                .with(new PropertyIndexEditorProvider())
-                .with(new NodeTypeIndexProvider())
-                .with(queryEngineSettings);
-    }
+//    @Override
+//    protected void createDefaultOak(RepositoryOptionsUtil.NodeStoreType nodeStoreType, NodeStore nodeStore, boolean isAsync) {
+//        IndexCopier copier = null;
+//        try {
+//            copier = new IndexCopier(executorService, temporaryFolder.getRoot());
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//        }
+//        LuceneIndexEditorProvider editorProvider = new LuceneIndexEditorProvider(copier, new ExtractedTextCache(10 * FileUtils.ONE_MB, 100));
+//        LuceneIndexProvider provider = new LuceneIndexProvider(copier);
+//        ResultCountingIndexProvider queryIndexProvider = new ResultCountingIndexProvider(provider);
+//        QueryEngineSettings queryEngineSettings = new QueryEngineSettings();
+//        queryEngineSettings.setStrictPathRestriction(StrictPathRestriction.ENABLE.name());
+//        TestUtil.OptionalEditorProvider optionalEditorProvider = new TestUtil.OptionalEditorProvider();
+//        oak = new Oak(nodeStore)
+//                .with(getInitialContent())
+//                .with(new OpenSecurityProvider())
+//                .with(queryIndexProvider)
+//                .with((Observer) provider)
+//                .with(editorProvider)
+//                .with(optionalEditorProvider)
+//                .with(new PropertyIndexEditorProvider())
+//                .with(new NodeTypeIndexProvider())
+//                .with(queryEngineSettings);
+//    }
 
 }
