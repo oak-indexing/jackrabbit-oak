@@ -87,7 +87,11 @@ public abstract class PropertyIndexTest extends AbstractQueryTest {
 
         String propaQuery = "select [jcr:path] from [nt:base] where [propa] = 'foo'";
 
-        assertEventually(() -> {
+        assertEventually(() -> {IndexDefinitionBuilder builder = indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(), false);
+            builder.includedPaths("/test")
+                    .indexRule("nt:base")
+                    .property("nodeName", PROPDEF_PROP_NODE_NAME);
+            indexOptions.setIndex(root,"test1", builder);
             assertThat(explain(propaQuery), containsString(indexOptions.getIndexType()+":test1"));
             assertThat(explain("select [jcr:path] from [nt:base] where [propc] = 'foo'"),
                     containsString(indexOptions.getIndexType()+":test2"));
@@ -102,11 +106,7 @@ public abstract class PropertyIndexTest extends AbstractQueryTest {
     @Test
     public void nodeNameViaPropDefinition() throws Exception {
         //make index
-        IndexDefinitionBuilder builder = indexOptions.createIndex(indexOptions.createIndexDefinitionBuilder(), false);
-        builder.includedPaths("/test")
-                .indexRule("nt:base")
-                .property("nodeName", PROPDEF_PROP_NODE_NAME);
-        indexOptions.setIndex(root,"test1", builder);
+
         root.commit();
 
         //add content

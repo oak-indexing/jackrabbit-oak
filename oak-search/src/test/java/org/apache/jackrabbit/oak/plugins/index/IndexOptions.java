@@ -7,6 +7,10 @@ import org.apache.jackrabbit.oak.plugins.index.search.util.IndexDefinitionBuilde
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 
+import javax.jcr.Node;
+import javax.jcr.RepositoryException;
+import javax.jcr.Session;
+
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NAME;
 
 public abstract class IndexOptions {
@@ -17,6 +21,13 @@ public abstract class IndexOptions {
         return builder.build(root.getTree("/").addChild(INDEX_DEFINITIONS_NAME).addChild(idxName));
     }
 
+    protected Node setIndex(Session session, String idxName, IndexDefinitionBuilder builder) throws RepositoryException {
+        return builder.build(session.getRootNode().getNode(INDEX_DEFINITIONS_NAME).addNode(idxName));
+    }
+
+    protected Node getIndexNode(Session session, String idxName) throws RepositoryException {
+        return session.getRootNode().getNode(INDEX_DEFINITIONS_NAME).getNode(idxName);
+    }
     protected IndexDefinitionBuilder createIndex(IndexDefinitionBuilder builder, boolean isAsync, String... propNames) {
         if (!isAsync) {
             builder = builder.noAsync();
