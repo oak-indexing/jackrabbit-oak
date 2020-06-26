@@ -40,7 +40,7 @@ public class ElasticFullTextAsyncTest extends ElasticAbstractQueryTest {
         builder.async("async");
         builder.indexRule("nt:base").property("propa").analyzed();
 
-        setIndex("test1", builder);
+        setIndex(UUID.randomUUID().toString(), builder);
         root.commit();
 
         //add content
@@ -61,6 +61,32 @@ public class ElasticFullTextAsyncTest extends ElasticAbstractQueryTest {
     }
 
     @Test
+    public void testNodeScopeIndexedQuery() throws Exception {
+        IndexDefinitionBuilder builder = createIndex("a", "b").async("async");
+        builder.indexRule("nt:base").property("a").analyzed().nodeScopeIndex();
+        builder.indexRule("nt:base").property("b").analyzed().nodeScopeIndex();
+
+        setIndex(UUID.randomUUID().toString(), builder);
+        root.commit();
+
+        //add content
+        Tree test = root.getTree("/").addChild("test");
+
+        test.addChild("a").setProperty("a", "hello");
+        test.addChild("b").setProperty("a", "world");
+        test.addChild("c").setProperty("a", "hello world");
+        Tree d = test.addChild("d");
+        d.setProperty("a", "hello");
+        d.setProperty("b", "world");
+        root.commit();
+
+        assertEventually(() -> {
+            assertQuery("//*[jcr:contains(., 'Hello')] ", XPATH, Arrays.asList("/test/a", "/test/c", "/test/d"));
+            assertQuery("//*[jcr:contains(., 'hello world')] ", XPATH, Arrays.asList("/test/c", "/test/d"));
+        });
+    }
+
+    @Test
     public void testFullTextMultiTermQuery() throws Exception {
         IndexDefinitionBuilder builder = createIndex("analyzed_field");
         builder.async("async");
@@ -75,9 +101,9 @@ public class ElasticFullTextAsyncTest extends ElasticAbstractQueryTest {
         test.addChild("b").setProperty("analyzed_field", "test456");
         root.commit();
 
-        assertEventually(() -> {
-            assertQuery("//*[jcr:contains(@analyzed_field, 'test123')] ", XPATH, Collections.singletonList("/test/a"));
-        });
+        assertEventually(() ->
+                assertQuery("//*[jcr:contains(@analyzed_field, 'test123')] ", XPATH, Collections.singletonList("/test/a"))
+        );
     }
 
     @Test
