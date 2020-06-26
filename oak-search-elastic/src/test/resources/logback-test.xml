@@ -29,7 +29,9 @@
         </encoder>
     </appender>
 
+    <!--
     <logger name="org.apache.jackrabbit.oak.plugins.index.elastic.ElasticPerfTest" level="TRACE"/>
+    -->
     <!--
     <logger name="org.apache.jackrabbit.oak.plugins.index.elastic" level="TRACE" />
     -->
