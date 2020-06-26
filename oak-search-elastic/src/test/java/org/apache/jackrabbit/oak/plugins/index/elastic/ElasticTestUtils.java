@@ -55,13 +55,12 @@ public final class ElasticTestUtils {
     }
 
     public static String randomString(int size) {
-        return randomString(42, size);
+        return randomString(new Random(42), size);
     }
 
-    public static String randomString(long seed, int size) {
+    public static String randomString(Random random, int size) {
         int leftLimit = 48; // '0'
         int rightLimit = 122; // char '~'
-        final Random random = new Random(seed);
 
         return random.ints(leftLimit, rightLimit + 1)
                 .limit(size)

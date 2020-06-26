@@ -479,7 +479,7 @@ public class ElasticRequestHandler {
             // TODO: do we need this if all the analyzed fields are queried?
             ret = in.should(matchQuery(fieldName, text));
         } else {
-            ret = matchQuery(fieldName, text);
+            ret = matchQuery(fieldName, text).operator(Operator.AND);
         }
 
         return ret;

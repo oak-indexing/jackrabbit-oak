@@ -61,6 +61,26 @@ public class ElasticFullTextAsyncTest extends ElasticAbstractQueryTest {
     }
 
     @Test
+    public void testFullTextMultiTermQuery() throws Exception {
+        IndexDefinitionBuilder builder = createIndex("analyzed_field");
+        builder.async("async");
+        builder.indexRule("nt:base").property("analyzed_field").analyzed();
+
+        setIndex(UUID.randomUUID().toString(), builder);
+        root.commit();
+
+        //add content
+        Tree test = root.getTree("/").addChild("test");
+        test.addChild("a").setProperty("analyzed_field", "test123");
+        test.addChild("b").setProperty("analyzed_field", "test456");
+        root.commit();
+
+        assertEventually(() -> {
+            assertQuery("//*[jcr:contains(@analyzed_field, 'test123')] ", XPATH, Collections.singletonList("/test/a"));
+        });
+    }
+
+    @Test
     public void testDefaultAnalyzer() throws Exception {
         IndexDefinitionBuilder builder = createIndex("analyzed_field");
         builder.async("async");
