@@ -35,14 +35,13 @@ public class ElasticContentTest extends ElasticAbstractQueryTest {
     public void indexWithAnalyzedProperty() throws Exception {
         IndexDefinitionBuilder builder = createIndex("a").noAsync();
         builder.indexRule("nt:base").property("a").analyzed();
-        String testId = UUID.randomUUID().toString();
-        Tree index = setIndex(testId, builder);
+        Tree index = setIndex(UUID.randomUUID().toString(), builder);
         root.commit();
 
         assertTrue(exists(index));
         assertThat(0L, equalTo(countDocuments(index)));
 
-        Tree content = root.getTree("/").addChild(testId);
+        Tree content = root.getTree("/").addChild("content");
         content.addChild("indexed").setProperty("a", "foo");
         content.addChild("not-indexed").setProperty("b", "foo");
         root.commit();
@@ -66,13 +65,12 @@ public class ElasticContentTest extends ElasticAbstractQueryTest {
     public void indexWithAnalyzedNodeScopeIndexProperty() throws Exception {
         IndexDefinitionBuilder builder = createIndex("a").noAsync();
         builder.indexRule("nt:base").property("a").analyzed().nodeScopeIndex();
-        String testId = UUID.randomUUID().toString();
-        Tree index = setIndex(testId, builder);
+        Tree index = setIndex(UUID.randomUUID().toString(), builder);
         root.commit();
 
         assertThat(0L, equalTo(countDocuments(index)));
 
-        Tree content = root.getTree("/").addChild(testId);
+        Tree content = root.getTree("/").addChild("content");
         content.addChild("indexed").setProperty("a", "foo");
         content.addChild("not-indexed").setProperty("b", "foo");
         root.commit();
@@ -84,8 +82,7 @@ public class ElasticContentTest extends ElasticAbstractQueryTest {
     public void indexContentWithLongPath() throws Exception {
         IndexDefinitionBuilder builder = createIndex("a").noAsync();
         builder.indexRule("nt:base").property("a").analyzed();
-        String testId = UUID.randomUUID().toString();
-        Tree index = setIndex(testId, builder);
+        Tree index = setIndex(UUID.randomUUID().toString(), builder);
         root.commit();
 
         assertTrue(exists(index));
@@ -101,7 +98,7 @@ public class ElasticContentTest extends ElasticAbstractQueryTest {
                 .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append)
                 .toString();
 
-        Tree content = root.getTree("/").addChild(testId);
+        Tree content = root.getTree("/").addChild("content");
         content.addChild(generatedPath).setProperty("a", "foo");
         root.commit();
 
@@ -126,15 +123,13 @@ public class ElasticContentTest extends ElasticAbstractQueryTest {
     public void analyzedFieldWithLongValue() throws Exception {
         IndexDefinitionBuilder builder = createIndex("a").noAsync();
         builder.indexRule("nt:base").property("a").analyzed();
-        String testId = UUID.randomUUID().toString();
-        Tree index = setIndex(testId, builder);
+        Tree index = setIndex(UUID.randomUUID().toString(), builder);
         root.commit();
 
         assertTrue(exists(index));
         assertThat(0L, equalTo(countDocuments(index)));
 
-        Tree content = root.getTree("/").addChild(testId);
-
+        Tree content = root.getTree("/").addChild("content");
         content.addChild("indexed1").setProperty("a", randomString(33409)); // max length is 32766
         root.commit();
 
