@@ -14,38 +14,36 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.jackrabbit.oak.plugins.index.elastic;
+package org.apache.jackrabbit.oak.plugins.index.lucene;
 
 import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.commons.PerfLogger;
 import org.apache.jackrabbit.oak.jcr.Jcr;
-import org.apache.jackrabbit.oak.plugins.index.ElasticTestRepositoryBuilder;
 import org.apache.jackrabbit.oak.plugins.index.FacetTest1;
-import org.apache.jackrabbit.oak.plugins.index.RepositoryOptionsUtil;
+import org.apache.jackrabbit.oak.plugins.index.LuceneIndexOptions;
+import org.apache.jackrabbit.oak.plugins.index.TestUtils;
 import org.junit.After;
-import org.junit.ClassRule;
+import org.junit.Rule;
+import org.junit.rules.TemporaryFolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.jcr.Repository;
 import javax.jcr.RepositoryException;
+import java.io.File;
 import java.io.IOException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
-public class ElasticFacetTest1 extends FacetTest1 {
+public class LuceneFacetTest1 extends FacetTest1 {
 
-    private static final Logger LOG = LoggerFactory.getLogger(ElasticFacetTest1.class);
+    private static final Logger LOG = LoggerFactory.getLogger(LuceneFacetTest1.class);
     private static final PerfLogger LOG_PERF = new PerfLogger(LOG);
     private static final String FACET_PROP = "facets";
 
-    // Set this connection string as
-    // <scheme>://<hostname>:<port>?key_id=<>,key_secret=<>
-    // key_id and key_secret are optional in case the ES server
-    // needs authentication
-    // Do not set this if docker is running and you want to run the tests on docker instead.
-    private static String elasticConnectionString = "http://mokatari-ubuntu:9200";//System.getProperty("elasticConnectionString");
-    @ClassRule
-    public static ElasticConnectionRule elasticRule = new ElasticConnectionRule(elasticConnectionString);
-
+    private ExecutorService executorService = Executors.newFixedThreadPool(2);
+    @Rule
+    public TemporaryFolder temporaryFolder = new TemporaryFolder(new File("target"));
 
     /*
     Close the ES connection after every test method execution
@@ -54,12 +52,12 @@ public class ElasticFacetTest1 extends FacetTest1 {
     public void cleanup() throws IOException {
         anonymousSession.logout();
         adminSession.logout();
-        elasticRule.closeElasticConnection();
+        //   elasticRule.closeElasticConnection();
     }
 
     protected Repository createJcrRepository() throws RepositoryException {
-        indexOptions = new ElasticIndexOptions();
-        repositoryOptionsUtil = new ElasticTestRepositoryBuilder(elasticRule).build();
+        indexOptions = new LuceneIndexOptions();
+        repositoryOptionsUtil = new LuceneTestRepositoryBuilder(executorService, temporaryFolder).build();
         Oak oak = repositoryOptionsUtil.getOak();
         Jcr jcr = new Jcr(oak);
         Repository repository = jcr.createRepository();
@@ -67,7 +65,7 @@ public class ElasticFacetTest1 extends FacetTest1 {
     }
 
     private void assertEventually(Runnable r) {
-        ElasticTestUtils.assertEventually(r, ((repositoryOptionsUtil.isAsync() ? repositoryOptionsUtil.defaultAsyncIndexingTimeInSeconds : 0) + 3000) * 5);
+        TestUtils.assertEventually(r, ((repositoryOptionsUtil.isAsync() ? repositoryOptionsUtil.defaultAsyncIndexingTimeInSeconds : 0) + 3000) * 5);
     }
 
 }
