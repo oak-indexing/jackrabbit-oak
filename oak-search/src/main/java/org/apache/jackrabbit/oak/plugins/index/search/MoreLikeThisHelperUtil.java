@@ -116,12 +116,12 @@ public class MoreLikeThisHelperUtil {
     Returns param map for a query string of type mlt.fl=:path&mlt.mindf=0&stream.body=/test/a
      */
     public static Map<String, String> getParamMapFromMltQuery(String mltQueryString) {
-        Map paramMap = new HashMap<String, String>();
+        Map<String, String> paramMap = new HashMap();
         try {
             for (String param : mltQueryString.split("&")) {
                 String[] keyValuePair = param.split("=");
                 if (keyValuePair.length != 2 || keyValuePair[0] == null || keyValuePair[1] == null) {
-                    throw new RuntimeException("Unparsable native Lucene MLT query: " + mltQueryString);
+                    throw new RuntimeException("Unparsable native MLT query: " + mltQueryString);
                 } else {
                     paramMap.put(keyValuePair[0], keyValuePair[1]);
                 }
@@ -131,7 +131,7 @@ public class MoreLikeThisHelperUtil {
         }
 
         if (paramMap.size() == 0) {
-            throw new RuntimeException("No params found while parsin the mlt query : " + mltQueryString);
+            throw new RuntimeException("No params found while parsing the MLT query : " + mltQueryString);
         }
 
         return paramMap;

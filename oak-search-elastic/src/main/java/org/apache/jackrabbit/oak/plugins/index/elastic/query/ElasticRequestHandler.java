@@ -223,7 +223,7 @@ public class ElasticRequestHandler {
        be useful in every situation based on the type of content)
      */
     private QueryBuilder moreLikeThisQuery(String mltQueryString) {
-        MoreLikeThisQueryBuilder mlt = null;
+        MoreLikeThisQueryBuilder mlt;
         Map<String, String> paramMap = MoreLikeThisHelperUtil.getParamMapFromMltQuery(mltQueryString);
         String text = paramMap.get(MoreLikeThisHelperUtil.MLT_STREAM_BODY);
         String fields = paramMap.get(MoreLikeThisHelperUtil.MLT_FILED);
@@ -247,7 +247,7 @@ public class ElasticRequestHandler {
             // TODO : See if we might want to support like Text here (passed as null in above constructors)
             // IT is not supported in our lucene implementation.
         } else {
-            throw new RuntimeException("Missing requied field stream.body in  MLT query: " + mltQueryString);
+            throw new RuntimeException("Missing required field stream.body in  MLT query: " + mltQueryString);
         }
 
         for (String key : paramMap.keySet()) {
