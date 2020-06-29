@@ -214,7 +214,7 @@ public class ElasticRequestHandler {
     2) select [jcr:path] from [nt:base] where " +
        "native('elastic-sim', 'mlt?stream.body=/test/a&mlt.fl=:path&mlt.mindf=0&mlt.mintf=0')
        In this case the the exact mlt query passed above is passed to this method. This can be useful if we want to
-       fine tune the various default parameters. (Disregard the lucene in the native for now)
+       fine tune the various default parameters.
        The function name passed to native func ('elastic-sim') needs to be defined on index def
        Refer https://jackrabbit.apache.org/oak/docs/query/lucene.html#native-query
        TODO : Docs for writing a native mlt query with the various parameters that can be tuned
