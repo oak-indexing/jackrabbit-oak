@@ -20,6 +20,7 @@ import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.facets.ElasticFacetProvider;
+import org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils;
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.MoreLikeThisHelperUtil;
@@ -228,6 +229,10 @@ public class ElasticRequestHandler {
         String fields = paramMap.get(MoreLikeThisHelperUtil.MLT_FILED);
 
         if (text != null) {
+            // It's expected the text here to be the path of the doc
+            // In case the path of a node is greater than 512 bytes,
+            // we hash it before storing it as the _id for the elastic doc
+            text = ElasticIndexUtils.idFromPath(text);
             if (FieldNames.PATH.equals(fields) || fields == null) {
                 // Handle the case 1) where default query sent by SimilarImpl (No Custom fields)
                 // We just need to specify the doc (Item) whose similar content we need to find

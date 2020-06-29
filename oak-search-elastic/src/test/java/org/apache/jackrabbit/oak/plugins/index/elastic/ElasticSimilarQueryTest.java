@@ -156,7 +156,31 @@ public class ElasticSimilarQueryTest extends ElasticAbstractQueryTest {
         assertEventually(() -> assertQuery(nativeQueryStringWithoutMinWordLength,
                 Arrays.asList("/test/b", "/test/c", "/test/d")));
 
+    }
 
+
+    @Test
+    public void testRepSimilarQueryWithLongPath() throws Exception {
+        createIndex(false);
+        Tree test = root.getTree("/").addChild("test");
+        Tree longPath = test.addChild("a");
+        for (int i = 0; i < 258; i ++) {
+            longPath = longPath.addChild("a"+i);
+        }
+        longPath.setProperty("text", "Hello World Hello World");
+        test.addChild("b").setProperty("text", "Hello World");
+        test.addChild("c").setProperty("text", "World");
+        test.addChild("d").setProperty("text", "Hello");
+        test.addChild("e").setProperty("text", "Bye Bye");
+        test.addChild("f").setProperty("text", "Hello");
+        test.addChild("g").setProperty("text", "World");
+        test.addChild("h").setProperty("text", "Hello");
+        root.commit();
+
+        String query = "select [jcr:path] from [nt:base] where similar(., '"+longPath.getPath()+"')";
+
+        assertEventually(() -> assertQuery(query,
+                Arrays.asList("/test/b", "/test/c", "/test/d", "/test/f", "/test/g", "/test/h")));
     }
 
 
