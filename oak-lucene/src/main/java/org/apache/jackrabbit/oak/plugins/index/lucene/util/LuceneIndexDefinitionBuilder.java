@@ -16,38 +16,30 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.jackrabbit.oak.index.indexer.document.flatfile.linkedList;
 
-import java.util.Iterator;
+package org.apache.jackrabbit.oak.plugins.index.lucene.util;
 
-import org.apache.jackrabbit.oak.index.indexer.document.NodeStateEntry;
-import org.jetbrains.annotations.NotNull;
+import org.apache.jackrabbit.oak.plugins.index.search.util.IndexDefinitionBuilder;
+import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 
-public interface NodeStateEntryList {
+import static org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexConstants.TYPE_LUCENE;
 
-    /**
-     * Add an item at the tail of the list.
-     */
-    public void add(@NotNull NodeStateEntry item);
+public final class LuceneIndexDefinitionBuilder extends IndexDefinitionBuilder {
 
-    /**
-     * Remove the first item from the list.
-     *
-     * @return the removed item
-     */
-    public NodeStateEntry remove();
+    public LuceneIndexDefinitionBuilder() {
+        super();
+    }
 
-    public long estimatedMemoryUsage();
+    public LuceneIndexDefinitionBuilder(NodeBuilder nodeBuilder) {
+        super(nodeBuilder);
+    }
 
-    public int size();
+    public LuceneIndexDefinitionBuilder(NodeBuilder nodeBuilder, boolean autoManageReindexFlag) {
+        super(nodeBuilder, autoManageReindexFlag);
+    }
 
-    /**
-     * Get an iterator to iterate over the whole list
-     */
-    public Iterator<NodeStateEntry> iterator();
-
-    public boolean isEmpty();
-
-    public void close();
+    protected String getIndexType() {
+        return TYPE_LUCENE;
+    }
 
 }
