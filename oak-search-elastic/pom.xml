@@ -63,7 +63,7 @@
               *
             </Import-Package>
             <Embed-Dependency>
-              oak-search;inline=true,
+              oak-search;scope=compile|runtime;inline=true,
               elasticsearch;groupId=org.elasticsearch,
               *;scope=compile|runtime
             </Embed-Dependency>
