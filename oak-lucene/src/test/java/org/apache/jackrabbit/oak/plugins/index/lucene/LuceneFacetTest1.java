@@ -37,13 +37,11 @@ import java.util.concurrent.Executors;
 
 public class LuceneFacetTest1 extends FacetTest1 {
 
-    private static final Logger LOG = LoggerFactory.getLogger(LuceneFacetTest1.class);
-
     private ExecutorService executorService = Executors.newFixedThreadPool(2);
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder(new File("target"));
 
-    protected Repository createJcrRepository() throws RepositoryException {
+    protected Repository createJcrRepository() {
         indexOptions = new LuceneIndexOptions();
         repositoryOptionsUtil = new LuceneTestRepositoryBuilder(executorService, temporaryFolder).build();
         Oak oak = repositoryOptionsUtil.getOak();

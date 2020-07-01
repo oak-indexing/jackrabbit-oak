@@ -45,7 +45,6 @@ import static org.junit.Assert.assertEquals;
 
 public abstract class SpellcheckTest1 extends AbstractJcrTest {
 
-    private static final Logger LOG = LoggerFactory.getLogger(SpellcheckTest1.class);
     protected Node indexNode;
     protected IndexOptions indexOptions;
     protected TestRepository repositoryOptionsUtil;
@@ -120,9 +119,9 @@ public abstract class SpellcheckTest1 extends AbstractJcrTest {
         Node n2 = par.addNode("node2");
         n2.setProperty("foo", "ontario is a nice place to live in");
         Node n3 = par.addNode("node3");
-        n2.setProperty("foo", "I flied to ontario for voting for the major polls");
+        n3.setProperty("foo", "I flied to ontario for voting for the major polls");
         Node n4 = par.addNode("node4");
-        n2.setProperty("foo", "I will go voting in ontario, I always voted since I've been allowed to");
+        n4.setProperty("foo", "I will go voting in ontario, I always voted since I've been allowed to");
         adminSession.save();
 
         String sql = "SELECT [rep:spellcheck()] FROM nt:base WHERE SPELLCHECK('votin in ontari')";
@@ -149,7 +148,7 @@ public abstract class SpellcheckTest1 extends AbstractJcrTest {
 
     static List<String> getResult(QueryResult result, String propertyName) throws RepositoryException {
         List<String> results = Lists.newArrayList();
-        RowIterator it = null;
+        RowIterator it;
 
         it = result.getRows();
         while (it.hasNext()) {

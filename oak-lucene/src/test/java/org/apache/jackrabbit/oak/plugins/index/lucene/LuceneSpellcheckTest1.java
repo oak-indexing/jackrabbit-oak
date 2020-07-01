@@ -36,13 +36,11 @@ import java.util.concurrent.Executors;
 @Ignore
 public class LuceneSpellcheckTest1 extends SpellcheckTest1 {
 
-    private static final Logger LOG = LoggerFactory.getLogger(LuceneSpellcheckTest1.class);
-
     private ExecutorService executorService = Executors.newFixedThreadPool(2);
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder(new File("target"));
 
-    protected Repository createJcrRepository() throws RepositoryException {
+    protected Repository createJcrRepository() {
         indexOptions = new LuceneIndexOptions();
         repositoryOptionsUtil = new LuceneTestRepositoryBuilder(executorService, temporaryFolder).build();
         Oak oak = repositoryOptionsUtil.getOak();

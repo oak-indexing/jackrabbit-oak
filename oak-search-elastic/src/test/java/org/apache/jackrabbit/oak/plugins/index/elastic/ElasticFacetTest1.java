@@ -47,7 +47,7 @@ public class ElasticFacetTest1 extends FacetTest1 {
         elasticRule.closeElasticConnection();
     }
 
-    protected Repository createJcrRepository() throws RepositoryException {
+    protected Repository createJcrRepository() {
         indexOptions = new ElasticIndexOptions();
         repositoryOptionsUtil = new ElasticTestRepositoryBuilder(elasticRule).build();
         Oak oak = repositoryOptionsUtil.getOak();
