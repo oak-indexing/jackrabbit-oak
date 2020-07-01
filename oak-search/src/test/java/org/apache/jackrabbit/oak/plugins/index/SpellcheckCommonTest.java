@@ -43,7 +43,7 @@ import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConsta
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROP_USE_IN_SPELLCHECK;
 import static org.junit.Assert.assertEquals;
 
-public abstract class SpellcheckTest1 extends AbstractJcrTest {
+public abstract class SpellcheckCommonTest extends AbstractJcrTest {
 
     protected Node indexNode;
     protected IndexOptions indexOptions;

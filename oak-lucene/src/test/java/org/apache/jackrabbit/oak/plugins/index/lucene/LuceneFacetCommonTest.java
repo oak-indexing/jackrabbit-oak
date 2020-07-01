@@ -17,25 +17,19 @@
 package org.apache.jackrabbit.oak.plugins.index.lucene;
 
 import org.apache.jackrabbit.oak.Oak;
-import org.apache.jackrabbit.oak.commons.PerfLogger;
 import org.apache.jackrabbit.oak.jcr.Jcr;
-import org.apache.jackrabbit.oak.plugins.index.FacetTest1;
+import org.apache.jackrabbit.oak.plugins.index.FacetCommonTest;
 import org.apache.jackrabbit.oak.plugins.index.LuceneIndexOptions;
 import org.apache.jackrabbit.oak.plugins.index.TestUtils;
-import org.junit.After;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import javax.jcr.Repository;
-import javax.jcr.RepositoryException;
 import java.io.File;
-import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class LuceneFacetTest1 extends FacetTest1 {
+public class LuceneFacetCommonTest extends FacetCommonTest {
 
     private ExecutorService executorService = Executors.newFixedThreadPool(2);
     @Rule

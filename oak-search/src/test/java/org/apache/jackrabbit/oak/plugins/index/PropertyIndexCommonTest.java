@@ -28,7 +28,7 @@ import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConsta
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.MatcherAssert.assertThat;
 
-public abstract class PropertyIndexTest1 extends AbstractQueryTest {
+public abstract class PropertyIndexCommonTest extends AbstractQueryTest {
 
     protected IndexOptions indexOptions;
     protected TestRepository repositoryOptionsUtil;

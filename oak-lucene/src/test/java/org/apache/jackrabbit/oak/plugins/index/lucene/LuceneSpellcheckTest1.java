@@ -19,22 +19,19 @@ package org.apache.jackrabbit.oak.plugins.index.lucene;
 import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.jcr.Jcr;
 import org.apache.jackrabbit.oak.plugins.index.LuceneIndexOptions;
-import org.apache.jackrabbit.oak.plugins.index.SpellcheckTest1;
+import org.apache.jackrabbit.oak.plugins.index.SpellcheckCommonTest;
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import javax.jcr.Repository;
-import javax.jcr.RepositoryException;
 import java.io.File;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 //TODO Spellckeck tests are failing for lucene index
 @Ignore
-public class LuceneSpellcheckTest1 extends SpellcheckTest1 {
+public class LuceneSpellcheckTest1 extends SpellcheckCommonTest {
 
     private ExecutorService executorService = Executors.newFixedThreadPool(2);
     @Rule

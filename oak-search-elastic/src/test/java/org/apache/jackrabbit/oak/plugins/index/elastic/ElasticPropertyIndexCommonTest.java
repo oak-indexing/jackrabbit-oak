@@ -16,47 +16,34 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic;
 
-import org.apache.jackrabbit.oak.Oak;
-import org.apache.jackrabbit.oak.jcr.Jcr;
+import org.apache.jackrabbit.oak.api.ContentRepository;
 import org.apache.jackrabbit.oak.plugins.index.ElasticTestRepositoryBuilder;
-import org.apache.jackrabbit.oak.plugins.index.SpellcheckTest1;
-import org.junit.After;
+import org.apache.jackrabbit.oak.plugins.index.PropertyIndexCommonTest;
 import org.junit.ClassRule;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import javax.jcr.Repository;
-import javax.jcr.RepositoryException;
-import java.io.IOException;
-
-public class ElasticSpellcheckTest1 extends SpellcheckTest1 {
+public class ElasticPropertyIndexCommonTest extends PropertyIndexCommonTest {
 
     // Set this connection string as
     // <scheme>://<hostname>:<port>?key_id=<>,key_secret=<>
     // key_id and key_secret are optional in case the ES server
     // needs authentication
     // Do not set this if docker is running and you want to run the tests on docker instead.
-    private static final String elasticConnectionString = System.getProperty("elasticConnectionString");
-
+    private static String elasticConnectionString = System.getProperty("elasticConnectionString");
     @ClassRule
-    public static final ElasticConnectionRule elasticRule = new ElasticConnectionRule(elasticConnectionString);
+    public static ElasticConnectionRule elasticRule = new ElasticConnectionRule(elasticConnectionString);
 
-    /*
-   Close the ES connection after every test method execution
-    */
-    @After
-    public void cleanup() throws IOException {
-        anonymousSession.logout();
-        adminSession.logout();
-        elasticRule.closeElasticConnection();
+    public ElasticPropertyIndexCommonTest() {
+        indexOptions = new ElasticIndexOptions();
     }
 
-    protected Repository createJcrRepository() {
-        indexOptions = new ElasticIndexOptions();
+    @Override
+    protected ContentRepository createRepository() {
         repositoryOptionsUtil = new ElasticTestRepositoryBuilder(elasticRule).build();
-        Oak oak = repositoryOptionsUtil.getOak();
-        Jcr jcr = new Jcr(oak);
-        Repository repository = jcr.createRepository();
-        return repository;
+        return repositoryOptionsUtil.getOak().createContentRepository();
+    }
+
+    @Override
+    protected void createTestIndexNode() {
+        setTraversalEnabled(false);
     }
 }

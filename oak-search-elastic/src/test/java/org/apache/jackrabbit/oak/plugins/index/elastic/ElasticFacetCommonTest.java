@@ -19,16 +19,15 @@ package org.apache.jackrabbit.oak.plugins.index.elastic;
 import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.jcr.Jcr;
 import org.apache.jackrabbit.oak.plugins.index.ElasticTestRepositoryBuilder;
-import org.apache.jackrabbit.oak.plugins.index.FacetTest1;
+import org.apache.jackrabbit.oak.plugins.index.FacetCommonTest;
 import org.apache.jackrabbit.oak.plugins.index.TestUtils;
 import org.junit.After;
 import org.junit.ClassRule;
 
 import javax.jcr.Repository;
-import javax.jcr.RepositoryException;
 import java.io.IOException;
 
-public class ElasticFacetTest1 extends FacetTest1 {
+public class ElasticFacetCommonTest extends FacetCommonTest {
 
     // Set this connection string as
     // <scheme>://<hostname>:<port>?key_id=<>,key_secret=<>

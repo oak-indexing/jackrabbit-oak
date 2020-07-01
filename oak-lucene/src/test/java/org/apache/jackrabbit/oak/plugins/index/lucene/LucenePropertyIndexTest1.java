@@ -18,7 +18,7 @@ package org.apache.jackrabbit.oak.plugins.index.lucene;
 
 import org.apache.jackrabbit.oak.api.ContentRepository;
 import org.apache.jackrabbit.oak.plugins.index.LuceneIndexOptions;
-import org.apache.jackrabbit.oak.plugins.index.PropertyIndexTest1;
+import org.apache.jackrabbit.oak.plugins.index.PropertyIndexCommonTest;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
 
@@ -26,7 +26,7 @@ import java.io.File;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class LucenePropertyIndexTest1 extends PropertyIndexTest1 {
+public class LucenePropertyIndexTest1 extends PropertyIndexCommonTest {
 
     private ExecutorService executorService = Executors.newFixedThreadPool(2);
     @Rule
