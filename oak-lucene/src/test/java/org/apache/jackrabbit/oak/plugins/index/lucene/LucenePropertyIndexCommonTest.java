@@ -26,7 +26,7 @@ import java.io.File;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class LucenePropertyIndexTest1 extends PropertyIndexCommonTest {
+public class LucenePropertyIndexCommonTest extends PropertyIndexCommonTest {
 
     private ExecutorService executorService = Executors.newFixedThreadPool(2);
     @Rule

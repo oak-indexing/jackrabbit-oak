@@ -31,7 +31,7 @@ import java.util.concurrent.Executors;
 
 //TODO Spellckeck tests are failing for lucene index
 @Ignore
-public class LuceneSpellcheckTest1 extends SpellcheckCommonTest {
+public class LuceneSpellcheckCommonTest extends SpellcheckCommonTest {
 
     private ExecutorService executorService = Executors.newFixedThreadPool(2);
     @Rule
