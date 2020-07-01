@@ -43,7 +43,7 @@ public class ElasticPropertyIndexTest1 extends PropertyIndexTest1 {
     }
 
     @Override
-    protected void createTestIndexNode() throws Exception {
+    protected void createTestIndexNode() {
         setTraversalEnabled(false);
     }
 }

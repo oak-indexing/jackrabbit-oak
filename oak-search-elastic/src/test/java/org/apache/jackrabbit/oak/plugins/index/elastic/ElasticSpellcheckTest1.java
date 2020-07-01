@@ -31,8 +31,6 @@ import java.io.IOException;
 
 public class ElasticSpellcheckTest1 extends SpellcheckTest1 {
 
-    private static final Logger LOG = LoggerFactory.getLogger(ElasticSpellcheckTest1.class);
-
     // Set this connection string as
     // <scheme>://<hostname>:<port>?key_id=<>,key_secret=<>
     // key_id and key_secret are optional in case the ES server
@@ -53,7 +51,7 @@ public class ElasticSpellcheckTest1 extends SpellcheckTest1 {
         elasticRule.closeElasticConnection();
     }
 
-    protected Repository createJcrRepository() throws RepositoryException {
+    protected Repository createJcrRepository() {
         indexOptions = new ElasticIndexOptions();
         repositoryOptionsUtil = new ElasticTestRepositoryBuilder(elasticRule).build();
         Oak oak = repositoryOptionsUtil.getOak();
