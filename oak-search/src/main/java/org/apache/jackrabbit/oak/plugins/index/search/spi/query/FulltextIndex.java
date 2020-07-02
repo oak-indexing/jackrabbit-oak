@@ -24,7 +24,6 @@ import org.apache.jackrabbit.oak.api.PropertyValue;
 import org.apache.jackrabbit.oak.api.Result.SizePrecision;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.commons.PathUtils;
-import org.apache.jackrabbit.oak.commons.PerfLogger;
 import org.apache.jackrabbit.oak.commons.json.JsopBuilder;
 import org.apache.jackrabbit.oak.commons.json.JsopWriter;
 import org.apache.jackrabbit.oak.plugins.index.Cursors;
@@ -71,10 +70,7 @@ import static org.apache.jackrabbit.oak.spi.query.QueryIndex.NativeQueryIndex;
 public abstract class FulltextIndex implements AdvancedQueryIndex, QueryIndex, NativeQueryIndex,
         AdvanceFulltextQueryIndex {
 
-    private final Logger LOG = LoggerFactory
-            .getLogger(getClass());
-    private final PerfLogger PERF_LOGGER =
-            new PerfLogger(LoggerFactory.getLogger(getClass() + ".perf"));
+    private static final Logger LOG = LoggerFactory.getLogger(FulltextIndex.class);
 
     public static final String ATTR_PLAN_RESULT = "oak.fulltext.planResult";
 
@@ -96,6 +92,13 @@ public abstract class FulltextIndex implements AdvancedQueryIndex, QueryIndex, N
      */
     protected abstract boolean filterReplacedIndexes();
 
+    /**
+     * Returns the {@link FulltextIndexPlanner} for the specified arguments
+     */
+    protected FulltextIndexPlanner getPlanner(IndexNode indexNode, String path, Filter filter, List<OrderEntry> sortOrder) {
+        return new FulltextIndexPlanner(indexNode, path, filter, sortOrder);
+    }
+
     @Override
     public List<IndexPlan> getPlans(Filter filter, List<OrderEntry> sortOrder, NodeState rootState) {
         Collection<String> indexPaths = new IndexLookup(rootState, getIndexDefinitionPredicate())
@@ -110,7 +113,7 @@ public abstract class FulltextIndex implements AdvancedQueryIndex, QueryIndex, N
                 indexNode = acquireIndexNode(path);
 
                 if (indexNode != null) {
-                    IndexPlan plan = new FulltextIndexPlanner(indexNode, path, filter, sortOrder).getPlan();
+                    IndexPlan plan = getPlanner(indexNode, path, filter, sortOrder).getPlan();
                     if (plan != null) {
                         plans.add(plan);
                     }

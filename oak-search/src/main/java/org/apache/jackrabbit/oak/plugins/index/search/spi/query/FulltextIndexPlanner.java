@@ -16,7 +16,6 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-
 package org.apache.jackrabbit.oak.plugins.index.search.spi.query;
 
 import java.util.ArrayList;
@@ -83,9 +82,9 @@ public class FulltextIndexPlanner {
     private final IndexDefinition definition;
     private final Filter filter;
     private final String indexPath;
-    private final List<OrderEntry> sortOrder;
-    private IndexNode indexNode;
-    private PlanResult result;
+    protected final List<OrderEntry> sortOrder;
+    private final IndexNode indexNode;
+    protected PlanResult result;
     protected static boolean useActualEntryCount;
 
     static {
@@ -158,13 +157,12 @@ public class FulltextIndexPlanner {
             return null;
         }
 
-        FullTextExpression ft = filter.getFullTextConstraint();
-
         if (!definition.getVersion().isAtLeast(IndexFormatVersion.V2)){
             log.trace("Index is old format. Not supported");
             return null;
         }
 
+        FullTextExpression ft = filter.getFullTextConstraint();
         //Query Fulltext and Index does not support fulltext
         if (ft != null && !definition.isFullTextEnabled()) {
             return null;
@@ -568,7 +566,7 @@ public class FulltextIndexPlanner {
         //have jcr:content as parent. So ensure that relPaths size is 1 or 0
         if (!nonIndexedPaths.isEmpty()){
             if (relPaths.size() > 1){
-                log.debug("Following relative  property paths are not index", relPaths);
+                log.debug("Following relative property paths are not index: {}", relPaths);
                 return false;
             }
             result.setParentPath(Iterables.getOnlyElement(relPaths, ""));
@@ -865,7 +863,7 @@ public class FulltextIndexPlanner {
         return pr.first != null && pr.first == pr.last;
     }
 
-    private List<OrderEntry> createSortOrder(IndexDefinition.IndexingRule rule) {
+    protected List<OrderEntry> createSortOrder(IndexDefinition.IndexingRule rule) {
         if (sortOrder == null) {
             return Collections.emptyList();
         }
@@ -979,7 +977,7 @@ public class FulltextIndexPlanner {
         public final String indexPath;
         public final IndexDefinition indexDefinition;
         public final IndexDefinition.IndexingRule indexingRule;
-        private final List<PropertyDefinition> sortedProperties = newArrayList();
+        public final List<PropertyDefinition> sortedProperties = newArrayList();
 
         //Map of actual property name as present in our property definitions
         private final Map<String, PropertyDefinition> propDefns = newHashMap();
