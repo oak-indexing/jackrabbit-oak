@@ -102,6 +102,10 @@ public class ElasticRequestHandler {
     private static final Logger LOG = LoggerFactory.getLogger(ElasticRequestHandler.class);
     private final static String SPELLCHECK_PREFIX = "spellcheck?term=";
     private static final String ES_TRIGRAM_SUFFIX = ".trigram";
+    private static final List<FieldSortBuilder> DEFAULT_SORTS = Arrays.asList(
+            SortBuilders.fieldSort("_score").order(SortOrder.DESC),
+            SortBuilders.fieldSort(FieldNames.PATH).order(SortOrder.ASC) // tie-breaker
+    );
 
     private final IndexPlan indexPlan;
     private final Filter filter;
@@ -166,10 +170,7 @@ public class ElasticRequestHandler {
     public @NotNull List<FieldSortBuilder> baseSorts() {
         List<QueryIndex.OrderEntry> sortOrder = indexPlan.getSortOrder();
         if (sortOrder == null || sortOrder.isEmpty()) {
-            return Arrays.asList(
-                    SortBuilders.fieldSort("_score").order(SortOrder.DESC),
-                    SortBuilders.fieldSort(FieldNames.PATH).order(SortOrder.ASC) // tie-breaker
-            );
+            return DEFAULT_SORTS;
         }
         Map<String, List<PropertyDefinition>> indexProperties = elasticIndexDefinition.getPropertiesByName();
         boolean hasTieBreaker = false;
