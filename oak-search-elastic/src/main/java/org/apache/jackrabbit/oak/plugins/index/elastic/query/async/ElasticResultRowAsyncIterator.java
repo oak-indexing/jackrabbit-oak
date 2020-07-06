@@ -95,14 +95,17 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
 
     @Override
     public boolean hasNext() {
-        if (queue.isEmpty()) {
-            // this triggers, when needed, the scan of the next results chunk
-            elasticQueryScanner.scan();
-        }
-        try {
-            nextRow = queue.take();
-        } catch (InterruptedException e) {
-            throw new IllegalStateException("Error reading next result from Elastic", e);
+        // if nextRow is not null it means the caller invoked hasNext() before without calling next()
+        if (nextRow == null) {
+            if (queue.isEmpty()) {
+                // this triggers, when needed, the scan of the next results chunk
+                elasticQueryScanner.scan();
+            }
+            try {
+                nextRow = queue.take();
+            } catch (InterruptedException e) {
+                throw new IllegalStateException("Error reading next result from Elastic", e);
+            }
         }
         return !POISON_PILL.path.equals(nextRow.path);
     }
