@@ -977,7 +977,7 @@ public class FulltextIndexPlanner {
         public final String indexPath;
         public final IndexDefinition indexDefinition;
         public final IndexDefinition.IndexingRule indexingRule;
-        public final List<PropertyDefinition> sortedProperties = newArrayList();
+        private final List<PropertyDefinition> sortedProperties = newArrayList();
 
         //Map of actual property name as present in our property definitions
         private final Map<String, PropertyDefinition> propDefns = newHashMap();

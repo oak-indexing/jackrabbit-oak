@@ -50,15 +50,12 @@ class ElasticIndexPlanner extends FulltextIndexPlanner {
                     && o.getPropertyType() != null
                     && !o.getPropertyType().isArray()) {
                 orderEntries.add(o); // can manage any order desc/asc
-                result.sortedProperties.add(pd);
             } else if (JcrConstants.JCR_SCORE.equals(propName)) {
                 // Supports jcr:score in both directions
                 orderEntries.add(o);
-                result.sortedProperties.add(pd);
             } else if (JcrConstants.JCR_PATH.equals(propName)) {
                 // support for path ordering in both directions
                 orderEntries.add(o);
-                result.sortedProperties.add(pd);
             }
             // TODO: add support for function-based sorting
 //            for (PropertyDefinition functionIndex : rule.getFunctionRestrictions()) {
