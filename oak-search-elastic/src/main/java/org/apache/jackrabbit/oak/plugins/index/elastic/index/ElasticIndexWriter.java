@@ -25,6 +25,7 @@ import org.elasticsearch.action.DocWriteRequest;
 import org.elasticsearch.action.admin.indices.alias.IndicesAliasesRequest;
 import org.elasticsearch.action.admin.indices.alias.get.GetAliasesRequest;
 import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest;
+import org.elasticsearch.action.admin.indices.refresh.RefreshRequest;
 import org.elasticsearch.action.bulk.BackoffPolicy;
 import org.elasticsearch.action.bulk.BulkItemResponse;
 import org.elasticsearch.action.bulk.BulkProcessor;
@@ -32,6 +33,7 @@ import org.elasticsearch.action.bulk.BulkRequest;
 import org.elasticsearch.action.bulk.BulkResponse;
 import org.elasticsearch.action.delete.DeleteRequest;
 import org.elasticsearch.action.index.IndexRequest;
+import org.elasticsearch.action.support.WriteRequest;
 import org.elasticsearch.action.support.master.AcknowledgedResponse;
 import org.elasticsearch.client.GetAliasesResponse;
 import org.elasticsearch.client.IndicesClient;
@@ -50,15 +52,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Phaser;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 import static org.elasticsearch.common.xcontent.ToXContent.EMPTY_PARAMS;
@@ -82,6 +82,9 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
      * value is {@code true} when at least an update is performed, otherwise {@code false}.
      */
     private final ConcurrentHashMap<Long, Boolean> updatesMap = new ConcurrentHashMap<>();
+    private final AtomicBoolean isClosing = new AtomicBoolean(false);
+    private long totalOperations = 0;
+    private boolean isDataSearchable = false;
     private final BulkProcessor bulkProcessor;
 
     ElasticIndexWriter(@NotNull ElasticConnection elasticConnection,
@@ -101,8 +104,15 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
     }
 
     private BulkProcessor initBulkProcessor() {
-        return BulkProcessor.builder((request, bulkListener) ->
-                        elasticConnection.getClient().bulkAsync(request, RequestOptions.DEFAULT, bulkListener),
+        return BulkProcessor.builder((request, bulkListener) -> {
+                    if (isClosing.get()) {
+                        LOG.debug("Processor is closing. Next request with {} actions will block until the data is searchable",
+                                request.requests().size());
+                        request.setRefreshPolicy(WriteRequest.RefreshPolicy.IMMEDIATE);
+                        isDataSearchable = true;
+                    }
+                    elasticConnection.getClient().bulkAsync(request, RequestOptions.DEFAULT, bulkListener);
+                },
                 new OakBulkProcessorListener())
                 .setBulkActions(indexDefinition.bulkActions)
                 .setBulkSize(new ByteSizeValue(indexDefinition.bulkSizeBytes))
@@ -119,6 +129,7 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
                 .id(ElasticIndexUtils.idFromPath(path))
                 .source(doc.build(), XContentType.JSON);
         bulkProcessor.add(request);
+        totalOperations++;
     }
 
     @Override
@@ -126,10 +137,16 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
         DeleteRequest request = new DeleteRequest(indexDefinition.getRemoteIndexAlias())
                 .id(ElasticIndexUtils.idFromPath(path));
         bulkProcessor.add(request);
+        totalOperations++;
     }
 
     @Override
     public boolean close(long timestamp) {
+        if (totalOperations <= 0) {
+            LOG.debug("No operations executed in this processor. Close immediately");
+            return false;
+        }
+        isClosing.set(true);
         LOG.trace("Calling close on bulk processor {}", bulkProcessor);
         bulkProcessor.close();
         LOG.trace("Bulk Processor {} closed", bulkProcessor);
@@ -141,6 +158,17 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
             phaser.awaitAdvanceInterruptibly(phase, indexDefinition.bulkFlushIntervalMs * 5, TimeUnit.MILLISECONDS);
         } catch (InterruptedException | TimeoutException e) {
             LOG.error("Error waiting for bulk requests to return", e);
+        }
+
+        if (!isDataSearchable) {
+            LOG.debug("Forcing refresh");
+            try {
+                this.elasticConnection.getClient()
+                        .indices()
+                        .refresh(new RefreshRequest(indexDefinition.getRemoteIndexAlias()), RequestOptions.DEFAULT);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
 
         if (LOG.isTraceEnabled()) {
@@ -230,6 +258,7 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
         public void beforeBulk(long executionId, BulkRequest bulkRequest) {
             // register new bulk party
             phaser.register();
+
             // init update status
             updatesMap.put(executionId, Boolean.FALSE);
 
