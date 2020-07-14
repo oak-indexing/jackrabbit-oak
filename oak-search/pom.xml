@@ -127,6 +127,7 @@
             <groupId>org.apache.tika</groupId>
             <artifactId>tika-core</artifactId>
             <version>${tika.version}</version>
+            <scope>provided</scope>
         </dependency>
 
         <!-- Logging -->

@@ -167,7 +167,7 @@ public abstract class FulltextIndexEditorContext<D> {
       NodeBuilder status = definitionBuilder.child(IndexDefinition.STATUS_NODE);
       status.setProperty(IndexDefinition.STATUS_LAST_UPDATED, getUpdatedTime(currentTime), Type.DATE);
       status.setProperty("indexedNodes", indexedNodes);
-      if (!IndexDefinition.isDisableStoredIndexDefinition() && reindex) {
+      if (storedIndexDefinitionEnabled() && reindex) {
         NodeBuilder indexDefinition = definitionBuilder.child(STATUS_NODE);
         indexDefinition.setProperty(IndexDefinition.REINDEX_COMPLETION_TIMESTAMP, ISO8601.format(currentTime), Type.DATE);
         log.info(IndexDefinition.REINDEX_COMPLETION_TIMESTAMP + " set to current time for index:" + definition.getIndexPath());
@@ -205,8 +205,12 @@ public abstract class FulltextIndexEditorContext<D> {
   public void enableReindexMode(){
     reindex = true;
     ReindexOperations reindexOps =
-            new ReindexOperations(root, definitionBuilder, definition.getIndexPath(), newDefinitionBuilder());
+            new ReindexOperations(root, definitionBuilder, definition.getIndexPath(), newDefinitionBuilder(), storedIndexDefinitionEnabled());
     definition = reindexOps.apply(indexDefnRewritten);
+  }
+
+  public boolean storedIndexDefinitionEnabled() {
+    return !IndexDefinition.isDisableStoredIndexDefinition();
   }
 
   public long incIndexedNodes() {

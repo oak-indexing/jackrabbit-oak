@@ -79,17 +79,14 @@ public class ElasticIndexDefinition extends IndexDefinition {
     public final long bulkFlushIntervalMs;
     public final int bulkRetries;
     public final long bulkRetriesBackoff;
-    private final String indexPrefix;
     private final String remoteAlias;
 
     private final Map<String, List<PropertyDefinition>> propertiesByName;
 
     public ElasticIndexDefinition(NodeState root, NodeState defn, String indexPath, String indexPrefix) {
-        super(root, getIndexDefinitionState(defn), determineIndexFormatVersion(defn), determineUniqueId(defn), indexPath);
-        boolean isReindex = defn.getBoolean(IndexConstants.REINDEX_PROPERTY_NAME);
-        String indexSuffix = "-" + (getReindexCount() + (isReindex ? 1 : 0));
-        this.indexPrefix = indexPrefix != null ? indexPrefix : "";
-        this.remoteAlias = ElasticIndexNameHelper.getIndexAlias(indexPrefix, getIndexPath());
+        super(root, defn, determineIndexFormatVersion(defn), determineUniqueId(defn), indexPath);
+        String indexSuffix = "-" + getReindexCount();
+        this.remoteAlias = ElasticIndexNameHelper.getIndexAlias(indexPrefix != null ? indexPrefix : "", getIndexPath());
         this.remoteIndexName = ElasticIndexNameHelper.getElasticSafeIndexName(this.remoteAlias + indexSuffix);
         this.bulkActions = getOptionalValue(defn, BULK_ACTIONS, BULK_ACTIONS_DEFAULT);
         this.bulkSizeBytes = getOptionalValue(defn, BULK_SIZE_BYTES, BULK_SIZE_BYTES_DEFAULT);
