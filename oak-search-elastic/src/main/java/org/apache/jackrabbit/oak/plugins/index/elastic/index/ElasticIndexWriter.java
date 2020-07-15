@@ -71,7 +71,7 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
     private final ElasticConnection elasticConnection;
     private final ElasticIndexDefinition indexDefinition;
     private final NodeBuilder definitionBuilder;
-    private final int FAILED_DOC_COUNT_FOR_STATUS_NODE = Integer.getInteger("failedDocStatusLimit", 10000);
+    private final int FAILED_DOC_COUNT_FOR_STATUS_NODE = Integer.getInteger("oak.failedDocStatusLimit", 10000);
 
     /**
      * Coordinates communication between bulk processes. It has a main controller registered at creation time and
@@ -264,7 +264,7 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
 
                 NodeBuilder status = definitionBuilder.child(IndexDefinition.STATUS_NODE);
                 // Read the current failed paths (if any) on the :status node into failedDocList
-                if (status.getProperty(IndexDefinition.FAILED_DOC_PATHS) != null) {
+                if (status.hasProperty(IndexDefinition.FAILED_DOC_PATHS)) {
                     for (String str : status.getProperty(IndexDefinition.FAILED_DOC_PATHS).getValue(Type.STRINGS)) {
                         failedDocSet.add(str);
                     }
@@ -283,8 +283,8 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
                     }
                 }
 
-                if (failedDocSet.size() > FAILED_DOC_COUNT_FOR_STATUS_NODE) {
-                    LOG.debug("Failed Docs count exceeds the persistence limit. Will skip persisting paths of more failed docs." +
+                if (failedDocSet.size() == FAILED_DOC_COUNT_FOR_STATUS_NODE) {
+                    LOG.info("Failed Docs count exceeds the persistence limit. Will skip persisting paths of more failed docs." +
                             "Please analyze logs to identify the failing docs. Search for ElasticIndex Update Doc Failure");
                 } else {
                     status.setProperty(IndexDefinition.FAILED_DOC_PATHS, failedDocSet, Type.STRINGS);
