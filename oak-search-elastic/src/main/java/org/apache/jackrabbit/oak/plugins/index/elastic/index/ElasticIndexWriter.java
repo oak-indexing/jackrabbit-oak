@@ -20,6 +20,7 @@ import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticConnection;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.editor.FulltextIndexWriter;
+import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.elasticsearch.ElasticsearchStatusException;
 import org.elasticsearch.action.admin.indices.alias.IndicesAliasesRequest;
 import org.elasticsearch.action.admin.indices.alias.get.GetAliasesRequest;
@@ -57,10 +58,12 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
     private final ElasticBulkProcessorHandler bulkProcessorHandler;
 
     ElasticIndexWriter(@NotNull ElasticConnection elasticConnection,
-                       @NotNull ElasticIndexDefinition indexDefinition) {
+                       @NotNull ElasticIndexDefinition indexDefinition,
+                       @NotNull NodeBuilder definitionBuilder) {
         this.elasticConnection = elasticConnection;
         this.indexDefinition = indexDefinition;
-        this.bulkProcessorHandler = ElasticBulkProcessorHandler.getBulkProcessorHandler(elasticConnection, indexDefinition);
+        this.bulkProcessorHandler = ElasticBulkProcessorHandler
+                .getBulkProcessorHandler(elasticConnection, indexDefinition, definitionBuilder);
     }
 
     @TestOnly
@@ -166,5 +169,4 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
         checkResponseAcknowledgement(deleteIndexResponse, "Delete index call not acknowledged for indices " + indices);
         LOG.info("Deleted indices {}. Response acknowledged: {}", indices.toString(), deleteIndexResponse.isAcknowledged());
     }
-
 }

@@ -20,6 +20,7 @@ import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticConnection;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.memory.MultiStringPropertyState;
 import org.apache.jackrabbit.oak.plugins.memory.StringPropertyState;
+import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.junit.Before;
 import org.junit.Test;
@@ -44,6 +45,9 @@ public class ElasticBulkProcessorHandlerTest {
     @Mock
     private ElasticConnection elasticConnectionMock;
 
+    @Mock
+    private NodeBuilder definitionBuilder;
+
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
@@ -55,7 +59,7 @@ public class ElasticBulkProcessorHandlerTest {
         when(definitionNodeStateMock.getProperty(eq("async"))).thenReturn(null);
 
         ElasticBulkProcessorHandler bulkProcessorHandler =
-                ElasticBulkProcessorHandler.getBulkProcessorHandler(elasticConnectionMock, indexDefinitionMock);
+                ElasticBulkProcessorHandler.getBulkProcessorHandler(elasticConnectionMock, indexDefinitionMock, definitionBuilder);
 
         assertThat(bulkProcessorHandler, instanceOf(ElasticBulkProcessorHandler.class));
     }
@@ -66,7 +70,7 @@ public class ElasticBulkProcessorHandlerTest {
         when(definitionNodeStateMock.getProperty(eq("sync-mode")))
                 .thenReturn(new MultiStringPropertyState("sync-mode", Arrays.asList("nrt", "rt")));
 
-        ElasticBulkProcessorHandler.getBulkProcessorHandler(elasticConnectionMock, indexDefinitionMock);
+        ElasticBulkProcessorHandler.getBulkProcessorHandler(elasticConnectionMock, indexDefinitionMock, definitionBuilder);
     }
 
     @Test
@@ -76,7 +80,7 @@ public class ElasticBulkProcessorHandlerTest {
                 .thenReturn(new StringPropertyState("sync-mode", "rt"));
 
         ElasticBulkProcessorHandler bulkProcessorHandler =
-                ElasticBulkProcessorHandler.getBulkProcessorHandler(elasticConnectionMock, indexDefinitionMock);
+                ElasticBulkProcessorHandler.getBulkProcessorHandler(elasticConnectionMock, indexDefinitionMock, definitionBuilder);
 
         assertThat(bulkProcessorHandler, instanceOf(ElasticBulkProcessorHandler.RealTimeBulkProcessorHandler.class));
     }

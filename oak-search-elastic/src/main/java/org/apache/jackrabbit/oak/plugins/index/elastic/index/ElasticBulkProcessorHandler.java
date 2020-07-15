@@ -20,6 +20,8 @@ import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticConnection;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
+import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
+import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.DocWriteRequest;
 import org.elasticsearch.action.admin.indices.refresh.RefreshRequest;
@@ -38,6 +40,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Phaser;
 import java.util.concurrent.TimeUnit;
@@ -52,12 +56,15 @@ import static org.elasticsearch.common.xcontent.XContentFactory.jsonBuilder;
 class ElasticBulkProcessorHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger(ElasticBulkProcessorHandler.class);
+    private final int FAILED_DOC_COUNT_FOR_STATUS_NODE = Integer.getInteger("oak.failedDocStatusLimit", 10000);
 
     private static final String SYNC_RT_MODE = "rt";
 
     protected final ElasticConnection elasticConnection;
     protected final ElasticIndexDefinition indexDefinition;
+    private final NodeBuilder definitionBuilder;
     protected final BulkProcessor bulkProcessor;
+    private final Set<String> failedDocSet = new HashSet<>();
 
     /**
      * Coordinates communication between bulk processes. It has a main controller registered at creation time and
@@ -78,32 +85,35 @@ class ElasticBulkProcessorHandler {
     protected long totalOperations = 0;
 
     private ElasticBulkProcessorHandler(@NotNull ElasticConnection elasticConnection,
-                                @NotNull ElasticIndexDefinition indexDefinition) {
+                                        @NotNull ElasticIndexDefinition indexDefinition,
+                                        @NotNull NodeBuilder definitionBuilder) {
         this.elasticConnection = elasticConnection;
         this.indexDefinition = indexDefinition;
+        this.definitionBuilder = definitionBuilder;
         this.bulkProcessor = initBulkProcessor();
     }
 
     /**
      * Returns an ElasticBulkProcessorHandler instance based on the index definition configuration.
-     *
+     * <p>
      * The `sync-mode` property can be set to `rt` (real-time). In this case the returned handler will be real-time.
      * This option is available for sync index definitions only.
      */
     public static ElasticBulkProcessorHandler getBulkProcessorHandler(@NotNull ElasticConnection elasticConnection,
-                                                                      @NotNull ElasticIndexDefinition indexDefinition) {
+                                                                      @NotNull ElasticIndexDefinition indexDefinition,
+                                                                      @NotNull NodeBuilder definitionBuilder) {
         PropertyState async = indexDefinition.getDefinitionNodeState().getProperty("async");
 
         if (async != null) {
-            return new ElasticBulkProcessorHandler(elasticConnection, indexDefinition);
+            return new ElasticBulkProcessorHandler(elasticConnection, indexDefinition, definitionBuilder);
         }
 
         PropertyState syncMode = indexDefinition.getDefinitionNodeState().getProperty("sync-mode");
         if (syncMode != null && SYNC_RT_MODE.equals(syncMode.getValue(Type.STRING))) {
-            return new RealTimeBulkProcessorHandler(elasticConnection, indexDefinition);
+            return new RealTimeBulkProcessorHandler(elasticConnection, indexDefinition, definitionBuilder);
         }
 
-        return new ElasticBulkProcessorHandler(elasticConnection, indexDefinition);
+        return new ElasticBulkProcessorHandler(elasticConnection, indexDefinition, definitionBuilder);
     }
 
     private BulkProcessor initBulkProcessor() {
@@ -183,14 +193,32 @@ class ElasticBulkProcessorHandler {
                 }
             }
             if (bulkResponse.hasFailures()) { // check if some operations failed to execute
+                NodeBuilder status = definitionBuilder.child(IndexDefinition.STATUS_NODE);
+                // Read the current failed paths (if any) on the :status node into failedDocList
+                if (status.hasProperty(IndexDefinition.FAILED_DOC_PATHS)) {
+                    for (String str : status.getProperty(IndexDefinition.FAILED_DOC_PATHS).getValue(Type.STRINGS)) {
+                        failedDocSet.add(str);
+                    }
+                }
+
                 for (BulkItemResponse bulkItemResponse : bulkResponse) {
                     if (bulkItemResponse.isFailed()) {
                         BulkItemResponse.Failure failure = bulkItemResponse.getFailure();
-                        LOG.error("Bulk item with id {} failed", failure.getId(), failure.getCause());
+                        failedDocSet.add(bulkItemResponse.getId());
+                        // Log entry to be used to parse logs to get the failed doc id/path if needed
+                        LOG.error("ElasticIndex Update Doc Failure: Error while adding/updating doc with id : [{}]", bulkItemResponse.getId());
+                        LOG.error("Failure Details: BulkItem ID: " + failure.getId() + ", Failure Cause: {}", failure.getCause());
                     } else {
                         // Set indexUpdated to true even if 1 item was updated successfully
                         updatesMap.put(executionId, Boolean.TRUE);
                     }
+                }
+
+                if (failedDocSet.size() > FAILED_DOC_COUNT_FOR_STATUS_NODE) {
+                    LOG.info("Failed Docs count exceeds the persistence limit. Will skip persisting paths of more failed docs." +
+                            "Failing docs should be mentioned above under ElasticIndex Update Doc Failure");
+                } else {
+                    status.setProperty(IndexDefinition.FAILED_DOC_PATHS, failedDocSet, Type.STRINGS);
                 }
             } else {
                 updatesMap.put(executionId, Boolean.TRUE);
@@ -200,7 +228,7 @@ class ElasticBulkProcessorHandler {
 
         @Override
         public void afterBulk(long executionId, BulkRequest bulkRequest, Throwable throwable) {
-            LOG.error("Bulk with id {} threw an error", executionId, throwable);
+            LOG.error("ElasticIndex Update Bulk Failure : Bulk with id {} threw an error", executionId, throwable);
             phaser.arriveAndDeregister();
         }
     }
@@ -214,8 +242,10 @@ class ElasticBulkProcessorHandler {
 
         private boolean isDataSearchable = false;
 
-        private RealTimeBulkProcessorHandler(@NotNull ElasticConnection elasticConnection, @NotNull ElasticIndexDefinition indexDefinition) {
-            super(elasticConnection, indexDefinition);
+        private RealTimeBulkProcessorHandler(@NotNull ElasticConnection elasticConnection,
+                                             @NotNull ElasticIndexDefinition indexDefinition,
+                                             @NotNull NodeBuilder definitionBuilder) {
+            super(elasticConnection, indexDefinition, definitionBuilder);
         }
 
         @Override
