@@ -80,8 +80,6 @@ class ElasticBulkProcessorHandler {
      */
     private final ConcurrentHashMap<Long, Boolean> updatesMap = new ConcurrentHashMap<>();
 
-    protected final AtomicBoolean isClosed = new AtomicBoolean(false);
-
     protected long totalOperations = 0;
 
     private ElasticBulkProcessorHandler(@NotNull ElasticConnection elasticConnection,
@@ -142,7 +140,6 @@ class ElasticBulkProcessorHandler {
             LOG.debug("No operations executed in this processor. Close immediately");
             return false;
         }
-        isClosed.set(true);
         LOG.trace("Calling close on bulk processor {}", bulkProcessor);
         bulkProcessor.close();
         LOG.trace("Bulk Processor {} closed", bulkProcessor);
@@ -240,7 +237,8 @@ class ElasticBulkProcessorHandler {
      */
     protected static class RealTimeBulkProcessorHandler extends ElasticBulkProcessorHandler {
 
-        private boolean isDataSearchable = false;
+        private final AtomicBoolean isClosed = new AtomicBoolean(false);
+        private final AtomicBoolean isDataSearchable = new AtomicBoolean(false);
 
         private RealTimeBulkProcessorHandler(@NotNull ElasticConnection elasticConnection,
                                              @NotNull ElasticIndexDefinition indexDefinition,
@@ -255,7 +253,7 @@ class ElasticBulkProcessorHandler {
                     LOG.debug("Processor is closing. Next request with {} actions will block until the data is searchable",
                             request.requests().size());
                     request.setRefreshPolicy(WriteRequest.RefreshPolicy.WAIT_UNTIL);
-                    isDataSearchable = true;
+                    isDataSearchable.set(true);
                 }
                 elasticConnection.getClient().bulkAsync(request, RequestOptions.DEFAULT, bulkListener);
             };
@@ -263,10 +261,12 @@ class ElasticBulkProcessorHandler {
 
         @Override
         public boolean close() {
+            isClosed.set(true);
+            // calling super closes the bulk processor. If not empty it calls #requestConsumer for the last time
             boolean closed = super.close();
             // it could happen that close gets called when the bulk has already been flushed. In these cases we trigger
             // an actual refresh to make sure the docs are searchable before returning from the method
-            if (totalOperations > 0 && !isDataSearchable) {
+            if (totalOperations > 0 && !isDataSearchable.get()) {
                 LOG.debug("Forcing refresh");
                 try {
                     this.elasticConnection.getClient()
