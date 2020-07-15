@@ -276,7 +276,7 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
                         failedDocSet.add(bulkItemResponse.getId());
                         // Log entry to be used to parse logs to get the failed doc id/path if needed
                         LOG.error("ElasticIndex Update Doc Failure: Error while adding/updating doc with id : [{}]", bulkItemResponse.getId());
-                        LOG.error("Failure Details: BulkItem ID: {}, Failure Cause: {}", failure.getId(), failure.getCause());
+                        LOG.error("Failure Details: BulkItem ID: " + failure.getId() + ", Failure Cause: {}", failure.getCause());
                     } else {
                         // Set indexUpdated to true even if 1 item was updated successfully
                         updatesMap.put(executionId, Boolean.TRUE);

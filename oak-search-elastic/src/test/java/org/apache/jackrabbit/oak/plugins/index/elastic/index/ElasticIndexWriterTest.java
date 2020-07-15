@@ -49,7 +49,7 @@ public class ElasticIndexWriterTest {
     private BulkProcessor bulkProcessorMock;
 
     @Mock
-    private NodeBuilder defintionBuilder;
+    private NodeBuilder definitionBuilder;
 
     private ElasticIndexWriter indexWriter;
 
@@ -57,7 +57,7 @@ public class ElasticIndexWriterTest {
     public void setUp() {
         MockitoAnnotations.initMocks(this);
         when(indexDefinitionMock.getRemoteIndexAlias()).thenReturn("test-index");
-        indexWriter = new ElasticIndexWriter(elasticConnectionMock, indexDefinitionMock, bulkProcessorMock, defintionBuilder);
+        indexWriter = new ElasticIndexWriter(elasticConnectionMock, indexDefinitionMock, bulkProcessorMock, definitionBuilder);
     }
 
     @Test
