@@ -22,6 +22,7 @@ import org.apache.jackrabbit.oak.query.AbstractQueryTest;
 import org.junit.Test;
 
 import javax.jcr.PropertyType;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -33,7 +34,6 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
     @Test
     public void withoutOrderByClause() throws Exception {
         IndexDefinitionBuilder builder = createIndex("foo");
-        builder.getBuilderTree().setProperty("sync-mode", "rt");
         builder.indexRule("nt:base")
                 .property("foo")
                 .analyzed();
@@ -44,7 +44,7 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
         Tree test = root.getTree("/").addChild("test");
         test.addChild("a").setProperty("foo", "hello");
         test.addChild("b").setProperty("foo", "hello hello");
-        root.commit();
+        root.commit(Collections.singletonMap("sync-mode", "rt"));
 
         // results are sorted by score desc, node `b` returns first because it has a higher score from a tf/idf perspective
         assertOrderedQuery("select [jcr:path] from [nt:base] where contains(foo, 'hello')", asList("/test/b", "/test/a"));
@@ -53,7 +53,6 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
     @Test
     public void orderByScore() throws Exception {
         IndexDefinitionBuilder builder = createIndex("foo");
-        builder.getBuilderTree().setProperty("sync-mode", "rt");
         builder.indexRule("nt:base")
                 .property("foo")
                 .analyzed();
@@ -63,7 +62,7 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
         Tree test = root.getTree("/").addChild("test");
         test.addChild("a").setProperty("foo", "hello");
         test.addChild("b").setProperty("foo", "hello hello");
-        root.commit();
+        root.commit(Collections.singletonMap("sync-mode", "rt"));
 
         assertOrderedQuery("select [jcr:path] from [nt:base] where contains(foo, 'hello') order by [jcr:score]",
                 asList("/test/a", "/test/b"));
@@ -75,7 +74,6 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
     @Test
     public void orderByPath() throws Exception {
         IndexDefinitionBuilder builder = createIndex("foo");
-        builder.getBuilderTree().setProperty("sync-mode", "rt");
         builder.indexRule("nt:base").property("foo");
 
         setIndex(UUID.randomUUID().toString(), builder);
@@ -83,7 +81,7 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
         Tree test = root.getTree("/").addChild("test");
         test.addChild("a").setProperty("foo", "aaaaaa");
         test.addChild("b").setProperty("foo", "bbbbbb");
-        root.commit();
+        root.commit(Collections.singletonMap("sync-mode", "rt"));
 
         assertOrderedQuery("select [jcr:path] from [nt:base] order by [jcr:path]", asList("/test/a", "/test/b"));
         assertOrderedQuery("select [jcr:path] from [nt:base] order by [jcr:path] DESC", asList("/test/b", "/test/a"));
@@ -92,7 +90,6 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
     @Test
     public void orderByProperty() throws Exception {
         IndexDefinitionBuilder builder = createIndex("foo");
-        builder.getBuilderTree().setProperty("sync-mode", "rt");
         builder.indexRule("nt:base").property("foo");
 
         setIndex(UUID.randomUUID().toString(), builder);
@@ -100,8 +97,7 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
         Tree test = root.getTree("/").addChild("test");
         test.addChild("a").setProperty("foo", "zzzzzz");
         test.addChild("b").setProperty("foo", "aaaaaa");
-        root.commit();
-
+        root.commit(Collections.singletonMap("sync-mode", "rt"));
 
         assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo", asList("/test/b", "/test/a"));
         assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo DESC", asList("/test/a", "/test/b"));
@@ -110,7 +106,6 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
     @Test
     public void orderByAnalyzedProperty() throws Exception {
         IndexDefinitionBuilder builder = createIndex("foo");
-        builder.getBuilderTree().setProperty("sync-mode", "rt");
         builder.indexRule("nt:base").property("foo").analyzed();
 
         setIndex(UUID.randomUUID().toString(), builder);
@@ -118,7 +113,7 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
         Tree test = root.getTree("/").addChild("test");
         test.addChild("a").setProperty("foo", "bbbbb");
         test.addChild("b").setProperty("foo", "hello aaaa");
-        root.commit();
+        root.commit(Collections.singletonMap("sync-mode", "rt"));
 
         // this test verifies we use the keyword multi field when an analyzed properties is specified in order by
         // http://www.technocratsid.com/string-sorting-in-elasticsearch/
@@ -130,7 +125,6 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
     @Test
     public void orderByNumericProperty() throws Exception {
         IndexDefinitionBuilder builder = createIndex("foo");
-        builder.getBuilderTree().setProperty("sync-mode", "rt");
         builder.indexRule("nt:base").property("foo").type(PropertyType.TYPENAME_LONG);
 
         setIndex(UUID.randomUUID().toString(), builder);
@@ -138,7 +132,7 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
         Tree test = root.getTree("/").addChild("test");
         test.addChild("a").setProperty("foo", "10");
         test.addChild("b").setProperty("foo", "5");
-        root.commit();
+        root.commit(Collections.singletonMap("sync-mode", "rt"));
 
         assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo", asList("/test/b", "/test/a"));
         assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo DESC", asList("/test/a", "/test/b"));
@@ -147,7 +141,6 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
     @Test
     public void orderByMultiProperties() throws Exception {
         IndexDefinitionBuilder builder = createIndex("foo", "bar");
-        builder.getBuilderTree().setProperty("sync-mode", "rt");
         builder.indexRule("nt:base").property("foo");
         builder.indexRule("nt:base").property("bar").type(PropertyType.TYPENAME_LONG);
 
@@ -163,7 +156,7 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
         Tree b = test.addChild("b");
         b.setProperty("foo", "b");
         b.setProperty("bar", "100");
-        root.commit();
+        root.commit(Collections.singletonMap("sync-mode", "rt"));
 
         assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo, @bar",
                 asList("/test/a1", "/test/a2", "/test/b"));

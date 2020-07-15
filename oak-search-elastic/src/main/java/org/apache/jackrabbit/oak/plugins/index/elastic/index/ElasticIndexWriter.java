@@ -20,6 +20,7 @@ import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticConnection;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.editor.FulltextIndexWriter;
+import org.apache.jackrabbit.oak.spi.commit.CommitInfo;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.elasticsearch.ElasticsearchStatusException;
 import org.elasticsearch.action.admin.indices.alias.IndicesAliasesRequest;
@@ -59,11 +60,12 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
 
     ElasticIndexWriter(@NotNull ElasticConnection elasticConnection,
                        @NotNull ElasticIndexDefinition indexDefinition,
-                       @NotNull NodeBuilder definitionBuilder) {
+                       @NotNull NodeBuilder definitionBuilder,
+                       CommitInfo commitInfo) {
         this.elasticConnection = elasticConnection;
         this.indexDefinition = indexDefinition;
         this.bulkProcessorHandler = ElasticBulkProcessorHandler
-                .getBulkProcessorHandler(elasticConnection, indexDefinition, definitionBuilder);
+                .getBulkProcessorHandler(elasticConnection, indexDefinition, definitionBuilder, commitInfo);
     }
 
     @TestOnly

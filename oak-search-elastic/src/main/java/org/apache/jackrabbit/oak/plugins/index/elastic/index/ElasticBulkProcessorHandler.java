@@ -21,6 +21,7 @@ import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticConnection;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
+import org.apache.jackrabbit.oak.spi.commit.CommitInfo;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.DocWriteRequest;
@@ -58,6 +59,7 @@ class ElasticBulkProcessorHandler {
     private static final Logger LOG = LoggerFactory.getLogger(ElasticBulkProcessorHandler.class);
     private final int FAILED_DOC_COUNT_FOR_STATUS_NODE = Integer.getInteger("oak.failedDocStatusLimit", 10000);
 
+    private static final String SYNC_MODE_PROPERTY = "sync-mode";
     private static final String SYNC_RT_MODE = "rt";
 
     protected final ElasticConnection elasticConnection;
@@ -99,15 +101,27 @@ class ElasticBulkProcessorHandler {
      */
     public static ElasticBulkProcessorHandler getBulkProcessorHandler(@NotNull ElasticConnection elasticConnection,
                                                                       @NotNull ElasticIndexDefinition indexDefinition,
-                                                                      @NotNull NodeBuilder definitionBuilder) {
+                                                                      @NotNull NodeBuilder definitionBuilder, CommitInfo commitInfo) {
         PropertyState async = indexDefinition.getDefinitionNodeState().getProperty("async");
 
         if (async != null) {
             return new ElasticBulkProcessorHandler(elasticConnection, indexDefinition, definitionBuilder);
         }
 
-        PropertyState syncMode = indexDefinition.getDefinitionNodeState().getProperty("sync-mode");
-        if (syncMode != null && SYNC_RT_MODE.equals(syncMode.getValue(Type.STRING))) {
+        // commit-info has priority over configuration in index definition
+        String syncMode = null;
+        if (commitInfo != null) {
+            syncMode = (String) commitInfo.getInfo().get(SYNC_MODE_PROPERTY);
+        }
+
+        if (syncMode == null) {
+            PropertyState syncModeProp = indexDefinition.getDefinitionNodeState().getProperty("sync-mode");
+            if (syncModeProp != null) {
+                syncMode = syncModeProp.getValue(Type.STRING);
+            }
+        }
+
+        if (SYNC_RT_MODE.equals(syncMode)) {
             return new RealTimeBulkProcessorHandler(elasticConnection, indexDefinition, definitionBuilder);
         }
 
