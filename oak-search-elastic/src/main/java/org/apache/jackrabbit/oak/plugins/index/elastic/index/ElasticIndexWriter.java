@@ -85,7 +85,7 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
      * value is {@code true} when at least an update is performed, otherwise {@code false}.
      */
     private final ConcurrentHashMap<Long, Boolean> updatesMap = new ConcurrentHashMap<>();
-    private Set<String> failedDocSet = new HashSet<>();
+    private final Set<String> failedDocSet = new HashSet<>();
     private final BulkProcessor bulkProcessor;
 
     ElasticIndexWriter(@NotNull ElasticConnection elasticConnection,
@@ -260,9 +260,9 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
                     LOG.error("Error decoding bulk response", e);
                 }
             }
-            NodeBuilder status = definitionBuilder.child(IndexDefinition.STATUS_NODE);
             if (bulkResponse.hasFailures()) { // check if some operations failed to execute
 
+                NodeBuilder status = definitionBuilder.child(IndexDefinition.STATUS_NODE);
                 // Read the current failed paths (if any) on the :status node into failedDocList
                 if (status.getProperty(IndexDefinition.FAILED_DOC_PATHS) != null) {
                     for (String str : status.getProperty(IndexDefinition.FAILED_DOC_PATHS).getValue(Type.STRINGS)) {
