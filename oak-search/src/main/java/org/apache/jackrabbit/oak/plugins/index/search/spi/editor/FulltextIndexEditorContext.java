@@ -274,7 +274,7 @@ public abstract class FulltextIndexEditorContext<D> {
         defRandom = seed;
       }
 
-      if (!IndexDefinition.isDisableStoredIndexDefinition()) {
+      if (storedIndexDefinitionEnabled()) {
         if (definition.getBoolean(PROP_REFRESH_DEFN)) {
           definition.removeProperty(PROP_REFRESH_DEFN);
           NodeState clonedState = NodeStateCloner.cloneVisibleState(defnState);
