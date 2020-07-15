@@ -89,7 +89,8 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
     private final BulkProcessor bulkProcessor;
 
     ElasticIndexWriter(@NotNull ElasticConnection elasticConnection,
-                       @NotNull ElasticIndexDefinition indexDefinition, @NotNull NodeBuilder definitionBuilder) {
+                       @NotNull ElasticIndexDefinition indexDefinition,
+                       @NotNull NodeBuilder definitionBuilder) {
         this.elasticConnection = elasticConnection;
         this.indexDefinition = indexDefinition;
         this.definitionBuilder = definitionBuilder;
@@ -103,8 +104,8 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
                        @NotNull NodeBuilder definitionBuilder) {
         this.elasticConnection = elasticConnection;
         this.indexDefinition = indexDefinition;
-        this.definitionBuilder = definitionBuilder;
         this.bulkProcessor = bulkProcessor;
+        this.definitionBuilder = definitionBuilder;
     }
 
     private BulkProcessor initBulkProcessor() {
@@ -285,7 +286,7 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
 
                 if (failedDocSet.size() == FAILED_DOC_COUNT_FOR_STATUS_NODE) {
                     LOG.info("Failed Docs count exceeds the persistence limit. Will skip persisting paths of more failed docs." +
-                            "Please analyze logs to identify the failing docs. Search for ElasticIndex Update Doc Failure");
+                            "Failing docs should be mentioned above under ElasticIndex Update Doc Failure");
                 } else {
                     status.setProperty(IndexDefinition.FAILED_DOC_PATHS, failedDocSet, Type.STRINGS);
                 }
