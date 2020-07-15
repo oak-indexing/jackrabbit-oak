@@ -33,11 +33,13 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
     @Test
     public void withoutOrderByClause() throws Exception {
         IndexDefinitionBuilder builder = createIndex("foo");
+        builder.getBuilderTree().setProperty("sync-mode", "rt");
         builder.indexRule("nt:base")
                 .property("foo")
                 .analyzed();
 
         setIndex(UUID.randomUUID().toString(), builder);
+        root.commit();
 
         Tree test = root.getTree("/").addChild("test");
         test.addChild("a").setProperty("foo", "hello");
@@ -45,13 +47,13 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
         root.commit();
 
         // results are sorted by score desc, node `b` returns first because it has a higher score from a tf/idf perspective
-        assertEventually(() -> assertOrderedQuery("select [jcr:path] from [nt:base] where contains(foo, 'hello')",
-                asList("/test/b", "/test/a")));
+        assertOrderedQuery("select [jcr:path] from [nt:base] where contains(foo, 'hello')", asList("/test/b", "/test/a"));
     }
 
     @Test
     public void orderByScore() throws Exception {
         IndexDefinitionBuilder builder = createIndex("foo");
+        builder.getBuilderTree().setProperty("sync-mode", "rt");
         builder.indexRule("nt:base")
                 .property("foo")
                 .analyzed();
@@ -63,18 +65,17 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
         test.addChild("b").setProperty("foo", "hello hello");
         root.commit();
 
-        assertEventually(() -> {
-            assertOrderedQuery("select [jcr:path] from [nt:base] where contains(foo, 'hello') order by [jcr:score]",
-                    asList("/test/a", "/test/b"));
+        assertOrderedQuery("select [jcr:path] from [nt:base] where contains(foo, 'hello') order by [jcr:score]",
+                asList("/test/a", "/test/b"));
 
-            assertOrderedQuery("select [jcr:path] from [nt:base] where contains(foo, 'hello') order by [jcr:score] DESC",
-                    asList("/test/b", "/test/a"));
-        });
+        assertOrderedQuery("select [jcr:path] from [nt:base] where contains(foo, 'hello') order by [jcr:score] DESC",
+                asList("/test/b", "/test/a"));
     }
 
     @Test
     public void orderByPath() throws Exception {
         IndexDefinitionBuilder builder = createIndex("foo");
+        builder.getBuilderTree().setProperty("sync-mode", "rt");
         builder.indexRule("nt:base").property("foo");
 
         setIndex(UUID.randomUUID().toString(), builder);
@@ -84,16 +85,14 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
         test.addChild("b").setProperty("foo", "bbbbbb");
         root.commit();
 
-        assertEventually(() -> {
-            assertOrderedQuery("select [jcr:path] from [nt:base] order by [jcr:path]", asList("/test/a", "/test/b"));
-
-            assertOrderedQuery("select [jcr:path] from [nt:base] order by [jcr:path] DESC", asList("/test/b", "/test/a"));
-        });
+        assertOrderedQuery("select [jcr:path] from [nt:base] order by [jcr:path]", asList("/test/a", "/test/b"));
+        assertOrderedQuery("select [jcr:path] from [nt:base] order by [jcr:path] DESC", asList("/test/b", "/test/a"));
     }
 
     @Test
     public void orderByProperty() throws Exception {
         IndexDefinitionBuilder builder = createIndex("foo");
+        builder.getBuilderTree().setProperty("sync-mode", "rt");
         builder.indexRule("nt:base").property("foo");
 
         setIndex(UUID.randomUUID().toString(), builder);
@@ -103,16 +102,15 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
         test.addChild("b").setProperty("foo", "aaaaaa");
         root.commit();
 
-        assertEventually(() -> {
-            assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo", asList("/test/b", "/test/a"));
 
-            assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo DESC", asList("/test/a", "/test/b"));
-        });
+        assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo", asList("/test/b", "/test/a"));
+        assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo DESC", asList("/test/a", "/test/b"));
     }
 
     @Test
     public void orderByAnalyzedProperty() throws Exception {
         IndexDefinitionBuilder builder = createIndex("foo");
+        builder.getBuilderTree().setProperty("sync-mode", "rt");
         builder.indexRule("nt:base").property("foo").analyzed();
 
         setIndex(UUID.randomUUID().toString(), builder);
@@ -125,16 +123,14 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
         // this test verifies we use the keyword multi field when an analyzed properties is specified in order by
         // http://www.technocratsid.com/string-sorting-in-elasticsearch/
 
-        assertEventually(() -> {
-            assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo", asList("/test/a", "/test/b"));
-
-            assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo DESC", asList("/test/b", "/test/a"));
-        });
+        assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo", asList("/test/a", "/test/b"));
+        assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo DESC", asList("/test/b", "/test/a"));
     }
 
     @Test
     public void orderByNumericProperty() throws Exception {
         IndexDefinitionBuilder builder = createIndex("foo");
+        builder.getBuilderTree().setProperty("sync-mode", "rt");
         builder.indexRule("nt:base").property("foo").type(PropertyType.TYPENAME_LONG);
 
         setIndex(UUID.randomUUID().toString(), builder);
@@ -144,16 +140,14 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
         test.addChild("b").setProperty("foo", "5");
         root.commit();
 
-        assertEventually(() -> {
-            assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo", asList("/test/b", "/test/a"));
-
-            assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo DESC", asList("/test/a", "/test/b"));
-        });
+        assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo", asList("/test/b", "/test/a"));
+        assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo DESC", asList("/test/a", "/test/b"));
     }
 
     @Test
     public void orderByMultiProperties() throws Exception {
         IndexDefinitionBuilder builder = createIndex("foo", "bar");
+        builder.getBuilderTree().setProperty("sync-mode", "rt");
         builder.indexRule("nt:base").property("foo");
         builder.indexRule("nt:base").property("bar").type(PropertyType.TYPENAME_LONG);
 
@@ -171,16 +165,14 @@ public class ElasticOrderByTest extends ElasticAbstractQueryTest {
         b.setProperty("bar", "100");
         root.commit();
 
-        assertEventually(() -> {
-            assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo, @bar",
-                    asList("/test/a1", "/test/a2", "/test/b"));
+        assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo, @bar",
+                asList("/test/a1", "/test/a2", "/test/b"));
 
-            assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo, @bar DESC",
-                    asList("/test/a2", "/test/a1", "/test/b"));
+        assertOrderedQuery("select [jcr:path] from [nt:base] order by @foo, @bar DESC",
+                asList("/test/a2", "/test/a1", "/test/b"));
 
-            assertOrderedQuery("select [jcr:path] from [nt:base] order by @bar DESC, @foo DESC",
-                    asList("/test/b", "/test/a2", "/test/a1"));
-        });
+        assertOrderedQuery("select [jcr:path] from [nt:base] order by @bar DESC, @foo DESC",
+                asList("/test/b", "/test/a2", "/test/a1"));
     }
 
     private void assertOrderedQuery(String sql, List<String> paths) {
