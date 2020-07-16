@@ -41,7 +41,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Phaser;
@@ -66,7 +66,6 @@ class ElasticBulkProcessorHandler {
     protected final ElasticIndexDefinition indexDefinition;
     private final NodeBuilder definitionBuilder;
     protected final BulkProcessor bulkProcessor;
-    private final Set<String> failedDocSet = new HashSet<>();
 
     /**
      * Coordinates communication between bulk processes. It has a main controller registered at creation time and
@@ -82,7 +81,7 @@ class ElasticBulkProcessorHandler {
      */
     private final ConcurrentHashMap<Long, Boolean> updatesMap = new ConcurrentHashMap<>();
 
-    protected long totalOperations = 0;
+    protected long totalOperations;
 
     private ElasticBulkProcessorHandler(@NotNull ElasticConnection elasticConnection,
                                         @NotNull ElasticIndexDefinition indexDefinition,
@@ -150,16 +149,17 @@ class ElasticBulkProcessorHandler {
     }
 
     public boolean close() {
-        if (totalOperations <= 0) {
-            LOG.debug("No operations executed in this processor. Close immediately");
-            return false;
-        }
         LOG.trace("Calling close on bulk processor {}", bulkProcessor);
         bulkProcessor.close();
         LOG.trace("Bulk Processor {} closed", bulkProcessor);
 
         // de-register main controller
-        final int phase = phaser.arriveAndDeregister();
+        int phase = phaser.arriveAndDeregister();
+
+        if (totalOperations == 0) { // no need to invoke phaser await if we already know there were no operations
+            LOG.debug("No operations executed in this processor. Close immediately");
+            return false;
+        }
 
         try {
             phaser.awaitAdvanceInterruptibly(phase, indexDefinition.bulkFlushIntervalMs * 5, TimeUnit.MILLISECONDS);
@@ -204,6 +204,7 @@ class ElasticBulkProcessorHandler {
                 }
             }
             if (bulkResponse.hasFailures()) { // check if some operations failed to execute
+                Set<String> failedDocSet = new LinkedHashSet<>();
                 NodeBuilder status = definitionBuilder.child(IndexDefinition.STATUS_NODE);
                 // Read the current failed paths (if any) on the :status node into failedDocList
                 if (status.hasProperty(IndexDefinition.FAILED_DOC_PATHS)) {
@@ -212,10 +213,17 @@ class ElasticBulkProcessorHandler {
                     }
                 }
 
+                int initialSize = failedDocSet.size();
+                boolean isFailedDocSetFull = false;
+
                 for (BulkItemResponse bulkItemResponse : bulkResponse) {
                     if (bulkItemResponse.isFailed()) {
                         BulkItemResponse.Failure failure = bulkItemResponse.getFailure();
-                        failedDocSet.add(bulkItemResponse.getId());
+                        if (!isFailedDocSetFull && failedDocSet.size() < FAILED_DOC_COUNT_FOR_STATUS_NODE) {
+                            failedDocSet.add(bulkItemResponse.getId());
+                        } else {
+                            isFailedDocSetFull = true;
+                        }
                         // Log entry to be used to parse logs to get the failed doc id/path if needed
                         LOG.error("ElasticIndex Update Doc Failure: Error while adding/updating doc with id : [{}]", bulkItemResponse.getId());
                         LOG.error("Failure Details: BulkItem ID: " + failure.getId() + ", Failure Cause: {}", failure.getCause());
@@ -225,10 +233,10 @@ class ElasticBulkProcessorHandler {
                     }
                 }
 
-                if (failedDocSet.size() > FAILED_DOC_COUNT_FOR_STATUS_NODE) {
-                    LOG.info("Failed Docs count exceeds the persistence limit. Will skip persisting paths of more failed docs." +
-                            "Failing docs should be mentioned above under ElasticIndex Update Doc Failure");
-                } else {
+                if (isFailedDocSetFull) {
+                    LOG.info("Cannot store all new Failed Docs because {} has been filled up. " +
+                            "See previous log entries to find out the details of failed paths", IndexDefinition.FAILED_DOC_PATHS);
+                } else if (failedDocSet.size() != initialSize) {
                     status.setProperty(IndexDefinition.FAILED_DOC_PATHS, failedDocSet, Type.STRINGS);
                 }
             } else {
