@@ -216,6 +216,7 @@ class ElasticBulkProcessorHandler {
                 int initialSize = failedDocSet.size();
                 boolean isFailedDocSetFull = false;
 
+                boolean hasSuccesses = false;
                 for (BulkItemResponse bulkItemResponse : bulkResponse) {
                     if (bulkItemResponse.isFailed()) {
                         BulkItemResponse.Failure failure = bulkItemResponse.getFailure();
@@ -227,9 +228,10 @@ class ElasticBulkProcessorHandler {
                         // Log entry to be used to parse logs to get the failed doc id/path if needed
                         LOG.error("ElasticIndex Update Doc Failure: Error while adding/updating doc with id : [{}]", bulkItemResponse.getId());
                         LOG.error("Failure Details: BulkItem ID: " + failure.getId() + ", Failure Cause: {}", failure.getCause());
-                    } else {
+                    } else if (!hasSuccesses) {
                         // Set indexUpdated to true even if 1 item was updated successfully
                         updatesMap.put(executionId, Boolean.TRUE);
+                        hasSuccesses = true;
                     }
                 }
 
