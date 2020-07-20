@@ -44,6 +44,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.ConnectException;
 import java.util.Map;
 import java.util.Set;
 
@@ -93,8 +94,12 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
     }
 
     @Override
-    public boolean close(long timestamp) {
-        return bulkProcessorHandler.close();
+    public boolean close(long timestamp) throws IOException {
+        try {
+            return bulkProcessorHandler.close();
+        } catch (Throwable e) {
+            throw new IOException(e);
+        }
     }
 
     protected void provisionIndex() throws IOException {
