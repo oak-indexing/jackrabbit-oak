@@ -19,6 +19,7 @@ package org.apache.jackrabbit.oak.plugins.index.elastic;
 
 import org.apache.jackrabbit.oak.commons.PathUtils;
 
+import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
@@ -37,6 +38,26 @@ public class ElasticIndexNameHelper {
     public static String getIndexAlias(String indexPrefix, String indexPath) {
         // TODO: implement advanced remote index name strategy that takes into account multiple tenants and re-index process
         return getElasticSafeIndexName(indexPrefix + "." + indexPath);
+    }
+
+    /**
+     * Create a name for remote elastic index from given index definition and seed.
+     * @param indexDefinition elastic index definition to use
+     * @param seed seed to use
+     * @return remote elastic index name
+     */
+    public static String getRemoteIndexName(ElasticIndexDefinition indexDefinition, long seed) {
+        return getElasticSafeIndexName(
+                indexDefinition.getRemoteIndexAlias() + "-" + Long.toHexString(seed));
+    }
+
+    /**
+     * Create a name for remote elastic index from given index definition and a randomly generated seed.
+     * @param indexDefinition elastic index definition to use
+     * @return remote elastic index name
+     */
+    public static String getRemoteIndexName(ElasticIndexDefinition indexDefinition) {
+        return getRemoteIndexName(indexDefinition, UUID.randomUUID().getMostSignificantBits());
     }
 
     /**

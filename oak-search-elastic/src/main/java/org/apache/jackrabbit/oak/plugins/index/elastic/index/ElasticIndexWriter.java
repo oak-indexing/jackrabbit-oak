@@ -100,8 +100,7 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
 
     protected void provisionIndex(long seed) throws IOException {
         // check if index already exists
-        final String indexName = ElasticIndexNameHelper.getElasticSafeIndexName(
-                indexDefinition.getRemoteIndexAlias() + "-" + seed);
+        final String indexName = ElasticIndexNameHelper.getRemoteIndexName(indexDefinition, seed);
         boolean exists = elasticConnection.getClient().indices().exists(
                 new GetIndexRequest(indexName), RequestOptions.DEFAULT
         );

@@ -63,6 +63,7 @@ class ElasticIndexEditorContext extends FulltextIndexEditorContext<ElasticDocume
         // get writer and provision index settings and mappings
         try {
             long seed = UUID.randomUUID().getMostSignificantBits();
+            // merge gets called on node store later in the indexing flow
             definitionBuilder.setProperty(ElasticIndexDefinition.PROP_INDEX_NAME_SEED, seed);
             getWriter().provisionIndex(seed);
         } catch (IOException e) {
