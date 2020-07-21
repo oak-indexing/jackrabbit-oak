@@ -250,7 +250,7 @@ public abstract class FulltextDocumentMaker<D> implements DocumentMaker<D> {
                 try {
                     dirty |= indexDynamicBoost(doc, pd, state, pname);
                 } catch (Exception e) {
-                    log.error("could not index dynamic boost for property {} and definition {}", property, pd);
+                    log.error("Could not index dynamic boost for property {} and definition {}", property, pd, e);
                 }
             }
 

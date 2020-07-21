@@ -117,9 +117,14 @@ public class DynamicBoostTest extends AbstractQueryTest {
                 "[" +
                 "Added augmented fields: jcr:content/metadata/predictedTags/[my, a, my:a], 10.0, " +
                 "Added augmented fields: jcr:content/metadata/predictedTags/[my, a, my:a], 30.0, " +
-                "Not a finite double: jcr:content/metadata/predictedTags, Not a finite double: jcr:content/metadata/predictedTags, " +
-                "Not a double: jcr:content/metadata/predictedTags, " +
-                "Not a double: jcr:content/metadata/predictedTags" +
+                "confidence is not finite: jcr:content/metadata/predictedTags, " +
+                "confidence is not finite: jcr:content/metadata/predictedTags, " +
+                "confidence parsing failed: jcr:content/metadata/predictedTags, " +
+                "confidence parsing failed: jcr:content/metadata/predictedTags, " +
+                "confidence is an array: jcr:content/metadata/predictedTags, " +
+                "confidence is an array: jcr:content/metadata/predictedTags, " +
+                "name is an array: jcr:content/metadata/predictedTags, " +
+                "name is an array: jcr:content/metadata/predictedTags" +
                 "]", log);
     }
 
@@ -158,9 +163,16 @@ public class DynamicBoostTest extends AbstractQueryTest {
             t.setProperty("confidence", 10.0);
             root.commit();
 
-            // this is not detected
+            // this is not detected because updateCount is not set
             t.setProperty("confidence", 20);
             root.commit();
+
+            // this is not detected
+            if (nameProperty) {
+                t.removeProperty("confidence");
+                t.getParent().setProperty("updateCount", 1);
+                root.commit();
+            }
 
             // now we change an indexed property:
             // this is detected in the dynamicBoost case
@@ -182,6 +194,13 @@ public class DynamicBoostTest extends AbstractQueryTest {
             t.getParent().setProperty("updateCount", 5);
             t.setProperty("confidence", new ArrayList<String>(), Type.STRINGS);
             root.commit();
+
+            // we try with an array:
+            if (nameProperty) {
+                t.getParent().setProperty("updateCount", 6);
+                t.setProperty("name", new ArrayList<String>(), Type.STRINGS);
+                root.commit();
+            }
 
             return customLogs.getLogs().toString();
         } finally {

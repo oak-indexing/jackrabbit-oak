@@ -348,26 +348,33 @@ public class LuceneDocumentMaker extends FulltextDocumentMaker<Document> {
         for (String nodeName : propertNode.getChildNodeNames()) {
             NodeState dynaTag = propertNode.getChildNode(nodeName);
             PropertyState p = dynaTag.getProperty(DYNAMIC_BOOST_TAG_NAME);
-            if (p == null || p.isArray()) {
+            if (p == null) {
+                // here we don't log a warning, because possibly it will be added later
+                continue;
+            }
+            if (p.isArray()) {
+                log.warn(p.getName() + " is an array: {}", parentName);
                 continue;
             }
             String dynaTagName = p.getValue(Type.STRING);
-            if (dynaTagName == null) {
+            p = dynaTag.getProperty(DYNAMIC_BOOST_TAG_CONFIDENCE);
+            if (p == null) {
+                // here we don't log a warning, because possibly it will be added later
                 continue;
             }
-            p = dynaTag.getProperty(DYNAMIC_BOOST_TAG_CONFIDENCE);
-            if (p == null || p.isArray()) {
+            if (p.isArray()) {
+                log.warn(p.getName() + " is an array: {}", parentName);
                 continue;
             }
             Double dynaTagConfidence;
             try {
                 dynaTagConfidence = p.getValue(Type.DOUBLE);
             } catch (NumberFormatException e) {
-                log.warn("Not a double: {}", parentName);
+                log.warn(p.getName() + " parsing failed: {}", parentName, e);
                 continue;
             }
             if (!Double.isFinite(dynaTagConfidence)) {
-                log.warn("Not a finite double: {}", parentName);
+                log.warn(p.getName() + " is not finite: {}", parentName);
                 continue;
             }
             List<String> tokens = new ArrayList<>(splitForIndexing(dynaTagName));
