@@ -41,7 +41,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.net.ConnectException;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -77,9 +76,9 @@ class ElasticBulkProcessorHandler {
     private final Phaser phaser = new Phaser(1); // register main controller
 
     /**
-     * Throwable object containing error/exception which occurred while trying to update index in elasticsearch.
+     * IOException object wrapping any error/exception which occurred while trying to update index in elasticsearch.
      */
-    private Throwable throwable;
+    private volatile IOException ioException;
 
     /**
      * Key-value structure to keep the history of bulk requests. Keys are the bulk execution ids, the boolean
@@ -154,7 +153,7 @@ class ElasticBulkProcessorHandler {
         totalOperations++;
     }
 
-    public boolean close() throws Throwable {
+    public boolean close() throws IOException {
         LOG.trace("Calling close on bulk processor {}", bulkProcessor);
         bulkProcessor.close();
         LOG.trace("Bulk Processor {} closed", bulkProcessor);
@@ -173,8 +172,8 @@ class ElasticBulkProcessorHandler {
             LOG.error("Error waiting for bulk requests to return", e);
         }
 
-        if (throwable != null) {
-            throw throwable;
+        if (ioException != null) {
+            throw ioException;
         }
 
         if (LOG.isTraceEnabled()) {
@@ -260,9 +259,7 @@ class ElasticBulkProcessorHandler {
         @Override
         public void afterBulk(long executionId, BulkRequest bulkRequest, Throwable throwable) {
             LOG.error("ElasticIndex Update Bulk Failure : Bulk with id {} threw an error", executionId, throwable);
-            if (throwable instanceof ConnectException) {
-                ElasticBulkProcessorHandler.this.throwable = (ConnectException)throwable;
-            }
+            ElasticBulkProcessorHandler.this.ioException = new IOException(throwable);
             phaser.arriveAndDeregister();
         }
     }
@@ -297,7 +294,7 @@ class ElasticBulkProcessorHandler {
         }
 
         @Override
-        public boolean close() throws Throwable {
+        public boolean close() throws IOException {
             isClosed.set(true);
             // calling super closes the bulk processor. If not empty it calls #requestConsumer for the last time
             boolean closed = super.close();
