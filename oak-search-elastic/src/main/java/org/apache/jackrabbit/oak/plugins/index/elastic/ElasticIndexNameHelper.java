@@ -69,7 +69,7 @@ public class ElasticIndexNameHelper {
      * <p>
      * The resulting file name would be truncated to MAX_NAME_LENGTH
      */
-    public static String getElasticSafeIndexName(String indexPath) {
+    private static String getElasticSafeIndexName(String indexPath) {
         String name = StreamSupport
                 .stream(PathUtils.elements(indexPath).spliterator(), false)
                 .limit(3) //Max 3 nodeNames including oak:index which is the immediate parent for any indexPath
