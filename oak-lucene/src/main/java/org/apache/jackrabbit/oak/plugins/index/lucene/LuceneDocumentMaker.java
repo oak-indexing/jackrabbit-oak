@@ -366,7 +366,7 @@ public class LuceneDocumentMaker extends FulltextDocumentMaker<Document> {
                 log.warn(p.getName() + " is an array: {}", parentName);
                 continue;
             }
-            Double dynaTagConfidence;
+            double dynaTagConfidence;
             try {
                 dynaTagConfidence = p.getValue(Type.DOUBLE);
             } catch (NumberFormatException e) {
