@@ -157,13 +157,30 @@ class ElasticIndexHelper {
 
             Type<?> type = null;
             boolean useInSpellCheck = false;
-            for (PropertyDefinition pd: propertyDefinitions) {
+            boolean useInSuggest = false;
+            for (PropertyDefinition pd : propertyDefinitions) {
                 type = Type.fromTag(pd.getType(), false);
                 if (pd.useInSpellcheck) {
                     useInSpellCheck = true;
-                    break;
                 }
+                if (pd.useInSuggest) {
+                    useInSuggest = true;
+                }
+            }
 
+            if (useInSuggest) {
+                mappingBuilder.startObject(":suggest");
+                {
+                    mappingBuilder.field("type", "nested");
+                    mappingBuilder.startObject("properties");
+                    {
+                        mappingBuilder.startObject("suggestion")
+                                .field("type", "text")
+                                .endObject();
+                    }
+                    mappingBuilder.endObject();
+                }
+                mappingBuilder.endObject();
             }
 
             mappingBuilder.startObject(name);
