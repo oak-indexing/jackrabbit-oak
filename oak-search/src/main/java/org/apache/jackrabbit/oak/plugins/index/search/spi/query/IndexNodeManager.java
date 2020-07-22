@@ -17,18 +17,14 @@
 package org.apache.jackrabbit.oak.plugins.index.search.spi.query;
 
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import org.apache.jackrabbit.oak.commons.PerfLogger;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexNode;
 import org.apache.jackrabbit.oak.plugins.index.search.update.ReaderRefreshPolicy;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.jetbrains.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.ASYNC_PROPERTY_NAME;
 import static org.apache.jackrabbit.oak.plugins.index.IndexUtils.getAsyncLaneName;
@@ -42,12 +38,6 @@ public abstract class IndexNodeManager<I extends IndexNode> {
      * seen and indexed by each async indexer is kept.
      */
     public static final String ASYNC = ":async";
-
-    private static final AtomicInteger SEARCHER_ID_COUNTER = new AtomicInteger();
-
-    private static final Logger LOG = LoggerFactory.getLogger(IndexNodeManager.class);
-    private static final PerfLogger PERF_LOGGER =
-            new PerfLogger(LoggerFactory.getLogger(IndexNodeManager.class.getName() + ".perf"));
 
     private boolean closed = false;
 
