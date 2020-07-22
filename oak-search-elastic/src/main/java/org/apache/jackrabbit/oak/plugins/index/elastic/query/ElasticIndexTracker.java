@@ -17,31 +17,20 @@
 package org.apache.jackrabbit.oak.plugins.index.elastic.query;
 
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticConnection;
-import org.apache.jackrabbit.oak.spi.commit.CommitInfo;
-import org.apache.jackrabbit.oak.spi.commit.Observer;
-import org.apache.jackrabbit.oak.spi.query.QueryIndex;
-import org.apache.jackrabbit.oak.spi.query.QueryIndexProvider;
+import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndexTracker;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Collections;
-import java.util.List;
+class ElasticIndexTracker extends FulltextIndexTracker<ElasticIndexNode, ElasticIndexNodeManager> {
 
-public class ElasticIndexProvider implements QueryIndexProvider, Observer {
+    private final ElasticConnection elasticConnection;
 
-    private final ElasticIndexTracker elasticIndexTracker;
-
-    public ElasticIndexProvider(ElasticConnection elasticConnection) {
-        this.elasticIndexTracker = new ElasticIndexTracker(elasticConnection);
+    ElasticIndexTracker(@NotNull ElasticConnection elasticConnection) {
+        this.elasticConnection = elasticConnection;
     }
 
     @Override
-    public @NotNull List<? extends QueryIndex> getQueryIndexes(NodeState nodeState) {
-        return Collections.singletonList(new ElasticIndex(elasticIndexTracker));
-    }
-
-    @Override
-    public void contentChanged(@NotNull NodeState root, @NotNull CommitInfo info) {
-        elasticIndexTracker.update(root);
+    protected ElasticIndexNodeManager openIndex(String path, NodeState root, NodeState node) {
+        return new ElasticIndexNodeManager(elasticConnection, path, root);
     }
 }

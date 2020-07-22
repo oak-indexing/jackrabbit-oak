@@ -31,6 +31,8 @@ import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.elastic.index.ElasticIndexEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.ElasticIndexProvider;
 import org.apache.jackrabbit.oak.plugins.index.search.ExtractedTextCache;
+import org.apache.jackrabbit.oak.spi.commit.Observer;
+import org.apache.jackrabbit.oak.spi.query.QueryIndexProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -102,7 +104,8 @@ public class ElasticPropertyFTIndexedContentAvailability extends PropertyFullTex
                             new ExtractedTextCache(10 * FileUtils.ONE_MB, 100));
                     ElasticIndexProvider indexProvider = new ElasticIndexProvider(coordinate);
                     oak.with(editorProvider)
-                            .with(indexProvider)
+                            .with((Observer) indexProvider)
+                            .with((QueryIndexProvider) indexProvider)
                             .with((new ElasticGlobalInitializer(elasticGlobalIndexName, storageEnabled)).async())
                                     // the WikipediaImporter set a property `title`
                             .with(new FullTextPropertyInitialiser(elasticTitleIndexName, of("title"),
