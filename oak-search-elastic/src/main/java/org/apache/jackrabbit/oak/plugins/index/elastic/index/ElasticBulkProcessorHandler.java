@@ -18,6 +18,7 @@ package org.apache.jackrabbit.oak.plugins.index.elastic.index;
 
 import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.plugins.index.IndexConstants;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticConnection;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
@@ -61,6 +62,7 @@ class ElasticBulkProcessorHandler {
 
     private static final String SYNC_MODE_PROPERTY = "sync-mode";
     private static final String SYNC_RT_MODE = "rt";
+    private static boolean waitForESAcknowledgement = true;
 
     protected final ElasticConnection elasticConnection;
     protected final ElasticIndexDefinition indexDefinition;
@@ -104,7 +106,18 @@ class ElasticBulkProcessorHandler {
         PropertyState async = indexDefinition.getDefinitionNodeState().getProperty("async");
 
         if (async != null) {
-            return new ElasticBulkProcessorHandler(elasticConnection, indexDefinition, definitionBuilder);
+            Iterable<String> opt = async.getValue(Type.STRINGS);
+
+            // Check if this indexing call is a part of async cycle or a commit hook
+            // In case it's from async cycle - commit info will have a indexingCheckpointTime key.
+            if (commitInfo.getInfo().containsKey(IndexConstants.CHECKPOINT_CREATION_TIME)) {
+                return new ElasticBulkProcessorHandler(elasticConnection, indexDefinition, definitionBuilder);
+            } else {
+                // This would be the commit hook calling the index update when async has nrt prop set
+                // We set waitForESAcknowledgement to false here so that IndexWriter returns without waiting of ES Acknowledgemment
+                waitForESAcknowledgement = false;
+                return new ElasticBulkProcessorHandler(elasticConnection, indexDefinition, definitionBuilder);
+            }
         }
 
         // commit-info has priority over configuration in index definition
@@ -161,11 +174,14 @@ class ElasticBulkProcessorHandler {
             return false;
         }
 
-        try {
-            phaser.awaitAdvanceInterruptibly(phase, indexDefinition.bulkFlushIntervalMs * 5, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException | TimeoutException e) {
-            LOG.error("Error waiting for bulk requests to return", e);
+        if (waitForESAcknowledgement) {
+            try {
+                phaser.awaitAdvanceInterruptibly(phase, indexDefinition.bulkFlushIntervalMs * 5, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException | TimeoutException e) {
+                LOG.error("Error waiting for bulk requests to return", e);
+            }
         }
+
 
         if (LOG.isTraceEnabled()) {
             LOG.trace("Bulk identifier -> update status = {}", updatesMap);
