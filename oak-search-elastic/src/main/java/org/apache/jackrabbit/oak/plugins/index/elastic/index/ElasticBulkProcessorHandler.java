@@ -110,14 +110,11 @@ class ElasticBulkProcessorHandler {
 
             // Check if this indexing call is a part of async cycle or a commit hook
             // In case it's from async cycle - commit info will have a indexingCheckpointTime key.
-            if (commitInfo.getInfo().containsKey(IndexConstants.CHECKPOINT_CREATION_TIME)) {
-                return new ElasticBulkProcessorHandler(elasticConnection, indexDefinition, definitionBuilder);
-            } else {
-                // This would be the commit hook calling the index update when async has nrt prop set
-                // We set waitForESAcknowledgement to false here so that IndexWriter returns without waiting of ES Acknowledgemment
+            // Otherwise it's part of commit hook based indexing due to async property having a value nrt
+            if (!commitInfo.getInfo().containsKey(IndexConstants.CHECKPOINT_CREATION_TIME)) {
                 waitForESAcknowledgement = false;
-                return new ElasticBulkProcessorHandler(elasticConnection, indexDefinition, definitionBuilder);
             }
+            return new ElasticBulkProcessorHandler(elasticConnection, indexDefinition, definitionBuilder);
         }
 
         // commit-info has priority over configuration in index definition
