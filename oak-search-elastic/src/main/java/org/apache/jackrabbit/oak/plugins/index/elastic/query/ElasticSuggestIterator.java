@@ -90,15 +90,15 @@ class ElasticSuggestIterator implements Iterator<FulltextResultRow> {
         SearchRequest searchRequest = new SearchRequest(indexNode.getDefinition().getRemoteIndexAlias())
                 .source(searchSourceBuilder);
         SearchResponse res = indexNode.getConnection().getClient().search(searchRequest, RequestOptions.DEFAULT);
-        PriorityQueue<ElasticSuggestion> pr = new PriorityQueue<>((a, b) -> Double.compare(b.score, a.score));
+        PriorityQueue<ElasticSuggestion> suggestionPriorityQueue = new PriorityQueue<>((a, b) -> Double.compare(b.score, a.score));
         for (SearchHit doc : res.getHits()) {
             if (responseHandler.isAccessible(responseHandler.getPath(doc))) {
                 for (SearchHit suggestion : doc.getInnerHits().get(FieldNames.SUGGEST).getHits()) {
-                    pr.add(new ElasticSuggestion(((List<String>) suggestion.getSourceAsMap().get("suggestion")).get(0), suggestion.getScore()));
+                    suggestionPriorityQueue.add(new ElasticSuggestion(((List<String>) suggestion.getSourceAsMap().get("suggestion")).get(0), suggestion.getScore()));
                 }
             }
         }
-        this.internalIterator = pr.iterator();
+        this.internalIterator = suggestionPriorityQueue.iterator();
     }
 
     private final static class ElasticSuggestion extends FulltextResultRow{
