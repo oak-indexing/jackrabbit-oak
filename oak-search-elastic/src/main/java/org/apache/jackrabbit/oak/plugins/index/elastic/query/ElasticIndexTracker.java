@@ -30,6 +30,15 @@ class ElasticIndexTracker extends FulltextIndexTracker<ElasticIndexNode, Elastic
     }
 
     @Override
+    public boolean isUpdateNeeded(NodeState before, NodeState after) {
+        // for Elastic we are not interested in checking for updates on :status, index definition is enough.
+        // The :status gets updated every time the indexed content is changed (with properties like last_update_ts),
+        // removing the check on :status reduces drastically the contention between queries (that need to acquire the
+        // read lock) and updates (need to acquire the write lock).
+        return isIndexDefinitionChanged(before, after);
+    }
+
+    @Override
     protected ElasticIndexNodeManager openIndex(String path, NodeState root, NodeState node) {
         return new ElasticIndexNodeManager(elasticConnection, path, root);
     }

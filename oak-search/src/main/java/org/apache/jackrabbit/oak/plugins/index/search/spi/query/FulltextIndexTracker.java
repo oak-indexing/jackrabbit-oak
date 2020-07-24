@@ -92,6 +92,18 @@ public abstract class FulltextIndexTracker<N extends IndexNode, I extends IndexN
         }
     }
 
+    /**
+     * Receives the before and after state to decide when to reload the {@link IndexNode}.
+     * By default it checks for changes of the :status node and the index definition.
+     *
+     * @param before before state, non-existent if this node was added
+     * @param after after state, non-existent if this node was removed
+     * @return true if the {@link IndexNode} need to be opened and updated
+     */
+    public boolean isUpdateNeeded(NodeState before, NodeState after) {
+        return isStatusChanged(before, after) || isIndexDefinitionChanged(before, after);
+    }
+
     public void setAsyncIndexInfoService(AsyncIndexInfoService asyncIndexInfoService) {
         this.asyncIndexInfoService = asyncIndexInfoService;
     }
@@ -120,7 +132,7 @@ public abstract class FulltextIndexTracker<N extends IndexNode, I extends IndexN
                 @Override
                 public void leave(NodeState before, NodeState after) {
                     try {
-                        if (isStatusChanged(before, after) || isIndexDefinitionChanged(before, after)) {
+                        if (isUpdateNeeded(before, after)) {
                             long start = PERF_LOGGER.start();
                             I index = openIndex(path, root, after);
                             PERF_LOGGER.end(start, -1, "[{}] Index found to be updated. Reopening the IndexNode", path);
@@ -242,7 +254,7 @@ public abstract class FulltextIndexTracker<N extends IndexNode, I extends IndexN
         return !EqualsDiff.equals(before.getChildNode(STATUS_NODE), after.getChildNode(STATUS_NODE));
     }
 
-    private static boolean isIndexDefinitionChanged(NodeState before, NodeState after) {
+    protected static boolean isIndexDefinitionChanged(NodeState before, NodeState after) {
         return !EqualsDiff.equals(before.getChildNode(INDEX_DEFINITION_NODE), after.getChildNode(INDEX_DEFINITION_NODE));
     }
 }
