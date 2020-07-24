@@ -54,7 +54,7 @@ import static org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition.IND
 import static org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition.STATUS_NODE;
 import static org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState.EMPTY_NODE;
 
-public abstract class FulltextIndexTracker<N extends IndexNode, I extends IndexNodeManager<N>> {
+public abstract class FulltextIndexTracker<I extends IndexNodeManager<?>> {
 
     private static final Logger LOG = LoggerFactory.getLogger(FulltextIndexTracker.class);
     private static final PerfLogger PERF_LOGGER =
@@ -174,9 +174,9 @@ public abstract class FulltextIndexTracker<N extends IndexNode, I extends IndexN
         refresh = true;
     }
 
-    public N acquireIndexNode(String path, String type) {
+    public IndexNode acquireIndexNode(String path, String type) {
         I index = indices.get(path);
-        N indexNode = index != null ? index.acquire() : null;
+        IndexNode indexNode = index != null ? index.acquire() : null;
         if (indexNode != null) {
             return indexNode;
         } else {
@@ -207,13 +207,13 @@ public abstract class FulltextIndexTracker<N extends IndexNode, I extends IndexN
         return root;
     }
 
-    private synchronized N findIndexNode(String path, String type) {
+    private synchronized IndexNode findIndexNode(String path, String type) {
         // Retry the lookup from acquireIndexNode now that we're
         // synchronized. The acquire() call is guaranteed to succeed
         // since the close() method is also synchronized.
         I index = indices.get(path);
         if (index != null) {
-            N indexNode = index.acquire();
+            IndexNode indexNode = index.acquire();
             return checkNotNull(indexNode);
         }
 
@@ -230,7 +230,7 @@ public abstract class FulltextIndexTracker<N extends IndexNode, I extends IndexN
             if (IndexHelper.isIndexNodeOfType(node, type)) {
                 index = openIndex(path, root, node);
                 if (index != null) {
-                    N indexNode = index.acquire();
+                    IndexNode indexNode = index.acquire();
                     checkNotNull(indexNode);
                     indices = ImmutableMap.<String, I>builder()
                             .putAll(indices)

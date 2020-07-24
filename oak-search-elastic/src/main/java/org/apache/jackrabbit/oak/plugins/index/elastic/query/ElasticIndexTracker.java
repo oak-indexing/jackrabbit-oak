@@ -21,7 +21,7 @@ import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndexTra
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.jetbrains.annotations.NotNull;
 
-class ElasticIndexTracker extends FulltextIndexTracker<ElasticIndexNode, ElasticIndexNodeManager> {
+class ElasticIndexTracker extends FulltextIndexTracker<ElasticIndexNodeManager> {
 
     private final ElasticConnection elasticConnection;
 
