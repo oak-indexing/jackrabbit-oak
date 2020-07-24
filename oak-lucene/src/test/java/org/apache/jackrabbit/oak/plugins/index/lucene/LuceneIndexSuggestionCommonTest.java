@@ -29,7 +29,6 @@ import java.io.File;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-@SuppressWarnings("ConstantConditions")
 public class LuceneIndexSuggestionCommonTest extends IndexSuggestionCommonTest {
     private ExecutorService executorService = Executors.newFixedThreadPool(2);
     @Rule
