@@ -43,7 +43,6 @@ import java.util.PriorityQueue;
 class ElasticSuggestIterator implements Iterator<FulltextResultRow> {
 
     private static final Logger LOG = LoggerFactory.getLogger(ElasticSuggestIterator.class);
-    protected final static String SUGGEST_PREFIX = "suggest?term=";
 
     private final ElasticIndexNode indexNode;
     private final ElasticRequestHandler requestHandler;
@@ -51,7 +50,7 @@ class ElasticSuggestIterator implements Iterator<FulltextResultRow> {
     private final String suggestQuery;
 
     private Iterator<FulltextResultRow> internalIterator;
-    private boolean loaded = false;
+    private boolean loaded;
 
     ElasticSuggestIterator(@NotNull ElasticIndexNode indexNode,
                            @NotNull ElasticRequestHandler requestHandler,
@@ -59,7 +58,7 @@ class ElasticSuggestIterator implements Iterator<FulltextResultRow> {
         this.indexNode = indexNode;
         this.requestHandler = requestHandler;
         this.responseHandler = responseHandler;
-        this.suggestQuery = requestHandler.getPropertyRestrictionQuery().replace(SUGGEST_PREFIX, "");
+        this.suggestQuery = requestHandler.getPropertyRestrictionQuery().replace(ElasticRequestHandler.SUGGEST_PREFIX, "");
     }
 
     @Override
@@ -68,7 +67,8 @@ class ElasticSuggestIterator implements Iterator<FulltextResultRow> {
             try {
                 loadSuggestions();
             } catch (IOException e) {
-                e.printStackTrace();
+                LOG.error("Failed loading suggestions", e);
+                throw new RuntimeException(e);
             }
             loaded = true;
         }
@@ -82,18 +82,18 @@ class ElasticSuggestIterator implements Iterator<FulltextResultRow> {
 
     private void loadSuggestions() throws IOException {
         BoolQueryBuilder suggestionQuery = requestHandler.suggestionMatchQuery(suggestQuery);
-        final SearchSourceBuilder searchSourceBuilder = SearchSourceBuilder.searchSource()
+        SearchSourceBuilder searchSourceBuilder = SearchSourceBuilder.searchSource()
                 .query(suggestionQuery)
                 .size(100)
                 .fetchSource(FieldNames.PATH, null);
-        final SearchRequest searchRequest = new SearchRequest(indexNode.getDefinition().getRemoteIndexAlias())
+        SearchRequest searchRequest = new SearchRequest(indexNode.getDefinition().getRemoteIndexAlias())
                 .source(searchSourceBuilder);
         SearchResponse res = indexNode.getConnection().getClient().search(searchRequest, RequestOptions.DEFAULT);
         ArrayList<FulltextResultRow> results = new ArrayList<>();
         PriorityQueue<ElasticSuggestion> pr = new PriorityQueue<>((a, b) -> Float.compare(b.score, a.score));
         for (SearchHit doc : res.getHits()) {
             if (responseHandler.isAccessible(responseHandler.getPath(doc))) {
-                for (SearchHit suggestion : doc.getInnerHits().get(":suggest").getHits()) {
+                for (SearchHit suggestion : doc.getInnerHits().get(FieldNames.SUGGEST).getHits()) {
                     pr.add(new ElasticSuggestion(((List<String>) suggestion.getSourceAsMap().get("suggestion")).get(0), suggestion.getScore()));
                 }
             }
@@ -105,10 +105,10 @@ class ElasticSuggestIterator implements Iterator<FulltextResultRow> {
     }
 
     private final static class ElasticSuggestion {
-        String suggestion;
-        float score;
+        private final String suggestion;
+        private final float score;
 
-        public ElasticSuggestion(String suggestion, float score) {
+        private ElasticSuggestion(String suggestion, float score) {
             this.suggestion = suggestion;
             this.score = score;
         }

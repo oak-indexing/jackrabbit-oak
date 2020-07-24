@@ -108,7 +108,7 @@ public class ElasticRequestHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger(ElasticRequestHandler.class);
     private final static String SPELLCHECK_PREFIX = "spellcheck?term=";
-    private final static String SUGGEST_PREFIX = "suggest?term=";
+    protected final static String SUGGEST_PREFIX = "suggest?term=";
     private static final String ES_TRIGRAM_SUFFIX = ".trigram";
     private static final List<FieldSortBuilder> DEFAULT_SORTS = Arrays.asList(
             SortBuilders.fieldSort("_score").order(SortOrder.DESC),
@@ -543,8 +543,8 @@ public class ElasticRequestHandler {
     }
 
     public BoolQueryBuilder suggestionMatchQuery(String suggestion) {
-        QueryBuilder qb = new MatchBoolPrefixQueryBuilder(":suggest.suggestion", suggestion).operator(Operator.AND);
-        NestedQueryBuilder nestedQueryBuilder = nestedQuery(":suggest", qb, ScoreMode.Max);
+        QueryBuilder qb = new MatchBoolPrefixQueryBuilder(FieldNames.SUGGEST + ".suggestion", suggestion).operator(Operator.AND);
+        NestedQueryBuilder nestedQueryBuilder = nestedQuery(FieldNames.SUGGEST, qb, ScoreMode.Max);
         InnerHitBuilder in = new InnerHitBuilder().setSize(100);
         nestedQueryBuilder.innerHit(in);
         BoolQueryBuilder query = boolQuery()

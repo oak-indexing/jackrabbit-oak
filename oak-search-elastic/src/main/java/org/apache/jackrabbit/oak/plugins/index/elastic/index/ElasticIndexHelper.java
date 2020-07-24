@@ -169,13 +169,14 @@ class ElasticIndexHelper {
             }
 
             if (useInSuggest) {
-                mappingBuilder.startObject(":suggest");
+                mappingBuilder.startObject(FieldNames.SUGGEST);
                 {
                     mappingBuilder.field("type", "nested");
                     mappingBuilder.startObject("properties");
                     {
                         mappingBuilder.startObject("suggestion")
                                 .field("type", "text")
+                                .field("analyzer", "oak_analyzer")
                                 .endObject();
                     }
                     mappingBuilder.endObject();

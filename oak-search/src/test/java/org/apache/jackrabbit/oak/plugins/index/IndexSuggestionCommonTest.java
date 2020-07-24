@@ -45,7 +45,6 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-@SuppressWarnings("ConstantConditions")
 public abstract class IndexSuggestionCommonTest extends AbstractJcrTest {
     protected TestRepository repositoryOptionsUtil;
     protected Node indexNode;
