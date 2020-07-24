@@ -17,6 +17,7 @@
 package org.apache.jackrabbit.oak.plugins.index.elastic.query;
 
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
+import org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex.FulltextResultRow;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
@@ -49,7 +50,7 @@ class ElasticSuggestIterator implements Iterator<FulltextResultRow> {
     private final ElasticResponseHandler responseHandler;
     private final String suggestQuery;
 
-    private Iterator<FulltextResultRow> internalIterator;
+    private Iterator<? extends FulltextResultRow> internalIterator;
     private boolean loaded;
 
     ElasticSuggestIterator(@NotNull ElasticIndexNode indexNode,
@@ -89,8 +90,7 @@ class ElasticSuggestIterator implements Iterator<FulltextResultRow> {
         SearchRequest searchRequest = new SearchRequest(indexNode.getDefinition().getRemoteIndexAlias())
                 .source(searchSourceBuilder);
         SearchResponse res = indexNode.getConnection().getClient().search(searchRequest, RequestOptions.DEFAULT);
-        ArrayList<FulltextResultRow> results = new ArrayList<>();
-        PriorityQueue<ElasticSuggestion> pr = new PriorityQueue<>((a, b) -> Float.compare(b.score, a.score));
+        PriorityQueue<ElasticSuggestion> pr = new PriorityQueue<>((a, b) -> Double.compare(b.score, a.score));
         for (SearchHit doc : res.getHits()) {
             if (responseHandler.isAccessible(responseHandler.getPath(doc))) {
                 for (SearchHit suggestion : doc.getInnerHits().get(FieldNames.SUGGEST).getHits()) {
@@ -98,19 +98,12 @@ class ElasticSuggestIterator implements Iterator<FulltextResultRow> {
                 }
             }
         }
-        for (ElasticSuggestion s : pr) {
-            results.add(new FulltextResultRow(s.suggestion));
-        }
-        this.internalIterator = results.iterator();
+        this.internalIterator = pr.iterator();
     }
 
-    private final static class ElasticSuggestion {
-        private final String suggestion;
-        private final float score;
-
-        private ElasticSuggestion(String suggestion, float score) {
-            this.suggestion = suggestion;
-            this.score = score;
+    private final static class ElasticSuggestion extends FulltextResultRow{
+        private ElasticSuggestion(String suggestion, double score) {
+            super(suggestion, score);
         }
     }
 }
