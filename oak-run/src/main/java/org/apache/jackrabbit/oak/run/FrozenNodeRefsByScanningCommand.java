@@ -65,16 +65,16 @@ import joptsimple.OptionSpec;
 
 /**
  * Scans and lists all references to nt:frozenNode and returns an exit code of 1 if any are found (0 otherwise).
- * <p/>
+ * <p>
  * This variant does a *very expensive repository scan* for all properties formatted as uuid
  * ( LIKE \"________-____-____-____-____________\" )
  * and checking if any reference points to an nt:frozenNode (under /jcr:system/jcr:versionStorage
- * at depth > 7).
- * <p/>
+ * at depth &gt; 7).
+ * <p>
  * Note that any property with uuid that cannot be resolved will *not be reported*, as that
  * is a legitimate use case of uuid property use. Only uuids that resolve will be analysed.
- * <p/>
- * Example: 
+ * <p>
+ * Example:
  * <pre>
  * java -mx4g -jar oak-run-*.jar frozennoderefsbyscanning mongodb://localhost/&lt;dbname&gt; -user=admin -password=admin
  * </pre>
@@ -248,8 +248,9 @@ public class FrozenNodeRefsByScanningCommand implements Command {
                 .getExitingScheduledExecutorService((ScheduledThreadPoolExecutor) Executors.newScheduledThreadPool(5));
         StatisticsProvider statsProvider = StatisticsProvider.NOOP;
         int queueSize = Integer.getInteger("queueSize", 1000);
+        long queueTimeout = Long.getLong("queueTimeoutMillis", 100);
         IndexTracker tracker = new IndexTracker();
-        DocumentQueue queue = new DocumentQueue(queueSize, tracker, executorService, statsProvider);
+        DocumentQueue queue = new DocumentQueue(queueSize, queueTimeout, tracker, executorService, statsProvider);
         ep.setIndexingQueue(queue);
         return ep;
     }
