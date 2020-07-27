@@ -277,7 +277,9 @@ public abstract class FulltextDocumentMaker<D> implements DocumentMaker<D> {
                     }
 
                     if (pd.nodeScopeIndex) {
-                        indexFulltextValue(doc, value);
+                        if (isFulltextValuePersisted()) {
+                            indexFulltextValue(doc, value);
+                        }
                         if (pd.useInSimilarity) {
                             log.trace("indexing similarity strings for {}", pd.name);
                             try {
@@ -301,6 +303,13 @@ public abstract class FulltextDocumentMaker<D> implements DocumentMaker<D> {
         }
 
         return dirty;
+    }
+
+    /**
+     * Returns {@code true} if nodeScopeIndex full text values need to be indexed
+     */
+    protected boolean isFulltextValuePersisted() {
+        return true;
     }
 
     protected abstract boolean indexSimilarityTag(D doc, PropertyState property);

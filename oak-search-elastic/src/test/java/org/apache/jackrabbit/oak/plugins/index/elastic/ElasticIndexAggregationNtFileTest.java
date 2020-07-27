@@ -126,7 +126,7 @@ public class ElasticIndexAggregationNtFileTest extends ElasticAbstractQueryTest 
     }
 
     @Test
-    public void indexNtFileText() throws CommitFailedException, InterruptedException {
+    public void indexNtFileText() throws CommitFailedException {
         setTraversalEnabled(false);
         final String statement = "//element(*, test:Asset)[ " +
                 "jcr:contains(jcr:content/renditions/dam.text.txt/jcr:content, 'quick') ]";
