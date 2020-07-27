@@ -410,8 +410,7 @@ public class ElasticRequestHandler {
             }
 
             private boolean visitTerm(String propertyName, String text, String boost, boolean not) {
-                String p = getElasticFieldName(propertyName);
-                QueryBuilder q = tokenToQuery(text, p, pr);
+                QueryBuilder q = fullTextQuery(text, getElasticFieldName(propertyName), pr);
                 if (boost != null) {
                     q.boost(Float.parseFloat(boost));
                 }
@@ -598,27 +597,21 @@ public class ElasticRequestHandler {
         return QueryBuilders.multiMatchQuery(uuid);
     }
 
-    private static QueryBuilder tokenToQuery(String text, String fieldName, PlanResult pr) {
-        QueryBuilder ret;
-        IndexDefinition.IndexingRule indexingRule = pr.indexingRule;
+    private static QueryBuilder fullTextQuery(String text, String fieldName, PlanResult pr) {
         // default match query are executed in OR, we need to use AND instead to avoid that
         // every document having at least one term in the `text` will match. If there are multiple
         // contains clause they will go to different match queries and will be executed in OR
-        if (FieldNames.FULLTEXT.equals(fieldName) && !indexingRule.getNodeScopeAnalyzedProps().isEmpty()) {
+        if (FieldNames.FULLTEXT.equals(fieldName) && !pr.indexingRule.getNodeScopeAnalyzedProps().isEmpty()) {
             MultiMatchQueryBuilder multiMatchQuery = multiMatchQuery(text)
                     .operator(Operator.AND)
                     .type(MultiMatchQueryBuilder.Type.CROSS_FIELDS);
-            indexingRule.getNodeScopeAnalyzedProps().forEach(pd -> multiMatchQuery.field(pd.name, pd.boost));
+            pr.indexingRule.getNodeScopeAnalyzedProps().forEach(pd -> multiMatchQuery.field(pd.name, pd.boost));
             // Add the query for actual fulltext field also. That query would not be boosted
-            // and contained other parts like renditions, node name, etc
-            multiMatchQuery.field(fieldName);
-
-            ret = multiMatchQuery;
+            // and could contain other parts like renditions, node name, etc
+            return multiMatchQuery.field(fieldName);
         } else {
-            ret = matchQuery(fieldName, text).operator(Operator.AND);
+            return matchQuery(fieldName, text).operator(Operator.AND);
         }
-
-        return ret;
     }
 
     private QueryBuilder createQuery(String propertyName, Filter.PropertyRestriction pr,
