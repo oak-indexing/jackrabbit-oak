@@ -217,7 +217,7 @@ public class IndexUpdate implements Editor, PathSource {
 
         //Async indexes are not considered for reindexing for sync indexing
         // Skip this check for elastic index
-
+        // TODO : See if the check to skip elastic can be handled in a better way - maybe move isMatchingIndexNode to IndexDefinition ? 
         if (!TYPE_ELASTICSEARCH.equals(type.getValue(Type.STRING)) && !isMatchingIndexMode(definition)){
             return false;
         }
