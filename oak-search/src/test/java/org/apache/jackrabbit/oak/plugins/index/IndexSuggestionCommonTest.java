@@ -22,6 +22,7 @@ import org.apache.jackrabbit.commons.jackrabbit.authorization.AccessControlUtils
 import org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexFormatVersion;
 import org.apache.jackrabbit.oak.query.AbstractJcrTest;
+import org.apache.jackrabbit.util.Text;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -51,7 +52,7 @@ public abstract class IndexSuggestionCommonTest extends AbstractJcrTest {
     protected IndexOptions indexOptions;
 
     private JackrabbitSession session = null;
-    private Node root = null;
+    protected Node root = null;
 
     @Before
     public void settingup() throws RepositoryException {
@@ -59,12 +60,12 @@ public abstract class IndexSuggestionCommonTest extends AbstractJcrTest {
         root = session.getRootNode();
     }
 
-    private void createSuggestIndex(String name, String indexedNodeType, String indexedPropertyName)
+    protected Node createSuggestIndex(String name, String indexedNodeType, String indexedPropertyName)
             throws Exception {
-        createSuggestIndex(name, indexedNodeType, indexedPropertyName, false, false);
+        return createSuggestIndex(name, indexedNodeType, indexedPropertyName, false, false);
     }
 
-    private void createSuggestIndex(String name, String indexedNodeType, String indexedPropertyName, boolean addFullText, boolean suggestAnalyzed)
+    private Node createSuggestIndex(String name, String indexedNodeType, String indexedPropertyName, boolean addFullText, boolean suggestAnalyzed)
             throws Exception {
         Node def = root.getNode(INDEX_DEFINITIONS_NAME)
                 .addNode(name, INDEX_DEFINITIONS_NODE_TYPE);
@@ -75,12 +76,23 @@ public abstract class IndexSuggestionCommonTest extends AbstractJcrTest {
         if (suggestAnalyzed) {
             def.addNode(FulltextIndexConstants.SUGGESTION_CONFIG).setProperty("suggestAnalyzed", suggestAnalyzed);
         }
+        addPropertyDefinition(def, indexedNodeType, indexedPropertyName, addFullText);
+        return def;
+    }
 
+    private Node getOrCreate(Node parent, String childName, String type) throws RepositoryException {
+        if (parent.hasNode(childName)) {
+            return parent.getNode(childName);
+        }
+        return parent.addNode(childName, type);
+    }
 
-        Node propertyIdxDef = def.addNode(INDEX_RULES, JcrConstants.NT_UNSTRUCTURED)
-                .addNode(indexedNodeType, JcrConstants.NT_UNSTRUCTURED)
-                .addNode(FulltextIndexConstants.PROP_NODE, JcrConstants.NT_UNSTRUCTURED)
-                .addNode("indexedProperty", JcrConstants.NT_UNSTRUCTURED);
+    protected void addPropertyDefinition(Node indexDefNode, String indexedNodeType, String indexedPropertyName, boolean addFullText) throws Exception {
+        Node rulesNode = getOrCreate(indexDefNode, INDEX_RULES, JcrConstants.NT_UNSTRUCTURED);
+        Node nodeTypeNode = getOrCreate(rulesNode, indexedNodeType, JcrConstants.NT_UNSTRUCTURED);
+        Node propertiesNode = getOrCreate(nodeTypeNode, FulltextIndexConstants.PROP_NODE, JcrConstants.NT_UNSTRUCTURED);
+        Node propertyIdxDef = getOrCreate(propertiesNode, Text.escapeIllegalJcrChars(indexedPropertyName),
+                JcrConstants.NT_UNSTRUCTURED);
         propertyIdxDef.setProperty("propertyIndex", true);
         propertyIdxDef.setProperty("analyzed", true);
         propertyIdxDef.setProperty("useInSuggest", true);

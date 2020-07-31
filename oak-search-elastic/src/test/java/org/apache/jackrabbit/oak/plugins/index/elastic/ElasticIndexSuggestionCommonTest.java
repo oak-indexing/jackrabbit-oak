@@ -16,14 +16,18 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic;
 
+import org.apache.jackrabbit.JcrConstants;
 import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.jcr.Jcr;
 import org.apache.jackrabbit.oak.plugins.index.ElasticTestRepositoryBuilder;
 import org.apache.jackrabbit.oak.plugins.index.IndexSuggestionCommonTest;
 import org.apache.jackrabbit.oak.plugins.index.TestUtils;
+import org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants;
 import org.junit.After;
 import org.junit.ClassRule;
+import org.junit.Test;
 
+import javax.jcr.Node;
 import javax.jcr.Repository;
 import javax.jcr.RepositoryException;
 import java.io.IOException;
@@ -59,5 +63,15 @@ public class ElasticIndexSuggestionCommonTest extends IndexSuggestionCommonTest 
     protected void assertEventually(Runnable r) {
         TestUtils.assertEventually(r,
                 ((repositoryOptionsUtil.isAsync() ? repositoryOptionsUtil.defaultAsyncIndexingTimeInSeconds : 0) + ElasticIndexDefinition.BULK_FLUSH_INTERVAL_MS_DEFAULT) * 5);
+    }
+
+    @Test
+    public void testMultipleSuggestionProperties() throws Exception {
+        String nodeType = JcrConstants.NT_UNSTRUCTURED;
+        Node indexDefNode = createSuggestIndex("elastic-suggest", nodeType,
+                FulltextIndexConstants.PROPDEF_PROP_NODE_NAME);
+        addPropertyDefinition(indexDefNode, nodeType, "suggestProp2", false);
+        root.addNode("indexedNode", nodeType);
+        adminSession.save();
     }
 }
