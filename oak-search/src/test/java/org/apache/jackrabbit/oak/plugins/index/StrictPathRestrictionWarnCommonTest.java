@@ -55,7 +55,7 @@ import static org.junit.Assert.assertTrue;
 @SuppressWarnings("ArraysAsListWithZeroOrOneArgument")
 public abstract class StrictPathRestrictionWarnCommonTest extends AbstractQueryTest {
 
-    ListAppender<ILoggingEvent> listAppender = null;
+    protected ListAppender<ILoggingEvent> listAppender = null;
 
     protected NodeStore nodeStore;
     protected QueryEngineSettings queryEngineSettings = new QueryEngineSettings();
