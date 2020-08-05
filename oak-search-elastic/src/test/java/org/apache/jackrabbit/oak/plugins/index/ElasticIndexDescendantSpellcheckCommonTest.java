@@ -14,44 +14,38 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.jackrabbit.oak.plugins.index.lucene;
+package org.apache.jackrabbit.oak.plugins.index;
 
 import org.apache.jackrabbit.api.JackrabbitSession;
 import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.jcr.Jcr;
-import org.apache.jackrabbit.oak.plugins.index.IndexDescendantSpellcheckCommonTest;
-import org.apache.jackrabbit.oak.plugins.index.LuceneIndexOptions;
-import org.apache.jackrabbit.oak.spi.commit.Observer;
-import org.apache.jackrabbit.oak.spi.query.QueryIndexProvider;
+import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticConnectionRule;
+import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexOptions;
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Rule;
-import org.junit.rules.TemporaryFolder;
+import org.junit.ClassRule;
 
 import javax.jcr.Repository;
 import javax.jcr.RepositoryException;
-import javax.jcr.SimpleCredentials;
 
-import java.io.File;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+public class ElasticIndexDescendantSpellcheckCommonTest extends IndexDescendantSpellcheckCommonTest {
 
-import static org.apache.jackrabbit.oak.plugins.index.lucene.TestUtil.shutdown;
-
-public class LuceneIndexDescendantSpellcheckCommonTest extends IndexDescendantSpellcheckCommonTest {
-
-    private ExecutorService executorService = Executors.newFixedThreadPool(2);
-    @Rule
-    public TemporaryFolder temporaryFolder = new TemporaryFolder(new File("target"));
+    // Set this connection string as
+    // <scheme>://<hostname>:<port>?key_id=<>,key_secret=<>
+    // key_id and key_secret are optional in case the ES server
+    // needs authentication
+    // Do not set this if docker is running and you want to run the tests on docker instead.
+    private static String elasticConnectionString = System.getProperty("elasticConnectionString");
+    @ClassRule
+    public static ElasticConnectionRule elasticRule = new ElasticConnectionRule(elasticConnectionString);
 
     @Override
     protected Repository createJcrRepository() throws RepositoryException {
-        indexOptions = new LuceneIndexOptions();
-        repositoryOptionsUtil = new LuceneTestRepositoryBuilder(executorService, temporaryFolder).build();
+        indexOptions = new ElasticIndexOptions();
+        repositoryOptionsUtil = new ElasticTestRepositoryBuilder(elasticRule).build();
         Oak oak = repositoryOptionsUtil.getOak();
         Jcr jcr = new Jcr(oak);
         Repository repository = jcr.createRepository();
         return repository;
     }
-
 }
