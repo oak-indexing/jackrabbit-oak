@@ -14,18 +14,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.jackrabbit.oak.plugins.index;
+package org.apache.jackrabbit.oak.plugins.index.elastic;
 
 import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.jcr.Jcr;
-import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticConnectionRule;
-import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexOptions;
+import org.apache.jackrabbit.oak.plugins.index.ElasticTestRepositoryBuilder;
+import org.apache.jackrabbit.oak.plugins.index.IndexDescendantSpellcheckCommonTest;
+import org.apache.jackrabbit.oak.plugins.index.IndexDescendantSuggestionCommonTest;
 import org.junit.ClassRule;
 
 import javax.jcr.Repository;
 import javax.jcr.RepositoryException;
 
-public class ElasticIndexDescendantSpellcheckCommonTest extends IndexDescendantSpellcheckCommonTest {
+public class ElasticIndexDescendantSuggestionCommonTest extends IndexDescendantSuggestionCommonTest {
 
     // Set this connection string as
     // <scheme>://<hostname>:<port>?key_id=<>,key_secret=<>
