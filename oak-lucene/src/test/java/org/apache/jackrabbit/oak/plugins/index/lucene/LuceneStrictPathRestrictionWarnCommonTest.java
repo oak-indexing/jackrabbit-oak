@@ -84,8 +84,6 @@ public class LuceneStrictPathRestrictionWarnCommonTest extends StrictPathRestric
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder(new File("target"));
 
-    ListAppender<ILoggingEvent> listAppender = null;
-
     private String corDir = null;
     private String cowDir = null;
 
