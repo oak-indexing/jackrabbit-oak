@@ -17,14 +17,16 @@
 package org.apache.jackrabbit.oak.plugins.index.lucene;
 
 import org.apache.jackrabbit.oak.InitialContentHelper;
-import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.api.ContentRepository;
 import org.apache.jackrabbit.oak.plugins.index.IndexQueryCommonTest;
 import org.apache.jackrabbit.oak.plugins.index.LuceneIndexOptions;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
-import org.apache.jackrabbit.oak.spi.commit.Observer;
-import org.apache.jackrabbit.oak.spi.query.QueryIndexProvider;
-import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
+import org.junit.Rule;
+import org.junit.rules.TemporaryFolder;
+
+import java.io.File;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Tests the query engine using the default index implementation: the
@@ -32,17 +34,16 @@ import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
  */
 public class LuceneIndexQueryCommonTest extends IndexQueryCommonTest {
 
+    private ExecutorService executorService = Executors.newFixedThreadPool(2);
+    @Rule
+    public TemporaryFolder temporaryFolder = new TemporaryFolder(new File("target"));
+
     @Override
     protected ContentRepository createRepository() {
+        LuceneTestRepositoryBuilder luceneTestRepositoryBuilder = new LuceneTestRepositoryBuilder(executorService, temporaryFolder);
+        luceneTestRepositoryBuilder.setNodeStore(new MemoryNodeStore(InitialContentHelper.INITIAL_CONTENT));
+        repositoryOptionsUtil = luceneTestRepositoryBuilder.build();
         indexOptions = new LuceneIndexOptions();
-        return getOakRepo().createContentRepository();
-    }
-    Oak getOakRepo() {
-        LowCostLuceneIndexProvider provider = new LowCostLuceneIndexProvider();
-        return new Oak(new MemoryNodeStore(InitialContentHelper.INITIAL_CONTENT))
-                .with(new OpenSecurityProvider())
-                .with((QueryIndexProvider) provider)
-                .with((Observer) provider)
-                .with(new LuceneIndexEditorProvider());
+        return repositoryOptionsUtil.getOak().createContentRepository();
     }
 }
