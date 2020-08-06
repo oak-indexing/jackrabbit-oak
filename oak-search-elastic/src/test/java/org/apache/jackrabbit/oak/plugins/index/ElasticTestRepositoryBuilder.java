@@ -57,7 +57,9 @@ public class ElasticTestRepositoryBuilder extends TestRepositoryBuilder {
                 .with(editorProvider)
                 .with((Observer) indexProvider)
                 .with(indexProvider)
-                .with(queryIndexProvider);
+                .with(indexEditorProvider)
+                .with(queryIndexProvider)
+                .with(queryEngineSettings);
         if (isAsync) {
             oak.withAsyncIndexing("async", asyncIndexingTimeInSeconds);
         }

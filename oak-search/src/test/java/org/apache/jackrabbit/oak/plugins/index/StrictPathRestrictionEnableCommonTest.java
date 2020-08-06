@@ -19,38 +19,18 @@
 
 package org.apache.jackrabbit.oak.plugins.index;
 
-import org.apache.commons.io.FileUtils;
 import org.apache.jackrabbit.JcrConstants;
-import org.apache.jackrabbit.oak.InitialContentHelper;
-import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.api.CommitFailedException;
-import org.apache.jackrabbit.oak.api.ContentRepository;
-import org.apache.jackrabbit.oak.api.StrictPathRestriction;
 import org.apache.jackrabbit.oak.api.Tree;
 import org.apache.jackrabbit.oak.api.Type;
-import org.apache.jackrabbit.oak.commons.concurrent.ExecutorCloser;
-import org.apache.jackrabbit.oak.plugins.index.nodetype.NodeTypeIndexProvider;
-import org.apache.jackrabbit.oak.plugins.index.property.PropertyIndexEditorProvider;
-import org.apache.jackrabbit.oak.plugins.index.search.ExtractedTextCache;
 import org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants;
-import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
-import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
 import org.apache.jackrabbit.oak.plugins.memory.PropertyStates;
 import org.apache.jackrabbit.oak.query.AbstractQueryTest;
-import org.apache.jackrabbit.oak.query.QueryEngineSettings;
-import org.apache.jackrabbit.oak.spi.commit.Observer;
-import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
-import org.junit.After;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
-import java.io.File;
-import java.io.IOException;
+import javax.jcr.Node;
 import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 import static com.google.common.collect.ImmutableSet.of;
 import static java.util.Arrays.asList;
@@ -69,7 +49,8 @@ import static org.junit.Assert.assertThat;
 public abstract class StrictPathRestrictionEnableCommonTest extends AbstractQueryTest {
 
     protected NodeStore nodeStore;
-    protected QueryEngineSettings queryEngineSettings = new QueryEngineSettings();
+    protected TestRepository repositoryOptionsUtil;
+    protected Node indexNode;
     protected IndexOptions indexOptions;
 
     @Override
@@ -90,10 +71,11 @@ public abstract class StrictPathRestrictionEnableCommonTest extends AbstractQuer
         test.addChild("c").setProperty("propa", 10);
         root.commit();
 
-        assertFalse(explain("select [jcr:path] from [nt:base] where [propa] = 10").contains("lucene:test1"));
-        assertThat(explain("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/a')"), containsString("lucene:test1"));
-        assertQuery("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/a')", asList("/test/a/b"));
-
+        assertEventually(() -> {
+            assertFalse(explain("select [jcr:path] from [nt:base] where [propa] = 10").contains(indexOptions.getIndexType() + ":test1"));
+            assertThat(explain("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/a')"), containsString(indexOptions.getIndexType() + ":test1"));
+            assertQuery("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/a')", asList("/test/a/b"));
+        });
     }
 
     @Test
@@ -109,18 +91,21 @@ public abstract class StrictPathRestrictionEnableCommonTest extends AbstractQuer
         test.addChild("c").addChild("d").setProperty("propa", 10);
         root.commit();
 
-        assertFalse(explain("select [jcr:path] from [nt:base] where [propa] = 10").contains("lucene:test1"));
-        assertThat(explain("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/c')"), containsString("lucene:test1"));
+        assertEventually(() -> {
+            assertFalse(explain("select [jcr:path] from [nt:base] where [propa] = 10").contains(indexOptions.getIndexType() + ":test1"));
+            assertThat(explain("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/c')"), containsString(indexOptions.getIndexType() + ":test1"));
 
-        assertQuery("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/c')", asList("/test/c/d"));
-
+            assertQuery("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/c')", asList("/test/c/d"));
+        });
         //Make some change and then check
         Tree testc = root.getTree("/").getChild("test").getChild("c");
         testc.addChild("e").addChild("f").setProperty("propa", 10);
         root.commit();
-        assertQuery("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/c')", asList("/test/c/d", "/test/c/e/f"));
-        assertThat(explain("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/c') and not(isDescendantNode('/test/c/e'))"), containsString("lucene:test1"));
-        assertQuery("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/c') and not(isDescendantNode('/test/c/e'))", asList("/test/c/d"));
+        assertEventually(() -> {
+            assertQuery("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/c')", asList("/test/c/d", "/test/c/e/f"));
+            assertThat(explain("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/c') and not(isDescendantNode('/test/c/e'))"), containsString(indexOptions.getIndexType() + ":test1"));
+            assertQuery("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/c') and not(isDescendantNode('/test/c/e'))", asList("/test/c/d"));
+        });
     }
 
     private String explain(String query) {
@@ -141,8 +126,11 @@ public abstract class StrictPathRestrictionEnableCommonTest extends AbstractQuer
         def.setProperty(REINDEX_PROPERTY_NAME, true);
         def.setProperty(FulltextIndexConstants.FULL_TEXT_ENABLED, false);
         def.setProperty(PropertyStates.createProperty(FulltextIndexConstants.INCLUDE_PROPERTY_NAMES, propNames, Type.STRINGS));
-        //def.setProperty(LuceneIndexConstants.SAVE_DIR_LISTING, true);
         return index.getChild(INDEX_DEFINITIONS_NAME).getChild(name);
+    }
+
+    private static void assertEventually(Runnable r) {
+        TestUtils.assertEventually(r, 3000 * 3);
     }
 
 }
