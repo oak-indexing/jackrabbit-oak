@@ -18,8 +18,8 @@ package org.apache.jackrabbit.oak.plugins.index.lucene;
 
 import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.jcr.Jcr;
-import org.apache.jackrabbit.oak.plugins.index.FacetCommonTest;
 import org.apache.jackrabbit.oak.plugins.index.LuceneIndexOptions;
+import org.apache.jackrabbit.oak.plugins.index.SecureFacetCommonTest;
 import org.apache.jackrabbit.oak.plugins.index.TestUtils;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
@@ -29,7 +29,7 @@ import java.io.File;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class LuceneFacetCommonTest extends FacetCommonTest {
+public class LuceneSecureFacetCommonTest extends SecureFacetCommonTest {
 
     private ExecutorService executorService = Executors.newFixedThreadPool(2);
     @Rule
