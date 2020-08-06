@@ -29,13 +29,13 @@ import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants;
 import org.apache.jackrabbit.oak.plugins.memory.PropertyStates;
 import org.apache.jackrabbit.oak.query.AbstractQueryTest;
-import org.apache.jackrabbit.oak.query.QueryEngineSettings;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.slf4j.LoggerFactory;
 
+import javax.jcr.Node;
 import java.util.Set;
 
 import static com.google.common.collect.ImmutableSet.of;
@@ -58,7 +58,8 @@ public abstract class StrictPathRestrictionWarnCommonTest extends AbstractQueryT
     protected ListAppender<ILoggingEvent> listAppender = null;
 
     protected NodeStore nodeStore;
-    protected QueryEngineSettings queryEngineSettings = new QueryEngineSettings();
+    protected TestRepository repositoryOptionsUtil;
+    protected Node indexNode;
     protected IndexOptions indexOptions;
 
     private final String warnMessage = "Index definition of index used have path restrictions and query won't return nodes from " +
@@ -98,13 +99,15 @@ public abstract class StrictPathRestrictionWarnCommonTest extends AbstractQueryT
         test.addChild("c").setProperty("propa", 10);
         root.commit();
 
-        assertThat(explain("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/a')"), containsString("lucene:test1"));
-        assertQuery("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/a')", asList("/test/a/b"));
-        // List appender should not have any warn logs as we are searching under right descendant as per path restrictions
-        assertFalse(isWarnMessagePresent(listAppender));
-        assertTrue(explain("select [jcr:path] from [nt:base] where [propa] = 10").contains("lucene:test1"));
-        // List appender now will have warn log as we are searching under root(/) but index definition have include path restriction.
-        assertTrue(isWarnMessagePresent(listAppender));
+        assertEventually(() -> {
+            assertThat(explain("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/a')"), containsString(indexOptions.getIndexType() + ":test1"));
+            assertQuery("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/a')", asList("/test/a/b"));
+            // List appender should not have any warn logs as we are searching under right descendant as per path restrictions
+            assertFalse(isWarnMessagePresent(listAppender));
+            assertTrue(explain("select [jcr:path] from [nt:base] where [propa] = 10").contains(indexOptions.getIndexType() + ":test1"));
+            // List appender now will have warn log as we are searching under root(/) but index definition have include path restriction.
+            assertTrue(isWarnMessagePresent(listAppender));
+        });
     }
 
     @Test
@@ -121,13 +124,15 @@ public abstract class StrictPathRestrictionWarnCommonTest extends AbstractQueryT
         test.addChild("c").addChild("d").setProperty("propa", 10);
         root.commit();
 
-        assertThat(explain("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/c')"), containsString("lucene:test1"));
-        assertQuery("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/c')", asList("/test/c/d"));
-        // List appender should not have any warn logs as we are searching under right descendant as per path restrictions
-        assertFalse(isWarnMessagePresent(listAppender));
-        assertTrue(explain("select [jcr:path] from [nt:base] where [propa] = 10").contains("lucene:test1"));
-        // List appender now will have warn log as we are searching under root(/) but index definition have exclude path restriction.
-        assertTrue(isWarnMessagePresent(listAppender));
+        assertEventually(() -> {
+            assertThat(explain("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/c')"), containsString(indexOptions.getIndexType() + ":test1"));
+            assertQuery("select [jcr:path] from [nt:base] where [propa] = 10 and isDescendantNode('/test/c')", asList("/test/c/d"));
+            // List appender should not have any warn logs as we are searching under right descendant as per path restrictions
+            assertFalse(isWarnMessagePresent(listAppender));
+            assertTrue(explain("select [jcr:path] from [nt:base] where [propa] = 10").contains(indexOptions.getIndexType() + ":test1"));
+            // List appender now will have warn log as we are searching under root(/) but index definition have exclude path restriction.
+            assertTrue(isWarnMessagePresent(listAppender));
+        });
     }
 
     private boolean isWarnMessagePresent(ListAppender<ILoggingEvent> listAppender) {
@@ -157,8 +162,11 @@ public abstract class StrictPathRestrictionWarnCommonTest extends AbstractQueryT
         def.setProperty(REINDEX_PROPERTY_NAME, true);
         def.setProperty(FulltextIndexConstants.FULL_TEXT_ENABLED, false);
         def.setProperty(PropertyStates.createProperty(FulltextIndexConstants.INCLUDE_PROPERTY_NAMES, propNames, Type.STRINGS));
-//        def.setProperty(LuceneIndexConstants.SAVE_DIR_LISTING, true);
         return index.getChild(INDEX_DEFINITIONS_NAME).getChild(name);
+    }
+
+    private static void assertEventually(Runnable r) {
+        TestUtils.assertEventually(r, 3000 * 3);
     }
 
 }
