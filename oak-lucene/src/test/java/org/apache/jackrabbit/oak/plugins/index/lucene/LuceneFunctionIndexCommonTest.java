@@ -28,11 +28,11 @@ import org.apache.jackrabbit.oak.plugins.index.LuceneIndexOptions;
 import org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
 import org.apache.jackrabbit.oak.plugins.memory.PropertyStates;
+import org.junit.After;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
-import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -41,21 +41,12 @@ import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFIN
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NODE_TYPE;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.REINDEX_PROPERTY_NAME;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.TYPE_PROPERTY_NAME;
-import static org.hamcrest.CoreMatchers.containsString;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
 
 public class LuceneFunctionIndexCommonTest extends FunctionIndexCommonTest {
 
     private ExecutorService executorService = Executors.newFixedThreadPool(2);
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder(new File("target"));
-
-//    @Override
-//    protected void createTestIndexNode() {
-//        setTraversalEnabled(false);
-//    }
-
 
     protected Tree createIndex(String name, Set<String> propNames) {
         Tree index = root.getTree("/");
@@ -85,18 +76,14 @@ public class LuceneFunctionIndexCommonTest extends FunctionIndexCommonTest {
                 .createContentRepository();
     }
 
-    private void assertOrderedPlanAndQuery(String query, String planExpectation, List<String> paths) {
-        List<String> result = assertPlanAndQuery(query, planExpectation, paths);
-        assertEquals("Ordering doesn't match", paths, result);
-    }
-
-    private List<String> assertPlanAndQuery(String query, String planExpectation, List<String> paths) {
-        assertThat(explain(query), containsString(planExpectation));
-        return assertQuery(query, paths);
-    }
-
     @Override
     protected String getLoggerName() {
         return LuceneIndexEditor.class.getName();
     }
+
+    @After
+    public void shutdownExecutor() {
+        executorService.shutdown();
+    }
+
 }

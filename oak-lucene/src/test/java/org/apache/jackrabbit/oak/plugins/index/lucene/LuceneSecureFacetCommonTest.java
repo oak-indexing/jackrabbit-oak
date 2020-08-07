@@ -21,6 +21,7 @@ import org.apache.jackrabbit.oak.jcr.Jcr;
 import org.apache.jackrabbit.oak.plugins.index.LuceneIndexOptions;
 import org.apache.jackrabbit.oak.plugins.index.SecureFacetCommonTest;
 import org.apache.jackrabbit.oak.plugins.index.TestUtils;
+import org.junit.After;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
 
@@ -46,6 +47,11 @@ public class LuceneSecureFacetCommonTest extends SecureFacetCommonTest {
 
     protected void assertEventually(Runnable r) {
         TestUtils.assertEventually(r, (repositoryOptionsUtil.isAsync() ? repositoryOptionsUtil.defaultAsyncIndexingTimeInSeconds : 0) * 5);
+    }
+
+    @After
+    public void shutdownExecutor() {
+        executorService.shutdown();
     }
 
 }

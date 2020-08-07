@@ -16,27 +16,19 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.lucene;
 
-import org.apache.jackrabbit.api.JackrabbitSession;
 import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.jcr.Jcr;
 import org.apache.jackrabbit.oak.plugins.index.IndexDescendantSpellcheckCommonTest;
 import org.apache.jackrabbit.oak.plugins.index.LuceneIndexOptions;
-import org.apache.jackrabbit.oak.spi.commit.Observer;
-import org.apache.jackrabbit.oak.spi.query.QueryIndexProvider;
 import org.junit.After;
-import org.junit.Before;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
 
 import javax.jcr.Repository;
 import javax.jcr.RepositoryException;
-import javax.jcr.SimpleCredentials;
-
 import java.io.File;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-
-import static org.apache.jackrabbit.oak.plugins.index.lucene.TestUtil.shutdown;
 
 public class LuceneIndexDescendantSpellcheckCommonTest extends IndexDescendantSpellcheckCommonTest {
 
@@ -53,5 +45,11 @@ public class LuceneIndexDescendantSpellcheckCommonTest extends IndexDescendantSp
         Repository repository = jcr.createRepository();
         return repository;
     }
+
+    @After
+    public void shutdownExecutor() {
+        executorService.shutdown();
+    }
+
 
 }
