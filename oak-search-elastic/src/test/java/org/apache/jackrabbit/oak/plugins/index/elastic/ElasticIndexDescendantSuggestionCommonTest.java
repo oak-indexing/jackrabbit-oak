@@ -19,7 +19,6 @@ package org.apache.jackrabbit.oak.plugins.index.elastic;
 import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.jcr.Jcr;
 import org.apache.jackrabbit.oak.plugins.index.ElasticTestRepositoryBuilder;
-import org.apache.jackrabbit.oak.plugins.index.IndexDescendantSpellcheckCommonTest;
 import org.apache.jackrabbit.oak.plugins.index.IndexDescendantSuggestionCommonTest;
 import org.junit.ClassRule;
 
