@@ -45,7 +45,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
 public abstract class FunctionIndexCommonTest extends AbstractQueryTest {
-    
+
     protected IndexOptions indexOptions;
     protected TestRepository repositoryOptionsUtil;
 
@@ -211,7 +211,6 @@ public abstract class FunctionIndexCommonTest extends AbstractQueryTest {
         Tree index = root.getTree("/");
         Tree indexDefn = createTestIndexNode(index, indexOptions.getIndexType());
         TestUtil.useV2(indexDefn);
-        //indexDefn.setProperty(LuceneIndexConstants.TEST_MODE, true);
         indexDefn.setProperty(FulltextIndexConstants.EVALUATE_PATH_RESTRICTION, true);
         Tree props = TestUtil.newRulePropTree(indexDefn, "nt:unstructured");
         props.getParent().setProperty(FulltextIndexConstants.INDEX_NODE_NAME, true);
@@ -275,7 +274,6 @@ public abstract class FunctionIndexCommonTest extends AbstractQueryTest {
         Tree index = root.getTree("/");
         Tree indexDefn = createTestIndexNode(index, indexOptions.getIndexType());
         TestUtil.useV2(indexDefn);
-        // indexDefn.setProperty(LuceneIndexConstants.TEST_MODE, true);
         indexDefn.setProperty(FulltextIndexConstants.EVALUATE_PATH_RESTRICTION, true);
         Tree props = TestUtil.newRulePropTree(indexDefn, "nt:unstructured");
         props.getParent().setProperty(FulltextIndexConstants.INDEX_NODE_NAME, true);
@@ -369,7 +367,6 @@ public abstract class FunctionIndexCommonTest extends AbstractQueryTest {
         Tree index = root.getTree("/");
         Tree indexDefn = createTestIndexNode(index, indexOptions.getIndexType());
         TestUtil.useV2(indexDefn);
-        // indexDefn.setProperty(LuceneIndexConstants.TEST_MODE, true);
         indexDefn.setProperty(FulltextIndexConstants.EVALUATE_PATH_RESTRICTION, true);
         Tree props = TestUtil.newRulePropTree(indexDefn, "nt:unstructured");
         props.getParent().setProperty(FulltextIndexConstants.INDEX_NODE_NAME, true);
@@ -460,7 +457,6 @@ public abstract class FunctionIndexCommonTest extends AbstractQueryTest {
         Tree index = root.getTree("/");
         Tree indexDefn = createTestIndexNode(index, indexOptions.getIndexType());
         TestUtil.useV2(indexDefn);
-        //   indexDefn.setProperty(LuceneIndexConstants.TEST_MODE, true);
         indexDefn.setProperty(FulltextIndexConstants.EVALUATE_PATH_RESTRICTION, true);
         Tree props = TestUtil.newRulePropTree(indexDefn, "nt:unstructured");
         props.getParent().setProperty(FulltextIndexConstants.INDEX_NODE_NAME, true);
@@ -554,7 +550,6 @@ public abstract class FunctionIndexCommonTest extends AbstractQueryTest {
         Tree index = root.getTree("/");
         Tree indexDefn = createTestIndexNode(index, indexOptions.getIndexType());
         TestUtil.useV2(indexDefn);
-        //indexDefn.setProperty(LuceneIndexConstants.TEST_MODE, true);
         indexDefn.setProperty(FulltextIndexConstants.EVALUATE_PATH_RESTRICTION, true);
         Tree props = TestUtil.newRulePropTree(indexDefn, "nt:unstructured");
         props.getParent().setProperty(FulltextIndexConstants.INDEX_NODE_NAME, true);
@@ -642,7 +637,6 @@ public abstract class FunctionIndexCommonTest extends AbstractQueryTest {
         Tree index = root.getTree("/");
         Tree indexDefn = createTestIndexNode(index, indexOptions.getIndexType());
         TestUtil.useV2(indexDefn);
-        //  indexDefn.setProperty(LuceneIndexConstants.TEST_MODE, true);
         indexDefn.setProperty(FulltextIndexConstants.EVALUATE_PATH_RESTRICTION, true);
         Tree props = TestUtil.newRulePropTree(indexDefn, "nt:unstructured");
         props.getParent().setProperty(FulltextIndexConstants.INDEX_NODE_NAME, true);
@@ -883,7 +877,6 @@ public abstract class FunctionIndexCommonTest extends AbstractQueryTest {
     @Test
     public void coalesceOrdering() throws Exception {
 
-//        IndexDefinitionBuilder idxb = new LuceneIndexDefinitionBuilder().noAsync();
         IndexDefinitionBuilder idxb = indexOptions.createIndexDefinitionBuilder().noAsync();
         idxb.indexRule("nt:base").property("foo", null).function(
                 "coalesce([jcr:content/foo2], [jcr:content/foo])"
@@ -1189,17 +1182,7 @@ Indexer should index any changes properly and ordering should work as expected.
         return createIndex(index, name, propNames);
     }
 
-    abstract protected Tree createIndex(Tree index, String name, Set<String> propNames); /* {
-        Tree def = index.addChild(INDEX_DEFINITIONS_NAME).addChild(name);
-        def.setProperty(JcrConstants.JCR_PRIMARYTYPE,
-                INDEX_DEFINITIONS_NODE_TYPE, Type.NAME);
-        def.setProperty(TYPE_PROPERTY_NAME, indexOptions.getIndexType());
-        def.setProperty(REINDEX_PROPERTY_NAME, true);
-        def.setProperty(FulltextIndexConstants.FULL_TEXT_ENABLED, false);
-        def.setProperty(PropertyStates.createProperty(FulltextIndexConstants.INCLUDE_PROPERTY_NAMES, propNames, Type.STRINGS));
-        def.setProperty(LuceneIndexConstants.SAVE_DIR_LISTING, true);
-        return index.getChild(INDEX_DEFINITIONS_NAME).getChild(name);
-    }*/
+    abstract protected Tree createIndex(Tree index, String name, Set<String> propNames);
 
     abstract protected String getLoggerName();
 }

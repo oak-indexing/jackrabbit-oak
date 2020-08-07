@@ -52,14 +52,12 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
     protected IndexOptions indexOptions;
     protected TestRepository repositoryOptionsUtil;
 
-
     @Override
     protected void createTestIndexNode() throws Exception {
         setTraversalEnabled(false);
         Tree index = root.getTree("/");
         indexDefn = createTestIndexNode(index, indexOptions.getIndexType());
         TestUtil.useV2(indexDefn);
-//        indexDefn.setProperty(LuceneIndexConstants.TEST_MODE, true);
         indexDefn.setProperty(FulltextIndexConstants.EVALUATE_PATH_RESTRICTION, true);
 
         Tree props = TestUtil.newRulePropTree(indexDefn, "nt:base");
