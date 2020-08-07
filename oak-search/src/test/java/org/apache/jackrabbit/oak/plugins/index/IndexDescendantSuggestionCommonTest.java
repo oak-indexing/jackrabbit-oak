@@ -26,7 +26,6 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 import javax.jcr.Node;
-import javax.jcr.Repository;
 import javax.jcr.query.Query;
 import javax.jcr.query.QueryManager;
 import javax.jcr.query.QueryResult;

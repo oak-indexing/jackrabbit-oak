@@ -78,14 +78,6 @@ public class TestUtil {
         }
     }
 
-//    public static NodeBuilder newLuceneIndexDefinitionV2(
-//        @NotNull NodeBuilder index, @NotNull String name,
-//        @Nullable Set<String> propertyTypes) {
-//        NodeBuilder nb = LuceneIndexHelper.newLuceneIndexDefinition(index, name, propertyTypes, null, null, null);
-//        useV2(nb);
-//        return nb;
-//    }
-
     public static Tree enableForFullText(Tree props, String propName) {
         return enableForFullText(props, propName, false);
     }
@@ -143,12 +135,6 @@ public class TestUtil {
         }
         return nb;
     }
-
-//    public static Document newDoc(String path) {
-//        Document doc = new Document();
-//        doc.add(newPathField(path));
-//        return doc;
-//    }
 
     static class AggregatorBuilder {
         private final Tree aggs;
@@ -209,17 +195,6 @@ public class TestUtil {
         return jcrContent;
     }
 
-//    public static Tree createFulltextIndex(Tree index, String name) throws CommitFailedException {
-//        Tree def = index.addChild(INDEX_DEFINITIONS_NAME).addChild(name);
-//        def.setProperty(JcrConstants.JCR_PRIMARYTYPE,
-//                INDEX_DEFINITIONS_NODE_TYPE, Type.NAME);
-//        def.setProperty(TYPE_PROPERTY_NAME, LuceneIndexConstants.TYPE_LUCENE);
-//        def.setProperty(REINDEX_PROPERTY_NAME, true);
-//        def.setProperty(createProperty(FulltextIndexConstants.INCLUDE_PROPERTY_TYPES,
-//                of(PropertyType.TYPENAME_STRING, PropertyType.TYPENAME_BINARY), STRINGS));
-//        return index.getChild(INDEX_DEFINITIONS_NAME).getChild(name);
-//    }
-
     public static void shutdown(Repository repository) {
         if (repository instanceof JackrabbitRepository) {
             ((JackrabbitRepository) repository).shutdown();
@@ -235,14 +210,6 @@ public class TestUtil {
         tree.setProperty(createAsyncProperty(indexingMode));
         return tree;
     }
-
-//    public static int createFile(Directory dir, String fileName, String content) throws IOException {
-//        byte[] data = content.getBytes();
-//        IndexOutput o = dir.createOutput(fileName, IOContext.DEFAULT);
-//        o.writeBytes(data, data.length);
-//        o.close();
-//        return data.length;
-//    }
 
     private static PropertyState createAsyncProperty(String indexingMode) {
         return createProperty(IndexConstants.ASYNC_PROPERTY_NAME, of(indexingMode, "async"), STRINGS);
