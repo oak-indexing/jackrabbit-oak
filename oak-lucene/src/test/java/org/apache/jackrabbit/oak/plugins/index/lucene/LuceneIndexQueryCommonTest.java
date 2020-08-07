@@ -21,6 +21,7 @@ import org.apache.jackrabbit.oak.api.ContentRepository;
 import org.apache.jackrabbit.oak.plugins.index.IndexQueryCommonTest;
 import org.apache.jackrabbit.oak.plugins.index.LuceneIndexOptions;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
+import org.junit.After;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
 
@@ -46,4 +47,10 @@ public class LuceneIndexQueryCommonTest extends IndexQueryCommonTest {
         indexOptions = new LuceneIndexOptions();
         return repositoryOptionsUtil.getOak().createContentRepository();
     }
+
+    @After
+    public void shutdownExecutor() {
+        executorService.shutdown();
+    }
+
 }

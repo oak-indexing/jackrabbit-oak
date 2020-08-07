@@ -16,60 +16,24 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.lucene;
 
-import org.apache.jackrabbit.api.JackrabbitSession;
 import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.jcr.Jcr;
 import org.apache.jackrabbit.oak.plugins.index.IndexDescendantSuggestionCommonTest;
 import org.apache.jackrabbit.oak.plugins.index.LuceneIndexOptions;
-import org.apache.jackrabbit.oak.spi.commit.Observer;
-import org.apache.jackrabbit.oak.spi.query.QueryIndexProvider;
 import org.junit.After;
-import org.junit.Before;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
 
-import javax.jcr.Node;
 import javax.jcr.Repository;
 import javax.jcr.RepositoryException;
-import javax.jcr.SimpleCredentials;
-
 import java.io.File;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import static org.apache.jackrabbit.JcrConstants.NT_BASE;
-import static org.apache.jackrabbit.JcrConstants.NT_UNSTRUCTURED;
-import static org.apache.jackrabbit.oak.plugins.index.lucene.TestUtil.shutdown;
-import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROPDEF_PROP_NODE_NAME;
-import static org.apache.jackrabbit.oak.spi.nodetype.NodeTypeConstants.NT_OAK_UNSTRUCTURED;
-
-public class LuceneIndexDescendantSuggestionCommonTest extends IndexDescendantSuggestionCommonTest{
+public class LuceneIndexDescendantSuggestionCommonTest extends IndexDescendantSuggestionCommonTest {
     private ExecutorService executorService = Executors.newFixedThreadPool(2);
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder(new File("target"));
-
-//    @Before
-//    public void before() throws Exception {
-//        LuceneIndexProvider provider = new LuceneIndexProvider();
-//
-//        Jcr jcr = new Jcr()
-//                .with(((QueryIndexProvider) provider))
-//                .with((Observer) provider)
-//                .with(new LuceneIndexEditorProvider());
-//
-//        repository = jcr.createRepository();
-//        session = (JackrabbitSession) repository.login(new SimpleCredentials("admin", "admin".toCharArray()));
-//        root = session.getRootNode();
-//
-//        createContent();
-//        session.save();
-//    }
-//
-//    @After
-//    public void after() {
-//        session.logout();
-//        shutdown(repository);
-//    }
 
     @Override
     protected Repository createJcrRepository() throws RepositoryException {
@@ -79,6 +43,11 @@ public class LuceneIndexDescendantSuggestionCommonTest extends IndexDescendantSu
         Jcr jcr = new Jcr(oak);
         Repository repository = jcr.createRepository();
         return repository;
+    }
+
+    @After
+    public void shutdownExecutor() {
+        executorService.shutdown();
     }
 
 }

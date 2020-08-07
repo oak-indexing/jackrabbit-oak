@@ -45,26 +45,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
 public abstract class FunctionIndexCommonTest extends AbstractQueryTest {
-
-//    private LuceneIndexEditorProvider editorProvider;
-//
-//    private NodeStore nodeStore;
-//
-//    @Override
-//    protected ContentRepository createRepository() {
-//        editorProvider = new LuceneIndexEditorProvider();
-//        LuceneIndexProvider provider = new LuceneIndexProvider();
-//        nodeStore = new MemoryNodeStore(InitialContentHelper.INITIAL_CONTENT);
-//        return new Oak(nodeStore)
-//                .with(new OpenSecurityProvider())
-//                .with((QueryIndexProvider) provider)
-//                .with((Observer) provider)
-//                .with(editorProvider)
-//                .with(new PropertyIndexEditorProvider())
-//                .with(new NodeTypeIndexProvider())
-//                .createContentRepository();
-//    }
-
+    
     protected IndexOptions indexOptions;
     protected TestRepository repositoryOptionsUtil;
 

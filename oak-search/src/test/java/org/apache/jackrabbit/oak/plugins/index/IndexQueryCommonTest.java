@@ -231,7 +231,7 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         // see also OAK-3371
         // "if we have only NOT CLAUSES we have to add a match all docs (*.*) for the
         // query to work"
-        
+
         executeQuery("/jcr:root//*[jcr:contains(@a,'-test*')]", "xpath", false);
 
         String planPrefix = "[nt:base] as [a] /* lucene:test-index(/oak:index/test-index) ";
