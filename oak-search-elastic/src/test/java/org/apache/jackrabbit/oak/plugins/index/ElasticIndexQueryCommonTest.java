@@ -45,9 +45,4 @@ public class ElasticIndexQueryCommonTest extends IndexQueryCommonTest {
         repositoryOptionsUtil = elasticTestRepositoryBuilder.build();
         return repositoryOptionsUtil.getOak().createContentRepository();
     }
-
-//    @Override
-//    protected void createTestIndexNode() {
-//        setTraversalEnabled(false);
-//    }
 }

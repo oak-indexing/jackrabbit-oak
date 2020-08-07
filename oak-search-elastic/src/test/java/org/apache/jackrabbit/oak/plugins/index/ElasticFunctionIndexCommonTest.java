@@ -19,7 +19,7 @@ import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.REINDEX_PRO
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.TYPE_PROPERTY_NAME;
 
 @Ignore
-public class ElasticFunctionIndexCommonTest extends FunctionIndexCommonTest{
+public class ElasticFunctionIndexCommonTest extends FunctionIndexCommonTest {
     // Set this connection string as
     // <scheme>://<hostname>:<port>?key_id=<>,key_secret=<>
     // key_id and key_secret are optional in case the ES server
