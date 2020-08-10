@@ -174,7 +174,7 @@ public abstract class ElasticAbstractQueryTest extends AbstractQueryTest {
     }
 
     protected IndexDefinitionBuilder createIndex(String... propNames) {
-        return createIndex(false, propNames);
+        return createIndex(true, propNames);
     }
 
     protected IndexDefinitionBuilder createIndex(boolean isPropertyIndex, String... propNames) {
