@@ -114,7 +114,7 @@ public class ElasticFullTextAsyncTest extends ElasticAbstractQueryTest {
     }
 
     /*
-    In this tesst only nodescope index is set. (OAK-9166)
+    In this test only nodeScope property is set over index. (OAK-9166)
      */
     @Test
     public void onlyNodeScopeIndexedQuery() throws Exception {
