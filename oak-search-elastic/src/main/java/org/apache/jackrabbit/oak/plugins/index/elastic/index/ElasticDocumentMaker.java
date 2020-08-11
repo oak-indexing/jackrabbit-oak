@@ -114,6 +114,11 @@ class ElasticDocumentMaker extends FulltextDocumentMaker<ElasticDocument> {
     }
 
     @Override
+    protected boolean isFulltextValuePersisted(PropertyDefinition pd) {
+        return !pd.analyzed;
+    }
+
+    @Override
     protected void indexTypedProperty(ElasticDocument doc, PropertyState property, String pname, PropertyDefinition pd, int i) {
         int tag = property.getType().tag();
 
