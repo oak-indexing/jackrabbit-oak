@@ -49,18 +49,18 @@ public class TestHelper {
     Deletes the remote elastic index from the elastic server.
      */
     public static void cleanupRemoteElastic(ElasticConnection connection, String indexName) throws IOException {
-//        String alias =  ElasticIndexNameHelper.getIndexAlias(connection.getIndexPrefix(), "/oak:index/" + indexName);
-//        // get and delete the indexes which this alias is pointing to
-//        GetAliasesRequest getAliasesRequest = new GetAliasesRequest(alias);
-//        GetAliasesResponse aliasesResponse = connection.getClient().indices().getAlias(getAliasesRequest, RequestOptions.DEFAULT);
-//        Map<String, Set<AliasMetadata>> aliases = aliasesResponse.getAliases();
-//        for (String remoteIndexName : aliases.keySet()) {
-//            AcknowledgedResponse deleteIndexResponse = connection.getClient().indices().
-//                    delete(new DeleteIndexRequest(remoteIndexName), RequestOptions.DEFAULT);
-//            if (!deleteIndexResponse.isAcknowledged()) {
-//                LOG.warn("Delete index call not acknowledged for index " + remoteIndexName + " .Please check if remote index deleted or not.");
-//            }
-//        }
+        String alias =  ElasticIndexNameHelper.getIndexAlias(connection.getIndexPrefix(), "/oak:index/" + indexName);
+        // get and delete the indexes which this alias is pointing to
+        GetAliasesRequest getAliasesRequest = new GetAliasesRequest(alias);
+        GetAliasesResponse aliasesResponse = connection.getClient().indices().getAlias(getAliasesRequest, RequestOptions.DEFAULT);
+        Map<String, Set<AliasMetadata>> aliases = aliasesResponse.getAliases();
+        for (String remoteIndexName : aliases.keySet()) {
+            AcknowledgedResponse deleteIndexResponse = connection.getClient().indices().
+                    delete(new DeleteIndexRequest(remoteIndexName), RequestOptions.DEFAULT);
+            if (!deleteIndexResponse.isAcknowledged()) {
+                LOG.warn("Delete index call not acknowledged for index " + remoteIndexName + " .Please check if remote index deleted or not.");
+            }
+        }
     }
 
 }
