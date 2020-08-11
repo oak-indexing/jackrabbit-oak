@@ -167,6 +167,7 @@ public class AsyncIndexerServiceTest {
         context.registerService(StatisticsProvider.class, StatisticsProvider.NOOP);
         context.registerService(NodeStore.class, nodeStore);
         context.registerService(ValidatorProvider.class, new ChangeCollectorProvider());
+        context.registerService(IndexingLaneTaskProvider.class, new IndexingLaneTaskProviderImpl());
         MockOsgi.injectServices(service, context.bundleContext());
     }
 

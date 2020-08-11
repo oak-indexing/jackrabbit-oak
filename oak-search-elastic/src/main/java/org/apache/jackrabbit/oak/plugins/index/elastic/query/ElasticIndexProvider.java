@@ -44,4 +44,8 @@ public class ElasticIndexProvider implements QueryIndexProvider, Observer {
     public void contentChanged(@NotNull NodeState root, @NotNull CommitInfo info) {
         elasticIndexTracker.update(root);
     }
+
+    public ElasticIndexTracker getElasticIndexTracker() {
+        return elasticIndexTracker;
+    }
 }

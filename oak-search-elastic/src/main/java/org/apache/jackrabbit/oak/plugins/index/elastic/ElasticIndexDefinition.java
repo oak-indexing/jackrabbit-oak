@@ -18,10 +18,12 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic;
 
+import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.PropertyDefinition;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Arrays;
 import java.util.List;
@@ -108,6 +110,25 @@ public class ElasticIndexDefinition extends IndexDefinition {
      */
     public String getRemoteIndexAlias() {
         return remoteAlias;
+    }
+
+    /**
+     * Returns index name to be used on elasticsearch.<br>
+     * NOTE -
+     * <ol>
+     *     <li>This could return null or the name of an index which has not been created yet.</li>
+     *     <li>In most of the cases, this should not be used for index related operations. Consider using index alias
+     *     returned by {@link #getRemoteIndexAlias()} </li>
+     * </ol>
+     * @return remote index name.
+     */
+    public @Nullable String getRemoteIndexName() {
+        PropertyState seedProp = definition.getProperty(ElasticIndexDefinition.PROP_INDEX_NAME_SEED);
+        if (seedProp != null) {
+            long seed = seedProp.getValue(Type.LONG);
+            return ElasticIndexNameHelper.getRemoteIndexName(this, seed);
+        }
+        return null;
     }
 
     public Map<String, List<PropertyDefinition>> getPropertiesByName() {

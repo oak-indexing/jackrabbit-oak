@@ -195,7 +195,7 @@ public abstract class FulltextIndexTracker<I extends IndexNodeManager<?>> {
         return null;
     }
 
-    Set<String> getIndexNodePaths(){
+    public Set<String> getIndexNodePaths(){
         return indices.keySet();
     }
 
@@ -203,7 +203,7 @@ public abstract class FulltextIndexTracker<I extends IndexNodeManager<?>> {
         return badIndexTracker;
     }
 
-    NodeState getRoot() {
+    public NodeState getRoot() {
         return root;
     }
 

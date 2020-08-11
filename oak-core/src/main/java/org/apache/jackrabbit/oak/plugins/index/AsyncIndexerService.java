@@ -112,6 +112,9 @@ public class AsyncIndexerService {
     @Reference
     private StatisticsProvider statisticsProvider;
 
+    @Reference
+    private IndexingLaneTaskProvider laneTaskProvider;
+
     private IndexMBeanRegistration indexRegistration;
 
     private final Closer closer = Closer.create();
@@ -138,7 +141,7 @@ public class AsyncIndexerService {
 
         for (AsyncConfig c : asyncIndexerConfig) {
             AsyncIndexUpdate task = new AsyncIndexUpdate(c.name, nodeStore, indexEditorProvider,
-                    statisticsProvider, false);
+                    statisticsProvider, false, laneTaskProvider);
             task.setCorruptIndexHandler(corruptIndexHandler);
             task.setValidatorProviders(Collections.singletonList(validatorProvider));
             task.setLeaseTimeOut(TimeUnit.MINUTES.toMillis(leaseTimeOutMin));
@@ -154,7 +157,7 @@ public class AsyncIndexerService {
     private void registerAsyncReindexSupport(Whiteboard whiteboard) {
         // async reindex
         String name = IndexConstants.ASYNC_REINDEX_VALUE;
-        AsyncIndexUpdate task = new AsyncIndexUpdate(name, nodeStore, indexEditorProvider, statisticsProvider, true);
+        AsyncIndexUpdate task = new AsyncIndexUpdate(name, nodeStore, indexEditorProvider, statisticsProvider, true, laneTaskProvider);
         PropertyIndexAsyncReindex asyncPI = new PropertyIndexAsyncReindex(task, executor);
 
         final Registration reg = new CompositeRegistration(

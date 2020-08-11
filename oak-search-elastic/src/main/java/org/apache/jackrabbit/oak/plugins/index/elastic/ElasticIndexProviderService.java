@@ -31,6 +31,7 @@ import org.apache.jackrabbit.oak.commons.IOUtils;
 import org.apache.jackrabbit.oak.commons.PropertiesUtil;
 import org.apache.jackrabbit.oak.osgi.OsgiWhiteboard;
 import org.apache.jackrabbit.oak.plugins.index.IndexEditorProvider;
+import org.apache.jackrabbit.oak.plugins.index.IndexingLaneTask;
 import org.apache.jackrabbit.oak.plugins.index.elastic.index.ElasticIndexEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.ElasticIndexProvider;
 import org.apache.jackrabbit.oak.plugins.index.fulltext.PreExtractedTextProvider;
@@ -150,6 +151,7 @@ public class ElasticIndexProviderService {
     private File textExtractionDir;
 
     private ElasticConnection elasticConnection;
+    private ElasticIndexProvider indexProvider;
 
     @Activate
     private void activate(BundleContext bundleContext, Map<String, Object> config) {
@@ -164,6 +166,7 @@ public class ElasticIndexProviderService {
 
         registerIndexProvider(bundleContext);
         registerIndexEditor(bundleContext);
+        registerIndexCleaner(bundleContext);
     }
 
     @Deactivate
@@ -184,7 +187,7 @@ public class ElasticIndexProviderService {
     }
 
     private void registerIndexProvider(BundleContext bundleContext) {
-        ElasticIndexProvider indexProvider = new ElasticIndexProvider(elasticConnection);
+        indexProvider = new ElasticIndexProvider(elasticConnection);
 
         // register observer needed for index tracking
         regs.add(bundleContext.registerService(Observer.class.getName(), indexProvider, null));
@@ -205,6 +208,11 @@ public class ElasticIndexProviderService {
 //                editorProvider.getExtractedTextCache().getStatsMBean(),
 //                TextExtractionStatsMBean.TYPE,
 //                "TextExtraction statistics"));
+    }
+
+    private void registerIndexCleaner(BundleContext bundleContext) {
+        ElasticIndexCleaner indexCleaner = new ElasticIndexCleaner(elasticConnection, indexProvider);
+        regs.add(bundleContext.registerService(IndexingLaneTask.class.getName(), indexCleaner, null));
     }
 
     private void initializeExtractedTextCache(Map<String, ?> config, StatisticsProvider statisticsProvider) {

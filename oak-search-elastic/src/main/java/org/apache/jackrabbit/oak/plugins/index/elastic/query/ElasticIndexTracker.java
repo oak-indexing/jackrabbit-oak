@@ -22,7 +22,7 @@ import org.apache.jackrabbit.oak.spi.state.EqualsDiff;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.jetbrains.annotations.NotNull;
 
-class ElasticIndexTracker extends FulltextIndexTracker<ElasticIndexNodeManager> {
+public class ElasticIndexTracker extends FulltextIndexTracker<ElasticIndexNodeManager> {
 
     private final ElasticConnection elasticConnection;
 
