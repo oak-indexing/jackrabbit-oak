@@ -26,6 +26,9 @@ import org.apache.jackrabbit.oak.stats.TimerStats;
 
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Provides high level functions to track and measure activities against Elastic.
+ */
 public class ElasticMetricHandler {
 
     private static final String QUERY_RATE = "ELASTIC_QUERY_RATE";
@@ -60,6 +63,15 @@ public class ElasticMetricHandler {
         queryFailedRate = sp.getMeter(QUERY_FAILED_RATE, StatsOptions.METRICS_ONLY);
     }
 
+    /**
+     * Tracks a new query using two metrics:
+     * <ul>
+     *     <li>{@code QUERY_RATE}</li>
+     *     <li>{@code QUERY_INTERNAL_RATE}</li>
+     * </ul>
+     *
+     * @param isRootQuery if {@code false} only {@code QUERY_INTERNAL_RATE} gets incremented
+     */
     public void markQuery(boolean isRootQuery) {
         if (isRootQuery) {
             queryRate.mark();
@@ -67,6 +79,14 @@ public class ElasticMetricHandler {
         queryInternalRate.mark();
     }
 
+    /**
+     * Measures a single query execution
+     * @param hits the number of hits in the result set
+     * @param serverTimeMs the Elastic server time in milliseconds
+     * @param totalTimeMs the complete query execution time
+     * @param timedOut Elastic could time out while returning partial results. When {@code true} these
+     *                 occurrences get tracked
+     */
     public void measureQuery(int hits, long serverTimeMs, long totalTimeMs, boolean timedOut) {
         queryHitsHistogram.update(hits);
         queryServerTimer.update(serverTimeMs, TimeUnit.MILLISECONDS);
@@ -76,6 +96,10 @@ public class ElasticMetricHandler {
         }
     }
 
+    /**
+     * Measures a failed query execution
+     * @param totalTimeMs the total execution time
+     */
     public void measureFailedQuery(long totalTimeMs) {
         queryFailedRate.mark();
         queryTotalTimer.update(totalTimeMs, TimeUnit.MILLISECONDS);
