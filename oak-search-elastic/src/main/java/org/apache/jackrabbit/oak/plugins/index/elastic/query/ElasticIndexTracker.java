@@ -16,11 +16,19 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.query;
 
+import org.apache.jackrabbit.oak.api.PropertyState;
+import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.plugins.index.IndexConstants;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticConnection;
+import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndexTracker;
 import org.apache.jackrabbit.oak.spi.state.EqualsDiff;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.Set;
+
+import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NAME;
 
 public class ElasticIndexTracker extends FulltextIndexTracker<ElasticIndexNodeManager> {
 
@@ -43,5 +51,20 @@ public class ElasticIndexTracker extends FulltextIndexTracker<ElasticIndexNodeMa
     @Override
     protected ElasticIndexNodeManager openIndex(String path, NodeState root, NodeState node) {
         return new ElasticIndexNodeManager(elasticConnection, path, root);
+    }
+
+    @Override
+    protected Set<String> getIndexPaths(final NodeState root) {
+        Set<String> indexPaths = super.getIndexPaths(root);
+        NodeState oakIndex = root.getChildNode(INDEX_DEFINITIONS_NAME);
+        if (oakIndex.exists()) {
+            oakIndex.getChildNodeEntries().forEach(childNodeEntry -> {
+                PropertyState typeProperty = childNodeEntry.getNodeState().getProperty(IndexConstants.TYPE_PROPERTY_NAME);
+                if (typeProperty != null && typeProperty.getValue(Type.STRING).equals(ElasticIndexDefinition.TYPE_ELASTICSEARCH)) {
+                    indexPaths.add("/" + INDEX_DEFINITIONS_NAME + "/" + childNodeEntry.getName());
+                }
+            });
+        }
+        return indexPaths;
     }
 }
