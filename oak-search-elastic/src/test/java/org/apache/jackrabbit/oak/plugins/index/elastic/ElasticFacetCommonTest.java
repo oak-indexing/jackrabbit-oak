@@ -18,7 +18,6 @@ package org.apache.jackrabbit.oak.plugins.index.elastic;
 
 import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.jcr.Jcr;
-import org.apache.jackrabbit.oak.plugins.index.ElasticTestRepositoryBuilder;
 import org.apache.jackrabbit.oak.plugins.index.FacetCommonTest;
 import org.apache.jackrabbit.oak.plugins.index.TestUtils;
 import org.junit.After;
