@@ -114,7 +114,7 @@ class ElasticDocumentMaker extends FulltextDocumentMaker<ElasticDocument> {
     }
 
     @Override
-    protected boolean isFulltextValuePersisted(PropertyDefinition pd) {
+    protected boolean isFulltextValuePersistedAtNode(PropertyDefinition pd) {
         return !pd.analyzed;
     }
 
