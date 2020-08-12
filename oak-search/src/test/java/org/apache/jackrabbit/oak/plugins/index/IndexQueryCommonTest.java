@@ -94,6 +94,7 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         test("sql2-fulltext.txt");
     }
 
+    @Ignore
     @Test
     public void testValueRegex() throws Exception {
         Tree test = root.getTree("/").addChild("test");
@@ -195,6 +196,7 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         });
     }
 
+    @Ignore
     @Test
     public void contains() throws Exception {
         String h = "Hello" + System.currentTimeMillis();
@@ -314,6 +316,7 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
 
     }
 
+    @Ignore
     @Test
     public void containsPath() throws Exception {
 
@@ -329,6 +332,7 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
 
     }
 
+    @Ignore
     @Test
     public void containsPathNum() throws Exception {
 
@@ -491,6 +495,7 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         });
     }
 
+    @Ignore
     @Test
     public void testTokenizeCN() throws Exception {
         Tree t = root.getTree("/").addChild("containsCN");
