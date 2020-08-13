@@ -92,7 +92,7 @@ public class AsyncIndexStatsUpdateCallbackTest {
         asyncIndexUpdate = new AsyncIndexUpdate("async", nodeStore, compose(newArrayList(
                 luceneIndexEditorProvider,
                 new NodeCounterEditorProvider()
-        )), StatisticsProvider.NOOP, false, null);
+        )), StatisticsProvider.NOOP, false);
         return new Oak(nodeStore)
                 .with(new InitialContent())
                 .with(new OpenSecurityProvider())

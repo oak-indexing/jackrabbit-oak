@@ -81,6 +81,17 @@ public abstract class FulltextIndexTracker<I extends IndexNodeManager<?>> {
         }
     }
 
+    public synchronized void update(final NodeState root) {
+        if (refresh) {
+            this.root = root;
+            close();
+            refresh = false;
+            LOG.info("Refreshed the opened indexes");
+        } else {
+            diffAndUpdate(root);
+        }
+    }
+
     /**
      * Receives the before and after state to decide when to reload the {@link IndexNode}.
      * By default it checks for changes of the :status node and the index definition.
@@ -93,30 +104,12 @@ public abstract class FulltextIndexTracker<I extends IndexNodeManager<?>> {
         return isStatusChanged(before, after) || isIndexDefinitionChanged(before, after);
     }
 
-    public synchronized void update(final NodeState root) {
-        if (refresh) {
-            this.root = root;
-            close();
-            refresh = false;
-            LOG.info("Refreshed the opened indexes");
-        } else {
-            diffAndUpdate(root);
-        }
-    }
-
     public void setAsyncIndexInfoService(AsyncIndexInfoService asyncIndexInfoService) {
         this.asyncIndexInfoService = asyncIndexInfoService;
     }
 
     AsyncIndexInfoService getAsyncIndexInfoService() {
         return asyncIndexInfoService;
-    }
-
-    protected Set<String> getIndexPaths(final NodeState root) {
-        Set<String> indexPaths = new HashSet<>();
-        indexPaths.addAll(indices.keySet());
-        indexPaths.addAll(badIndexTracker.getIndexPaths());
-        return indexPaths;
     }
 
     private synchronized void diffAndUpdate(final NodeState root) {
@@ -128,7 +121,10 @@ public abstract class FulltextIndexTracker<I extends IndexNodeManager<?>> {
 
         Map<String, I> original = indices;
         final Map<String, I> updates = new HashMap<>();
-        Set<String> indexPaths = getIndexPaths(root);
+
+        Set<String> indexPaths = new HashSet<>();
+        indexPaths.addAll(original.keySet());
+        indexPaths.addAll(badIndexTracker.getIndexPaths());
 
         List<Editor> editors = new ArrayList<>(indexPaths.size());
         for (final String path : indexPaths) {
@@ -199,7 +195,7 @@ public abstract class FulltextIndexTracker<I extends IndexNodeManager<?>> {
         return null;
     }
 
-    public Set<String> getIndexNodePaths(){
+    Set<String> getIndexNodePaths(){
         return indices.keySet();
     }
 
@@ -207,7 +203,7 @@ public abstract class FulltextIndexTracker<I extends IndexNodeManager<?>> {
         return badIndexTracker;
     }
 
-    public NodeState getRoot() {
+    NodeState getRoot() {
         return root;
     }
 

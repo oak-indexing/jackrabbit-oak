@@ -74,7 +74,6 @@ public abstract class ElasticAbstractQueryTest extends AbstractQueryTest {
     protected long INDEX_CORRUPT_INTERVAL_IN_MILLIS = 100;
     protected NodeStore nodeStore;
     protected int DEFAULT_ASYNC_INDEXING_TIME_IN_SECONDS = 5;
-    protected ElasticIndexProvider indexProvider;
 
     @ClassRule
     public static ElasticConnectionRule elasticRule = new ElasticConnectionRule(elasticConnectionString);
@@ -141,7 +140,7 @@ public abstract class ElasticAbstractQueryTest extends AbstractQueryTest {
         esConnection = elasticRule.useDocker() ? elasticRule.getElasticConnectionForDocker() :
                 elasticRule.getElasticConnectionFromString();
         ElasticIndexEditorProvider editorProvider = getElasticIndexEditorProvider(esConnection);
-        indexProvider = new ElasticIndexProvider(esConnection);
+        ElasticIndexProvider indexProvider = new ElasticIndexProvider(esConnection);
 
         nodeStore = getNodeStore();
 

@@ -17,32 +17,34 @@
 package org.apache.jackrabbit.oak.plugins.index.elastic;
 
 import org.apache.commons.io.FilenameUtils;
-import org.apache.felix.scr.annotations.Activate;
-import org.apache.felix.scr.annotations.Component;
-import org.apache.felix.scr.annotations.Deactivate;
-import org.apache.felix.scr.annotations.Property;
-import org.apache.felix.scr.annotations.Reference;
-import org.apache.felix.scr.annotations.ReferenceCardinality;
-import org.apache.felix.scr.annotations.ReferencePolicy;
-import org.apache.felix.scr.annotations.ReferencePolicyOption;
 import org.apache.jackrabbit.oak.api.jmx.CacheStatsMBean;
 import org.apache.jackrabbit.oak.cache.CacheStats;
 import org.apache.jackrabbit.oak.commons.IOUtils;
 import org.apache.jackrabbit.oak.commons.PropertiesUtil;
 import org.apache.jackrabbit.oak.osgi.OsgiWhiteboard;
 import org.apache.jackrabbit.oak.plugins.index.IndexEditorProvider;
-import org.apache.jackrabbit.oak.plugins.index.IndexingLaneTask;
 import org.apache.jackrabbit.oak.plugins.index.elastic.index.ElasticIndexEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.ElasticIndexProvider;
 import org.apache.jackrabbit.oak.plugins.index.fulltext.PreExtractedTextProvider;
 import org.apache.jackrabbit.oak.plugins.index.search.ExtractedTextCache;
 import org.apache.jackrabbit.oak.spi.commit.Observer;
 import org.apache.jackrabbit.oak.spi.query.QueryIndexProvider;
+import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.apache.jackrabbit.oak.spi.whiteboard.Registration;
 import org.apache.jackrabbit.oak.spi.whiteboard.Whiteboard;
 import org.apache.jackrabbit.oak.stats.StatisticsProvider;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceRegistration;
+import org.osgi.service.component.annotations.Activate;
+import org.osgi.service.component.annotations.Component;
+import org.osgi.service.component.annotations.Deactivate;
+import org.osgi.service.component.annotations.Reference;
+import org.osgi.service.component.annotations.ReferenceCardinality;
+import org.osgi.service.component.annotations.ReferencePolicy;
+import org.osgi.service.component.annotations.ReferencePolicyOption;
+import org.osgi.service.metatype.annotations.AttributeDefinition;
+import org.osgi.service.metatype.annotations.Designate;
+import org.osgi.service.metatype.annotations.ObjectClassDefinition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,89 +57,79 @@ import java.util.Map;
 
 import static org.apache.commons.io.FileUtils.ONE_MB;
 import static org.apache.jackrabbit.oak.spi.whiteboard.WhiteboardUtils.registerMBean;
+import static org.apache.jackrabbit.oak.spi.whiteboard.WhiteboardUtils.scheduleWithFixedDelay;
 
-@Component(metatype = true, label = "Apache Jackrabbit Oak ElasticIndexProvider")
+@Component
+@Designate(ocd = ElasticIndexProviderService.Config.class)
 public class ElasticIndexProviderService {
+
+    static final String PROP_INDEX_PREFIX = "indexPrefix";
+    private static final String PROP_ELASTIC_SCHEME = ElasticConnection.SCHEME_PROP;
+    private static final String PROP_ELASTIC_HOST = ElasticConnection.HOST_PROP;
+    private static final String PROP_ELASTIC_PORT = ElasticConnection.PORT_PROP;
+    private static final String PROP_ELASTIC_API_KEY_ID = ElasticConnection.API_KEY_ID_PROP;
+    private static final String PROP_ELASTIC_API_KEY_SECRET = ElasticConnection.API_KEY_SECRET_PROP;
+    private static final String PROP_LOCAL_TEXT_EXTRACTION_DIR = "localTextExtractionDir";
+
+    @ObjectClassDefinition(name = "ElasticIndexProviderService", description = "ElasticIndexProviderService")
+    public @interface Config {
+        @AttributeDefinition(name = "Extracted text cache size (MB)",
+                description = "Cache size in MB for caching extracted text for some time. When set to 0 then " +
+                        "cache would be disabled")
+        int cacheSizeInMB() default 20 ;
+
+        @AttributeDefinition(name = "Extracted text cache expiry (secs)",
+                description = "Time in seconds for which the extracted text would be cached in memory")
+        int cacheExpiryInSecs() default 300;
+
+        @AttributeDefinition(name = "Always use pre-extracted text cache",
+                description = "By default pre extracted text cache would only be used for reindex case. If this setting " +
+                        "is enabled then it would also be used in normal incremental indexing")
+        boolean alwaysUsePreExtractedCache() default false;
+
+        @AttributeDefinition(name = "Index prefix",
+                description = "Prefix to be added to name of each elastic search index")
+        String indexPrefix() default "oak-elastic";
+
+        @AttributeDefinition(name = "Elasticsearch connection scheme", description = "Elasticsearch connection scheme")
+        String scheme() default ElasticConnection.DEFAULT_SCHEME;
+
+        @AttributeDefinition(name = "Elasticsearch connection host", description = "Elasticsearch connection host")
+        String host() default ElasticConnection.DEFAULT_HOST;
+
+        @AttributeDefinition(name = "Elasticsearch connection port", description = "Elasticsearch connection port")
+        String port() default ("" + ElasticConnection.DEFAULT_PORT);
+
+        @AttributeDefinition(name = "Elasticsearch API key ID", description = "Elasticsearch API key ID")
+        String apiKeyId() default ElasticConnection.DEFAULT_API_KEY_ID;
+
+        @AttributeDefinition(name = "Elasticsearch API key secret", description = "Elasticsearch API key secret")
+        String apiKeySecret() default ElasticConnection.DEFAULT_API_KEY_SECRET;
+
+        @AttributeDefinition(name = "Local text extraction cache path",
+                description = "Local file system path where text extraction cache stores/load entries to recover from timed out operation")
+        String textExtractionCachePath();
+
+        @AttributeDefinition(name = "Remote index cleanup frequency", description = "Frequency (in seconds) of running remote index deletion scheduled task")
+        int remoteIndexCleanupFrequency() default 60;
+
+        @AttributeDefinition(name = "Remote index deletion threshold", description = "Time in seconds after which a remote index whose local index is not found gets deleted")
+        int remoteIndexDeletionThreshold() default 300;
+    }
+
 
     private static final Logger LOG = LoggerFactory.getLogger(ElasticIndexProviderService.class);
 
     private static final String REPOSITORY_HOME = "repository.home";
 
-    private static final int PROP_EXTRACTED_TEXT_CACHE_SIZE_DEFAULT = 20;
-    @Property(
-            intValue = PROP_EXTRACTED_TEXT_CACHE_SIZE_DEFAULT,
-            label = "Extracted text cache size (MB)",
-            description = "Cache size in MB for caching extracted text for some time. When set to 0 then " +
-                    "cache would be disabled"
-    )
-    private static final String PROP_EXTRACTED_TEXT_CACHE_SIZE = "extractedTextCacheSizeInMB";
-
-    private static final int PROP_EXTRACTED_TEXT_CACHE_EXPIRY_DEFAULT = 300;
-    @Property(
-            intValue = PROP_EXTRACTED_TEXT_CACHE_EXPIRY_DEFAULT,
-            label = "Extracted text cache expiry (secs)",
-            description = "Time in seconds for which the extracted text would be cached in memory"
-    )
-    private static final String PROP_EXTRACTED_TEXT_CACHE_EXPIRY = "extractedTextCacheExpiryInSecs";
-
-    private static final boolean PROP_PRE_EXTRACTED_TEXT_ALWAYS_USE_DEFAULT = false;
-    @Property(
-            boolValue = PROP_PRE_EXTRACTED_TEXT_ALWAYS_USE_DEFAULT,
-            label = "Always use pre-extracted text cache",
-            description = "By default pre extracted text cache would only be used for reindex case. If this setting " +
-                    "is enabled then it would also be used in normal incremental indexing"
-    )
-    private static final String PROP_PRE_EXTRACTED_TEXT_ALWAYS_USE = "alwaysUsePreExtractedCache";
-
-    private static final String PROP_INDEX_PREFIX_DEFAULT = "";
-    @Property(
-            value = PROP_INDEX_PREFIX_DEFAULT,
-            label = "Index prefix",
-            description = "Prefix to be added to name of each elastic search index"
-    )
-    static final String PROP_INDEX_PREFIX = "indexPrefix";
-
-    @Property(
-            value = ElasticConnection.DEFAULT_SCHEME,
-            label = "Elasticsearch connection scheme"
-    )
-    private static final String PROP_ELASTIC_SCHEME = ElasticConnection.SCHEME_PROP;
-
-    @Property(
-            value = ElasticConnection.DEFAULT_HOST,
-            label = "Elasticsearch connection host"
-    )
-    private static final String PROP_ELASTIC_HOST = ElasticConnection.HOST_PROP;
-
-    @Property(
-            value = "" + ElasticConnection.DEFAULT_PORT,
-            label = "Elasticsearch connection port"
-    )
-    private static final String PROP_ELASTIC_PORT = ElasticConnection.PORT_PROP;
-
-    @Property(
-            label = "Elasticsearch API key ID",
-            value = ElasticConnection.DEFAULT_API_KEY_ID
-    )
-    private static final String PROP_ELASTIC_API_KEY_ID = ElasticConnection.API_KEY_ID_PROP;
-
-    @Property(
-            label = "Elasticsearch API key secret",
-            passwordValue = ElasticConnection.DEFAULT_API_KEY_SECRET
-    )
-    private static final String PROP_ELASTIC_API_KEY_SECRET = ElasticConnection.API_KEY_SECRET_PROP;
-
-    @Property(
-            label = "Local text extraction cache path",
-            description = "Local file system path where text extraction cache stores/load entries to recover from timed out operation"
-    )
-    private static final String PROP_LOCAL_TEXT_EXTRACTION_DIR = "localTextExtractionDir";
-
     @Reference
     private StatisticsProvider statisticsProvider;
 
+    @Reference
+    private NodeStore nodeStore;
+
     @Reference(policy = ReferencePolicy.DYNAMIC,
-            cardinality = ReferenceCardinality.OPTIONAL_UNARY,
+            cardinality = ReferenceCardinality.OPTIONAL,
             policyOption = ReferencePolicyOption.GREEDY
     )
     private volatile PreExtractedTextProvider extractedTextProvider;
@@ -152,9 +144,10 @@ public class ElasticIndexProviderService {
 
     private ElasticConnection elasticConnection;
     private ElasticIndexProvider indexProvider;
+    private String indexPrefix;
 
     @Activate
-    private void activate(BundleContext bundleContext, Map<String, Object> config) {
+    private void activate(BundleContext bundleContext, Config config) {
         whiteboard = new OsgiWhiteboard(bundleContext);
 
         //initializeTextExtractionDir(bundleContext, config);
@@ -166,7 +159,7 @@ public class ElasticIndexProviderService {
 
         registerIndexProvider(bundleContext);
         registerIndexEditor(bundleContext);
-        registerIndexCleaner(bundleContext);
+        registerIndexCleaner(config);
     }
 
     @Deactivate
@@ -184,6 +177,11 @@ public class ElasticIndexProviderService {
         if (extractedTextCache != null) {
             extractedTextCache.close();
         }
+    }
+
+    private void registerIndexCleaner(Config contextConfig) {
+        ElasticIndexCleaner task = new ElasticIndexCleaner(elasticConnection, nodeStore, indexPrefix, contextConfig.remoteIndexDeletionThreshold());
+        oakRegs.add(scheduleWithFixedDelay(whiteboard, task, contextConfig.remoteIndexCleanupFrequency()));
     }
 
     private void registerIndexProvider(BundleContext bundleContext) {
@@ -210,23 +208,12 @@ public class ElasticIndexProviderService {
 //                "TextExtraction statistics"));
     }
 
-    private void registerIndexCleaner(BundleContext bundleContext) {
-        ElasticIndexCleaner indexCleaner = new ElasticIndexCleaner(elasticConnection, indexProvider);
-        regs.add(bundleContext.registerService(IndexingLaneTask.class.getName(), indexCleaner, null));
-    }
-
-    private void initializeExtractedTextCache(Map<String, ?> config, StatisticsProvider statisticsProvider) {
-        int cacheSizeInMB = PropertiesUtil.toInteger(config.get(PROP_EXTRACTED_TEXT_CACHE_SIZE),
-                PROP_EXTRACTED_TEXT_CACHE_SIZE_DEFAULT);
-        int cacheExpiryInSecs = PropertiesUtil.toInteger(config.get(PROP_EXTRACTED_TEXT_CACHE_EXPIRY),
-                PROP_EXTRACTED_TEXT_CACHE_EXPIRY_DEFAULT);
-        boolean alwaysUsePreExtractedCache = PropertiesUtil.toBoolean(config.get(PROP_PRE_EXTRACTED_TEXT_ALWAYS_USE),
-                PROP_PRE_EXTRACTED_TEXT_ALWAYS_USE_DEFAULT);
+    private void initializeExtractedTextCache(final Config config, StatisticsProvider statisticsProvider) {
 
         extractedTextCache = new ExtractedTextCache(
-                cacheSizeInMB * ONE_MB,
-                cacheExpiryInSecs,
-                alwaysUsePreExtractedCache,
+                config.cacheSizeInMB() * ONE_MB,
+                config.cacheExpiryInSecs(),
+                config.alwaysUsePreExtractedCache(),
                 textExtractionDir,
                 statisticsProvider);
         if (extractedTextProvider != null) {
@@ -238,7 +225,7 @@ public class ElasticIndexProviderService {
                     CacheStatsMBean.class, stats,
                     CacheStatsMBean.TYPE, stats.getName()));
             LOG.info("Extracted text caching enabled with maxSize {} MB, expiry time {} secs",
-                    cacheSizeInMB, cacheExpiryInSecs);
+                    config.cacheSizeInMB(), config.cacheExpiryInSecs());
         }
     }
 
@@ -273,23 +260,17 @@ public class ElasticIndexProviderService {
         }
     }
 
-    private ElasticConnection getElasticConnection(Map<String, Object> contextConfig) {
+    private ElasticConnection getElasticConnection(Config contextConfig) {
         // system properties have priority, get mandatory params first
-        final String indexPrefix = System.getProperty(PROP_INDEX_PREFIX,
-                (String) contextConfig.getOrDefault(PROP_INDEX_PREFIX, "oak-elastic"));
-        final String scheme = System.getProperty(PROP_ELASTIC_SCHEME,
-                (String) contextConfig.getOrDefault(PROP_ELASTIC_SCHEME, ElasticConnection.DEFAULT_SCHEME));
-        final String host = System.getProperty(PROP_ELASTIC_HOST,
-                (String) contextConfig.getOrDefault(PROP_ELASTIC_HOST, ElasticConnection.DEFAULT_HOST));
-        final String portString = (String) contextConfig.getOrDefault(PROP_ELASTIC_PORT,
-                "" + ElasticConnection.DEFAULT_PORT);
+        indexPrefix = System.getProperty(PROP_INDEX_PREFIX, contextConfig.indexPrefix());
+        final String scheme = System.getProperty(PROP_ELASTIC_SCHEME, contextConfig.scheme());
+        final String host = System.getProperty(PROP_ELASTIC_HOST, contextConfig.host());
+        final String portString = System.getProperty(PROP_ELASTIC_PORT, contextConfig.port());
         final int port = Integer.getInteger(PROP_ELASTIC_PORT, Integer.parseInt(portString));
 
         // optional params
-        final String apiKeyId = System.getProperty(PROP_ELASTIC_API_KEY_ID,
-                (String) contextConfig.get(PROP_ELASTIC_API_KEY_ID));
-        final String apiSecretId = System.getProperty(PROP_ELASTIC_API_KEY_SECRET,
-                (String) contextConfig.get(PROP_ELASTIC_API_KEY_SECRET));
+        final String apiKeyId = System.getProperty(PROP_ELASTIC_API_KEY_ID, contextConfig.apiKeyId());
+        final String apiSecretId = System.getProperty(PROP_ELASTIC_API_KEY_SECRET, contextConfig.apiKeySecret());
 
         return ElasticConnection.newBuilder()
                 .withIndexPrefix(indexPrefix)
