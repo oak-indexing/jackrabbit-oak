@@ -83,8 +83,6 @@ public abstract class ElasticAbstractQueryTest extends AbstractQueryTest {
      */
     @After
     public void cleanup() throws IOException {
-        ElasticIndexCleaner cleaner = new ElasticIndexCleaner(esConnection, nodeStore, 0);
-        cleaner.run();
         elasticRule.closeElasticConnection();
     }
 
