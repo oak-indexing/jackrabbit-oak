@@ -71,16 +71,16 @@ public class ElasticIndexProviderService {
     private static final String PROP_ELASTIC_API_KEY_SECRET = ElasticConnection.API_KEY_SECRET_PROP;
     private static final String PROP_LOCAL_TEXT_EXTRACTION_DIR = "localTextExtractionDir";
 
-    @ObjectClassDefinition(name = "ElasticIndexProviderService", description = "ElasticIndexProviderService")
+    @ObjectClassDefinition(name = "ElasticIndexProviderService", description = "Apache Jackrabbit Oak ElasticIndexProvider")
     public @interface Config {
         @AttributeDefinition(name = "Extracted text cache size (MB)",
                 description = "Cache size in MB for caching extracted text for some time. When set to 0 then " +
                         "cache would be disabled")
-        int cacheSizeInMB() default 20 ;
+        int extractedTextCacheSizeInMB() default 20 ;
 
         @AttributeDefinition(name = "Extracted text cache expiry (secs)",
                 description = "Time in seconds for which the extracted text would be cached in memory")
-        int cacheExpiryInSecs() default 300;
+        int extractedTextCacheExpiryInSecs() default 300;
 
         @AttributeDefinition(name = "Always use pre-extracted text cache",
                 description = "By default pre extracted text cache would only be used for reindex case. If this setting " +
@@ -92,23 +92,23 @@ public class ElasticIndexProviderService {
         String indexPrefix() default "oak-elastic";
 
         @AttributeDefinition(name = "Elasticsearch connection scheme", description = "Elasticsearch connection scheme")
-        String scheme() default ElasticConnection.DEFAULT_SCHEME;
+        String elasticsearch_scheme() default ElasticConnection.DEFAULT_SCHEME;
 
         @AttributeDefinition(name = "Elasticsearch connection host", description = "Elasticsearch connection host")
-        String host() default ElasticConnection.DEFAULT_HOST;
+        String elasticsearch_host() default ElasticConnection.DEFAULT_HOST;
 
         @AttributeDefinition(name = "Elasticsearch connection port", description = "Elasticsearch connection port")
-        String port() default ("" + ElasticConnection.DEFAULT_PORT);
+        String elasticsearch_port() default ("" + ElasticConnection.DEFAULT_PORT);
 
         @AttributeDefinition(name = "Elasticsearch API key ID", description = "Elasticsearch API key ID")
-        String apiKeyId() default ElasticConnection.DEFAULT_API_KEY_ID;
+        String elasticsearch_apiKeyId() default ElasticConnection.DEFAULT_API_KEY_ID;
 
         @AttributeDefinition(name = "Elasticsearch API key secret", description = "Elasticsearch API key secret")
-        String apiKeySecret() default ElasticConnection.DEFAULT_API_KEY_SECRET;
+        String elasticsearch_apiKeySecret() default ElasticConnection.DEFAULT_API_KEY_SECRET;
 
         @AttributeDefinition(name = "Local text extraction cache path",
                 description = "Local file system path where text extraction cache stores/load entries to recover from timed out operation")
-        String textExtractionCachePath();
+        String localTextExtractionDir();
 
         @AttributeDefinition(name = "Remote index cleanup frequency", description = "Frequency (in seconds) of running remote index deletion scheduled task")
         int remoteIndexCleanupFrequency() default 60;
@@ -211,8 +211,8 @@ public class ElasticIndexProviderService {
     private void initializeExtractedTextCache(final Config config, StatisticsProvider statisticsProvider) {
 
         extractedTextCache = new ExtractedTextCache(
-                config.cacheSizeInMB() * ONE_MB,
-                config.cacheExpiryInSecs(),
+                config.extractedTextCacheSizeInMB() * ONE_MB,
+                config.extractedTextCacheExpiryInSecs(),
                 config.alwaysUsePreExtractedCache(),
                 textExtractionDir,
                 statisticsProvider);
@@ -225,13 +225,13 @@ public class ElasticIndexProviderService {
                     CacheStatsMBean.class, stats,
                     CacheStatsMBean.TYPE, stats.getName()));
             LOG.info("Extracted text caching enabled with maxSize {} MB, expiry time {} secs",
-                    config.cacheSizeInMB(), config.cacheExpiryInSecs());
+                    config.extractedTextCacheSizeInMB(), config.extractedTextCacheExpiryInSecs());
         }
     }
 
-    private void initializeTextExtractionDir(BundleContext bundleContext, Map<String, ?> config) {
-        String textExtractionDir = PropertiesUtil.toString(config.get(PROP_LOCAL_TEXT_EXTRACTION_DIR), null);
-        if (textExtractionDir == null || textExtractionDir.trim().isEmpty()) {
+    private void initializeTextExtractionDir(BundleContext bundleContext, Config config) {
+        String textExtractionDir = config.localTextExtractionDir();
+        if (textExtractionDir.trim().isEmpty()) {
             String repoHome = bundleContext.getProperty(REPOSITORY_HOME);
             if (repoHome != null) {
                 textExtractionDir = FilenameUtils.concat(repoHome, "index");
@@ -263,14 +263,14 @@ public class ElasticIndexProviderService {
     private ElasticConnection getElasticConnection(Config contextConfig) {
         // system properties have priority, get mandatory params first
         indexPrefix = System.getProperty(PROP_INDEX_PREFIX, contextConfig.indexPrefix());
-        final String scheme = System.getProperty(PROP_ELASTIC_SCHEME, contextConfig.scheme());
-        final String host = System.getProperty(PROP_ELASTIC_HOST, contextConfig.host());
-        final String portString = System.getProperty(PROP_ELASTIC_PORT, contextConfig.port());
+        final String scheme = System.getProperty(PROP_ELASTIC_SCHEME, contextConfig.elasticsearch_scheme());
+        final String host = System.getProperty(PROP_ELASTIC_HOST, contextConfig.elasticsearch_host());
+        final String portString = System.getProperty(PROP_ELASTIC_PORT, contextConfig.elasticsearch_port());
         final int port = Integer.getInteger(PROP_ELASTIC_PORT, Integer.parseInt(portString));
 
         // optional params
-        final String apiKeyId = System.getProperty(PROP_ELASTIC_API_KEY_ID, contextConfig.apiKeyId());
-        final String apiSecretId = System.getProperty(PROP_ELASTIC_API_KEY_SECRET, contextConfig.apiKeySecret());
+        final String apiKeyId = System.getProperty(PROP_ELASTIC_API_KEY_ID, contextConfig.elasticsearch_apiKeyId());
+        final String apiSecretId = System.getProperty(PROP_ELASTIC_API_KEY_SECRET, contextConfig.elasticsearch_apiKeySecret());
 
         return ElasticConnection.newBuilder()
                 .withIndexPrefix(indexPrefix)
