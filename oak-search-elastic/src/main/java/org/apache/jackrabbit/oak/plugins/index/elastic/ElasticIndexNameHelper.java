@@ -111,7 +111,7 @@ public class ElasticIndexNameHelper {
      * Convert {@code e} to Elasticsearch safe index name.
      * Ref: https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-create-index.html
      */
-    private static String getElasticSafeName(String suggestedIndexName) {
+    static String getElasticSafeName(String suggestedIndexName) {
         return suggestedIndexName.replaceAll(INVALID_CHARS_REGEX, "").toLowerCase();
     }
 

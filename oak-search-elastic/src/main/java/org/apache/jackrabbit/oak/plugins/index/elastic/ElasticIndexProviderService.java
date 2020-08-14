@@ -180,7 +180,7 @@ public class ElasticIndexProviderService {
     }
 
     private void registerIndexCleaner(Config contextConfig) {
-        ElasticIndexCleaner task = new ElasticIndexCleaner(elasticConnection, nodeStore, indexPrefix, contextConfig.remoteIndexDeletionThreshold());
+        ElasticIndexCleaner task = new ElasticIndexCleaner(elasticConnection, nodeStore, contextConfig.remoteIndexDeletionThreshold());
         oakRegs.add(scheduleWithFixedDelay(whiteboard, task, contextConfig.remoteIndexCleanupFrequency()));
     }
 

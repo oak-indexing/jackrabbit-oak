@@ -45,6 +45,11 @@ import java.util.stream.Collectors;
 
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NAME;
 
+/**
+ * Deletes those remote elastic indexes for which no index definitions exist in repository. The remote indexes are not deleted
+ * the first time they are discovered. A dangling remote index is deleted in subsequent runs of this cleaner only after a
+ * given threshold of time has passed since the dangling index was first discovered.
+ */
 public class ElasticIndexCleaner implements Runnable {
 
     private static final Logger LOG = LoggerFactory.getLogger(ElasticIndexCleaner.class);
@@ -55,12 +60,18 @@ public class ElasticIndexCleaner implements Runnable {
     private final Map<String, Long> danglingRemoteIndicesMap;
     private final int threshold;
 
-    public ElasticIndexCleaner(ElasticConnection elasticConnection, NodeStore nodeStore, String indexPrefix, int threshold) {
+    /**
+     * Constructs a new instance of index cleaner with the given parameters.
+     * @param elasticConnection elastic connection to use
+     * @param nodeStore node store where index definitions exist
+     * @param thresholdInSeconds time in seconds before which a dangling remote index won't be deleted.
+     */
+    public ElasticIndexCleaner(ElasticConnection elasticConnection, NodeStore nodeStore, int thresholdInSeconds) {
         this.elasticConnection = elasticConnection;
         this.nodeStore = nodeStore;
-        this.indexPrefix = indexPrefix;
+        this.indexPrefix = elasticConnection.getIndexPrefix();
         danglingRemoteIndicesMap = new HashMap<>();
-        this.threshold = threshold;
+        this.threshold = thresholdInSeconds;
     }
 
     public void run() {
@@ -70,9 +81,16 @@ public class ElasticIndexCleaner implements Runnable {
             inputStream = elasticConnection.getClient().getLowLevelClient()
                     .performRequest(new Request("GET", "_cat/indices/" + elasticConnection.getIndexPrefix() + "*"))
                     .getEntity().getContent();
-            List<String> indices = new BufferedReader(new InputStreamReader(inputStream))
+            List<String> remoteIndices = new BufferedReader(new InputStreamReader(inputStream))
                     .lines().map(l -> l.split(" ")[2])
                     .collect(Collectors.toList());
+            // remove entry of remote index names which don't exist now
+            List<String> externallyDeletedIndices = danglingRemoteIndicesMap.keySet().stream().filter(index -> !remoteIndices.contains(index)).collect(Collectors.toList());
+            externallyDeletedIndices.forEach(danglingRemoteIndicesMap::remove);
+            if (remoteIndices.isEmpty()) {
+                LOG.debug("No remote index found with prefix {}", indexPrefix);
+                return;
+            }
             Set<String> existingIndices = new HashSet<>();
             root.getChildNode(INDEX_DEFINITIONS_NAME).getChildNodeEntries().forEach(childNodeEntry -> {
                 PropertyState typeProperty = childNodeEntry.getNodeState().getProperty(IndexConstants.TYPE_PROPERTY_NAME);
@@ -85,14 +103,18 @@ public class ElasticIndexCleaner implements Runnable {
                 }
             });
             DeleteIndexRequest deleteIndexRequest = new DeleteIndexRequest();
-            indices.stream().filter(remoteIndexName -> !existingIndices.contains(remoteIndexName)).forEach(remoteIndexName -> {
-                Long curTime = System.currentTimeMillis();
-                Long oldTime = danglingRemoteIndicesMap.putIfAbsent(remoteIndexName, curTime);
-                if (oldTime != null && curTime - oldTime >= TimeUnit.SECONDS.toMillis(threshold)) {
-                    deleteIndexRequest.indices(remoteIndexName);
+            for (String remoteIndexName : remoteIndices) {
+                if (!existingIndices.contains(remoteIndexName)) {
+                    Long curTime = System.currentTimeMillis();
+                    Long oldTime = danglingRemoteIndicesMap.putIfAbsent(remoteIndexName, curTime);
+                    if (threshold == 0 || (oldTime != null && curTime - oldTime >= TimeUnit.SECONDS.toMillis(threshold))) {
+                        deleteIndexRequest.indices(remoteIndexName);
+                        danglingRemoteIndicesMap.remove(remoteIndexName);
+                    }
+                } else {
                     danglingRemoteIndicesMap.remove(remoteIndexName);
                 }
-            });
+            }
             if (deleteIndexRequest.indices() != null && deleteIndexRequest.indices().length > 0) {
                 String indexString = Arrays.toString(deleteIndexRequest.indices());
                 AcknowledgedResponse acknowledgedResponse = elasticConnection.getClient().indices().delete(deleteIndexRequest, RequestOptions.DEFAULT);
