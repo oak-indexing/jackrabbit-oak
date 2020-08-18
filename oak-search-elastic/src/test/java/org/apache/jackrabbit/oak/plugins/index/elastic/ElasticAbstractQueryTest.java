@@ -39,6 +39,7 @@ import org.apache.jackrabbit.oak.spi.query.QueryIndexProvider;
 import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
+import org.apache.jackrabbit.oak.stats.StatisticsProvider;
 import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.core.CountRequest;
 import org.elasticsearch.client.indices.GetIndexRequest;
@@ -140,7 +141,8 @@ public abstract class ElasticAbstractQueryTest extends AbstractQueryTest {
         esConnection = elasticRule.useDocker() ? elasticRule.getElasticConnectionForDocker() :
                 elasticRule.getElasticConnectionFromString();
         ElasticIndexEditorProvider editorProvider = getElasticIndexEditorProvider(esConnection);
-        ElasticIndexProvider indexProvider = new ElasticIndexProvider(esConnection);
+        ElasticIndexProvider indexProvider = new ElasticIndexProvider(esConnection,
+                new ElasticMetricHandler(StatisticsProvider.NOOP));
 
         nodeStore = getNodeStore();
 
@@ -174,13 +176,19 @@ public abstract class ElasticAbstractQueryTest extends AbstractQueryTest {
     }
 
     protected IndexDefinitionBuilder createIndex(String... propNames) {
+        return createIndex(true, propNames);
+    }
+
+    protected IndexDefinitionBuilder createIndex(boolean isPropertyIndex, String... propNames) {
         IndexDefinitionBuilder builder = new ElasticIndexDefinitionBuilder();
         if (!useAsyncIndexing()) {
             builder = builder.noAsync();
         }
         IndexDefinitionBuilder.IndexRule indexRule = builder.indexRule("nt:base");
-        for (String propName : propNames) {
-            indexRule.property(propName).propertyIndex();
+        if (isPropertyIndex) {
+            for (String propName : propNames) {
+                indexRule.property(propName).propertyIndex();
+            }
         }
         return builder;
     }

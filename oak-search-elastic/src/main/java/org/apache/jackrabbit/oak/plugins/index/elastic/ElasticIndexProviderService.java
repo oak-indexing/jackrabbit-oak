@@ -183,7 +183,7 @@ public class ElasticIndexProviderService {
     }
 
     private void registerIndexProvider(BundleContext bundleContext) {
-        indexProvider = new ElasticIndexProvider(elasticConnection);
+        indexProvider = new ElasticIndexProvider(elasticConnection, new ElasticMetricHandler(statisticsProvider));
 
         // register observer needed for index tracking
         regs.add(bundleContext.registerService(Observer.class.getName(), indexProvider, null));
