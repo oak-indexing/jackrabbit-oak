@@ -181,7 +181,7 @@ public class ElasticIndexProviderService {
     }
 
     private void registerIndexCleaner(Config contextConfig) throws IOException {
-        boolean reachable = elasticConnection.getClient().ping(RequestOptions.DEFAULT);
+        boolean reachable = elasticConnection.isAvailable();
         if (!reachable) {
             throw new IllegalArgumentException("Elastic server is not available - " + elasticConnection.toString());
         }
