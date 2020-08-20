@@ -32,10 +32,12 @@ import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.apache.jackrabbit.oak.spi.whiteboard.Registration;
 import org.apache.jackrabbit.oak.spi.whiteboard.Whiteboard;
 import org.apache.jackrabbit.oak.stats.StatisticsProvider;
+import org.elasticsearch.client.RequestOptions;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceRegistration;
 import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
+import org.osgi.service.component.annotations.ConfigurationPolicy;
 import org.osgi.service.component.annotations.Deactivate;
 import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.component.annotations.ReferenceCardinality;
@@ -48,6 +50,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Dictionary;
 import java.util.Hashtable;
@@ -57,7 +60,7 @@ import static org.apache.commons.io.FileUtils.ONE_MB;
 import static org.apache.jackrabbit.oak.spi.whiteboard.WhiteboardUtils.registerMBean;
 import static org.apache.jackrabbit.oak.spi.whiteboard.WhiteboardUtils.scheduleWithFixedDelay;
 
-@Component
+@Component(configurationPolicy = ConfigurationPolicy.REQUIRE)
 @Designate(ocd = ElasticIndexProviderService.Config.class)
 public class ElasticIndexProviderService {
 
@@ -145,7 +148,7 @@ public class ElasticIndexProviderService {
     private String indexPrefix;
 
     @Activate
-    private void activate(BundleContext bundleContext, Config config) {
+    private void activate(BundleContext bundleContext, Config config) throws IOException {
         whiteboard = new OsgiWhiteboard(bundleContext);
 
         //initializeTextExtractionDir(bundleContext, config);
@@ -177,7 +180,11 @@ public class ElasticIndexProviderService {
         }
     }
 
-    private void registerIndexCleaner(Config contextConfig) {
+    private void registerIndexCleaner(Config contextConfig) throws IOException {
+        boolean reachable = elasticConnection.getClient().ping(RequestOptions.DEFAULT);
+        if (!reachable) {
+            throw new IllegalArgumentException("Elastic server is not available - " + elasticConnection.toString());
+        }
         ElasticIndexCleaner task = new ElasticIndexCleaner(elasticConnection, nodeStore, contextConfig.remoteIndexDeletionThreshold());
         oakRegs.add(scheduleWithFixedDelay(whiteboard, task, contextConfig.remoteIndexCleanupFrequency()));
     }
