@@ -29,6 +29,7 @@ import org.apache.jackrabbit.oak.stats.StatisticsProvider;
 import org.apache.sling.testing.mock.osgi.MockOsgi;
 import org.apache.sling.testing.mock.osgi.junit.OsgiContext;
 import org.junit.Before;
+import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -42,11 +43,16 @@ import static org.junit.Assert.assertNotNull;
 
 public class ElasticIndexProviderServiceTest {
 
+    private static final String elasticConnectionString = System.getProperty("elasticConnectionString");
+
     @Rule
     public final TemporaryFolder folder = new TemporaryFolder(new File("target"));
 
     @Rule
     public final OsgiContext context = new OsgiContext();
+
+    @ClassRule
+    public static ElasticConnectionRule elasticRule = new ElasticConnectionRule(elasticConnectionString);
 
     private final ElasticIndexProviderService service = new ElasticIndexProviderService();
 
