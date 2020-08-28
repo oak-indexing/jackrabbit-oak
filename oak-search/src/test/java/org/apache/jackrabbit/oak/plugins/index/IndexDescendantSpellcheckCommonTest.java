@@ -157,8 +157,6 @@ public abstract class IndexDescendantSpellcheckCommonTest extends AbstractJcrTes
         });
     }
 
-    @Ignore
-    //TODO ES Failing
     @Test
     public void noDescendantSuggestsAll() throws Exception {
         validateSpellchecks(

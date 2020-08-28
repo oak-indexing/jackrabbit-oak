@@ -449,52 +449,54 @@ public class ElasticRequestHandler {
             queries.add(nodeTypeConstraints(planResult.indexingRule, filter));
         }
 
-        String path = FulltextIndex.getPathRestriction(plan);
-        switch (filter.getPathRestriction()) {
-            case ALL_CHILDREN:
-                if (!"/".equals(path)) {
-                    queries.add(newAncestorQuery(path));
-                }
-                break;
-            case DIRECT_CHILDREN:
-                BoolQueryBuilder bq = boolQuery()
-                        .must(newAncestorQuery(path))
-                        .must(newDepthQuery(path, planResult));
-                queries.add(bq);
-                break;
-            case EXACT:
-                // For transformed paths, we can only add path restriction if absolute path to property can be
-                // deduced
-                if (planResult.isPathTransformed()) {
-                    String parentPathSegment = planResult.getParentPathSegment();
-                    if (!any.test(PathUtils.elements(parentPathSegment), "*")) {
-                        queries.add(newPathQuery(path + parentPathSegment));
+        if (indexPlan.getSupportsPathRestriction()) {
+            String path = FulltextIndex.getPathRestriction(plan);
+            switch (filter.getPathRestriction()) {
+                case ALL_CHILDREN:
+                    if (!"/".equals(path)) {
+                        queries.add(newAncestorQuery(path));
                     }
-                } else {
-                    queries.add(newPathQuery(path));
-                }
-                break;
-            case PARENT:
-                if (denotesRoot(path)) {
-                    // there's no parent of the root node
-                    // we add a path that can not possibly occur because there
-                    // is no way to say "match no documents" in Lucene
-                    queries.add(newPathQuery("///"));
-                } else {
+                    break;
+                case DIRECT_CHILDREN:
+                    BoolQueryBuilder bq = boolQuery()
+                            .must(newAncestorQuery(path))
+                            .must(newDepthQuery(path, planResult));
+                    queries.add(bq);
+                    break;
+                case EXACT:
                     // For transformed paths, we can only add path restriction if absolute path to property can be
                     // deduced
                     if (planResult.isPathTransformed()) {
                         String parentPathSegment = planResult.getParentPathSegment();
                         if (!any.test(PathUtils.elements(parentPathSegment), "*")) {
-                            queries.add(newPathQuery(getParentPath(path) + parentPathSegment));
+                            queries.add(newPathQuery(path + parentPathSegment));
                         }
                     } else {
-                        queries.add(newPathQuery(getParentPath(path)));
+                        queries.add(newPathQuery(path));
                     }
-                }
-                break;
-            case NO_RESTRICTION:
-                break;
+                    break;
+                case PARENT:
+                    if (denotesRoot(path)) {
+                        // there's no parent of the root node
+                        // we add a path that can not possibly occur because there
+                        // is no way to say "match no documents" in Lucene
+                        queries.add(newPathQuery("///"));
+                    } else {
+                        // For transformed paths, we can only add path restriction if absolute path to property can be
+                        // deduced
+                        if (planResult.isPathTransformed()) {
+                            String parentPathSegment = planResult.getParentPathSegment();
+                            if (!any.test(PathUtils.elements(parentPathSegment), "*")) {
+                                queries.add(newPathQuery(getParentPath(path) + parentPathSegment));
+                            }
+                        } else {
+                            queries.add(newPathQuery(getParentPath(path)));
+                        }
+                    }
+                    break;
+                case NO_RESTRICTION:
+                    break;
+            }
         }
 
         for (Filter.PropertyRestriction pr : filter.getPropertyRestrictions()) {
