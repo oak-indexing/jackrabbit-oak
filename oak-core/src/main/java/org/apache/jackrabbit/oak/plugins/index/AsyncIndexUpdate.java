@@ -32,6 +32,7 @@ import java.io.Closeable;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -77,6 +78,7 @@ import org.apache.jackrabbit.oak.spi.commit.ResetCommitAttributeHook;
 import org.apache.jackrabbit.oak.spi.commit.SimpleCommitContext;
 import org.apache.jackrabbit.oak.spi.commit.ValidatorProvider;
 import org.apache.jackrabbit.oak.spi.commit.VisibleEditor;
+import org.apache.jackrabbit.oak.spi.state.ChildNodeEntry;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.spi.state.NodeStateDiff;
@@ -426,6 +428,20 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
 
     @Override
     public synchronized void run() {
+        boolean isIndexWithLanePresent = false;
+        NodeState oakIndexNode = store.getRoot().getChildNode("oak:index");
+        Iterator<? extends ChildNodeEntry> indexNodeIterator = oakIndexNode.getChildNodeEntries().iterator();
+        while (indexNodeIterator.hasNext()){
+            ChildNodeEntry  childNodeEntry = indexNodeIterator.next();
+            if (childNodeEntry.getNodeState().getProperty("async") != null){
+                isIndexWithLanePresent = true;
+                break;
+            }
+        }
+        if(!isIndexWithLanePresent){
+            log.info("lane: {} not present for indexes under /oak:index", name);
+            return;
+        }
         boolean permitAcquired = false;
         try{
             if (runPermit.tryAcquire()){
@@ -440,7 +456,6 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             }
         }
     }
-
 
     @Override
     public void close() {
