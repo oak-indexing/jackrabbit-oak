@@ -430,18 +430,29 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
     public synchronized void run() {
         boolean isIndexWithLanePresent = false;
         NodeState oakIndexNode = store.getRoot().getChildNode("oak:index");
-        Iterator<? extends ChildNodeEntry> indexNodeIterator = oakIndexNode.getChildNodeEntries().iterator();
-        while (indexNodeIterator.hasNext()){
-            ChildNodeEntry  childNodeEntry = indexNodeIterator.next();
-            if (childNodeEntry.getNodeState().getProperty("async") != null){
-                isIndexWithLanePresent = true;
-                break;
-            }
-        }
-        if(!isIndexWithLanePresent){
+        if (!oakIndexNode.exists()) {
             log.info("lane: {} not present for indexes under /oak:index", name);
             return;
         }
+        for (ChildNodeEntry childNodeEntry : oakIndexNode.getChildNodeEntries()) {
+            if (childNodeEntry.getNodeState().getProperty("async") != null) {
+                @NotNull Iterator<String> a = childNodeEntry.getNodeState().getProperty("async").getValue(Type.STRINGS).iterator();
+                while (a.hasNext()) {
+                    if (a.next().equals(name)) {
+                        isIndexWithLanePresent = true;
+                        break;
+                    }
+                }
+            }
+            if (isIndexWithLanePresent) {
+                break;
+            }
+        }
+        if (!isIndexWithLanePresent) {
+            log.info("lane: {} not present for indexes under /oak:index", name);
+            return;
+        }
+
         boolean permitAcquired = false;
         try{
             if (runPermit.tryAcquire()){

@@ -120,7 +120,7 @@ public class IndexlaneRepositoryTraversalTest {
     }
 
     @Test
-    public void RespositoryTraversalIfLaneIsPresent() throws Exception {
+    public void repositoryTraversalIfLaneIsPresent() throws Exception {
         Tree test1 = root.getTree("/").addChild(INDEX_DEFINITIONS_NAME).addChild("mynodetype");
         test1.setProperty("jcr:primaryType", "oak:QueryIndexDefinition", Type.NAME);
         test1.setProperty("type", "property");
@@ -135,14 +135,23 @@ public class IndexlaneRepositoryTraversalTest {
     }
 
     @Test
-    public void noRespositoryTraversalIfLaneIsNotPresent() throws Exception {
-        deleteIndexDefinitions("/oak:index");
+    public void noRepositoryTraversalIfLaneIsNotPresent() throws Exception {
+        deletePathRecursively("/oak:index");
         asyncIndexUpdate.run();
         List<String> logs = customLogger.getLogs();
         assertTrue(isIndexLaneNotPresentLog(logs));
     }
 
-    private void deleteIndexDefinitions(String path) throws CommitFailedException {
+    @Test
+    public void noRepositoryTraversalIfNoIndexPresent() throws Exception {
+        deletePathRecursively("/oak:index");
+        root.getTree("/oak:index").remove();
+        asyncIndexUpdate.run();
+        List<String> logs = customLogger.getLogs();
+        assertTrue(isIndexLaneNotPresentLog(logs));
+    }
+
+    private void deletePathRecursively(String path) throws CommitFailedException {
         RecursiveDelete rd = new RecursiveDelete(nodeStore, EmptyHook.INSTANCE, () -> CommitInfo.EMPTY);
         rd.setBatchSize(100);
         rd.run(path);
