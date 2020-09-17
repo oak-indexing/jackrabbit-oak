@@ -436,7 +436,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         }
         for (ChildNodeEntry childNodeEntry : oakIndexNode.getChildNodeEntries()) {
             if (childNodeEntry.getNodeState().getProperty("async") != null) {
-                @NotNull Iterator<String> a = childNodeEntry.getNodeState().getProperty("async").getValue(Type.STRINGS).iterator();
+                Iterator<String> a = childNodeEntry.getNodeState().getProperty("async").getValue(Type.STRINGS).iterator();
                 while (a.hasNext()) {
                     if (a.next().equals(name)) {
                         isIndexWithLanePresent = true;
