@@ -36,7 +36,7 @@ class ElasticDocument {
     private static final Logger LOG = LoggerFactory.getLogger(ElasticDocument.class);
 
     private final String path;
-    private final List<String> fulltext;
+    private final Set<String> fulltext;
     private final Set<String> suggest;
     private final List<String> notNullProps;
     private final List<String> nullProps;
@@ -44,7 +44,7 @@ class ElasticDocument {
 
     ElasticDocument(String path) {
         this.path = path;
-        this.fulltext = new ArrayList<>();
+        this.fulltext = new HashSet<>();
         this.suggest = new HashSet<>();
         this.notNullProps = new ArrayList<>();
         this.nullProps = new ArrayList<>();
