@@ -19,6 +19,7 @@ package org.apache.jackrabbit.oak.run;
 
 import joptsimple.OptionSpec;
 import org.apache.jackrabbit.oak.run.commons.Command;
+import org.apache.jackrabbit.oak.segment.aws.tool.AwsSegmentCopy;
 import org.apache.jackrabbit.oak.segment.azure.tool.SegmentCopy;
 
 import java.io.IOException;
@@ -49,17 +50,31 @@ class SegmentCopyCommand implements Command {
         String source = options.nonOptionArguments().get(0).toString();
         String destination = options.nonOptionArguments().get(1).toString();
 
-        SegmentCopy.Builder builder = SegmentCopy.builder()
-                .withSource(source)
-                .withDestination(destination)
-                .withOutWriter(out)
-                .withErrWriter(err);
+        if (AwsSegmentCopy.canExecute(source, destination)) {
+            AwsSegmentCopy.Builder builder = AwsSegmentCopy.builder()
+                    .withSource(source)
+                    .withDestination(destination)
+                    .withOutWriter(out)
+                    .withErrWriter(err);
+    
+            if (options.has(last)) {
+                builder.withRevisionsCount(last.value(options) != null ? last.value(options) : 1);
+            }
 
-        if (options.has(last)) {
-            builder.withRevisionsCount(last.value(options) != null ? last.value(options) : 1);
+            System.exit(builder.build().run());
+        } else {
+            SegmentCopy.Builder builder = SegmentCopy.builder()
+                    .withSource(source)
+                    .withDestination(destination)
+                    .withOutWriter(out)
+                    .withErrWriter(err);
+    
+            if (options.has(last)) {
+                builder.withRevisionsCount(last.value(options) != null ? last.value(options) : 1);
+            }
+
+            System.exit(builder.build().run());
         }
-
-        System.exit(builder.build().run());
     }
 
     private void printUsage(OptionParser parser, PrintWriter err, String... messages) throws IOException {

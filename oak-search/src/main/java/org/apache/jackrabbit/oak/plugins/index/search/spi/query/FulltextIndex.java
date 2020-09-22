@@ -18,22 +18,12 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.search.spi.query;
 
-import java.io.IOException;
-import java.util.Collection;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.function.Predicate;
-
-import javax.jcr.PropertyType;
-
 import com.google.common.collect.Lists;
 import com.google.common.primitives.Chars;
 import org.apache.jackrabbit.oak.api.PropertyValue;
 import org.apache.jackrabbit.oak.api.Result.SizePrecision;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.commons.PathUtils;
-import org.apache.jackrabbit.oak.commons.PerfLogger;
 import org.apache.jackrabbit.oak.commons.json.JsopBuilder;
 import org.apache.jackrabbit.oak.commons.json.JsopWriter;
 import org.apache.jackrabbit.oak.plugins.index.Cursors;
@@ -58,6 +48,15 @@ import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.jcr.PropertyType;
+import java.io.IOException;
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.Predicate;
+
 import static com.google.common.base.Preconditions.checkState;
 import static org.apache.jackrabbit.oak.spi.query.QueryIndex.AdvancedQueryIndex;
 import static org.apache.jackrabbit.oak.spi.query.QueryIndex.NativeQueryIndex;
@@ -69,12 +68,9 @@ import static org.apache.jackrabbit.oak.spi.query.QueryIndex.NativeQueryIndex;
  *
  */
 public abstract class FulltextIndex implements AdvancedQueryIndex, QueryIndex, NativeQueryIndex,
-    AdvanceFulltextQueryIndex {
+        AdvanceFulltextQueryIndex {
 
-    private final Logger LOG = LoggerFactory
-            .getLogger(getClass());
-    private final PerfLogger PERF_LOGGER =
-            new PerfLogger(LoggerFactory.getLogger(getClass() + ".perf"));
+    private static final Logger LOG = LoggerFactory.getLogger(FulltextIndex.class);
 
     public static final String ATTR_PLAN_RESULT = "oak.fulltext.planResult";
 
@@ -87,14 +83,21 @@ public abstract class FulltextIndex implements AdvancedQueryIndex, QueryIndex, N
     protected abstract Predicate<NodeState> getIndexDefinitionPredicate();
 
     protected abstract String getFulltextRequestString(IndexPlan plan, IndexNode indexNode);
-    
+
     /**
      * Whether replaced indexes (that is, if a new version of the index is
      * available) should be filtered out.
-     * 
+     *
      * @return true if yes (e.g. in a blue-green deployment model)
      */
     protected abstract boolean filterReplacedIndexes();
+
+    /**
+     * Returns the {@link FulltextIndexPlanner} for the specified arguments
+     */
+    protected FulltextIndexPlanner getPlanner(IndexNode indexNode, String path, Filter filter, List<OrderEntry> sortOrder) {
+        return new FulltextIndexPlanner(indexNode, path, filter, sortOrder);
+    }
 
     @Override
     public List<IndexPlan> getPlans(Filter filter, List<OrderEntry> sortOrder, NodeState rootState) {
@@ -110,7 +113,7 @@ public abstract class FulltextIndex implements AdvancedQueryIndex, QueryIndex, N
                 indexNode = acquireIndexNode(path);
 
                 if (indexNode != null) {
-                    IndexPlan plan = new FulltextIndexPlanner(indexNode, path, filter, sortOrder).getPlan();
+                    IndexPlan plan = getPlanner(indexNode, path, filter, sortOrder).getPlan();
                     if (plan != null) {
                         plans.add(plan);
                     }
@@ -126,7 +129,7 @@ public abstract class FulltextIndex implements AdvancedQueryIndex, QueryIndex, N
         }
         return plans;
     }
-    
+
     @Override
     public double getCost(Filter filter, NodeState root) {
         throw new UnsupportedOperationException("Not supported as implementing AdvancedQueryIndex");
@@ -165,14 +168,14 @@ public abstract class FulltextIndex implements AdvancedQueryIndex, QueryIndex, N
     }
 
     protected static void addSyncIndexPlan(IndexPlan plan, StringBuilder sb) {
-        FulltextIndexPlanner.PlanResult pr = getPlanResult(plan);
+        PlanResult pr = getPlanResult(plan);
         if (pr.hasPropertyIndexResult()) {
             FulltextIndexPlanner.PropertyIndexResult pres = pr.getPropertyIndexResult();
             sb.append(" sync:(")
-              .append(pres.propertyName);
+                    .append(pres.propertyName);
 
             if (!pres.propertyName.equals(pres.pr.propertyName)) {
-               sb.append("[").append(pres.pr.propertyName).append("]");
+                sb.append("[").append(pres.pr.propertyName).append("]");
             }
 
             sb.append(" ").append(pres.pr);
@@ -338,6 +341,10 @@ public abstract class FulltextIndex implements AdvancedQueryIndex, QueryIndex, N
         }
 
         public FulltextResultRow(String suggestion, long weight) {
+            this(suggestion, (double)weight);
+        }
+
+        public FulltextResultRow(String suggestion, double weight) {
             this.isVirutal = true;
             this.path = "/";
             this.score = weight;
@@ -520,6 +527,7 @@ public abstract class FulltextIndex implements AdvancedQueryIndex, QueryIndex, N
     public static class Facet {
 
         private final String label;
+
         private final int count;
 
         public Facet(String label, int count) {
@@ -542,6 +550,27 @@ public abstract class FulltextIndex implements AdvancedQueryIndex, QueryIndex, N
          */
         public int getCount() {
             return count;
+        }
+
+        @Override
+        public String toString() {
+            return "Facet{" +
+                    "label='" + label + '\'' +
+                    ", count=" + count +
+                    '}';
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            Facet facet = (Facet) o;
+            return Objects.equals(label, facet.label);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(label);
         }
     }
 

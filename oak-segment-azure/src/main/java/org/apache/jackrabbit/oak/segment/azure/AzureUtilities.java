@@ -22,13 +22,13 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Paths;
 import java.security.InvalidKeyException;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
-import java.util.UUID;
-import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 
 import com.microsoft.azure.storage.CloudStorageAccount;
+import com.microsoft.azure.storage.ResultContinuation;
+import com.microsoft.azure.storage.ResultSegment;
 import com.microsoft.azure.storage.StorageCredentials;
 import com.microsoft.azure.storage.StorageException;
 import com.microsoft.azure.storage.StorageUri;
@@ -37,6 +37,7 @@ import com.microsoft.azure.storage.blob.CloudBlob;
 import com.microsoft.azure.storage.blob.CloudBlobContainer;
 import com.microsoft.azure.storage.blob.CloudBlobDirectory;
 
+import com.microsoft.azure.storage.blob.ListBlobItem;
 import org.apache.jackrabbit.oak.commons.Buffer;
 import org.apache.jackrabbit.oak.segment.spi.RepositoryNotReachableException;
 import org.jetbrains.annotations.NotNull;
@@ -45,19 +46,9 @@ import org.slf4j.LoggerFactory;
 
 public final class AzureUtilities {
 
-    public static String SEGMENT_FILE_NAME_PATTERN = "^([0-9a-f]{4})\\.([0-9a-f-]+)$";
-
     private static final Logger log = LoggerFactory.getLogger(AzureUtilities.class);
 
     private AzureUtilities() {
-    }
-
-    public static String getSegmentFileName(AzureSegmentArchiveEntry indexEntry) {
-        return getSegmentFileName(indexEntry.getPosition(), indexEntry.getMsb(), indexEntry.getLsb());
-    }
-
-    public static String getSegmentFileName(long offset, long msb, long lsb) {
-        return String.format("%04x.%s", offset, new UUID(msb, lsb).toString());
     }
 
     public static String getName(CloudBlob blob) {
@@ -69,14 +60,19 @@ public final class AzureUtilities {
     }
 
     public static List<CloudBlob> getBlobs(CloudBlobDirectory directory) throws IOException {
-        try {
-            return StreamSupport.stream(directory.listBlobs(null, false, EnumSet.of(BlobListingDetails.METADATA), null, null).spliterator(), false)
-                    .filter(i -> i instanceof CloudBlob)
-                    .map(i -> (CloudBlob) i)
-                    .collect(Collectors.toList());
-        } catch (StorageException | URISyntaxException e) {
-            throw new IOException(e);
-        }
+        List<CloudBlob> blobList = new ArrayList<>();
+        ResultContinuation token = null;
+        do {
+            ResultSegment<ListBlobItem> result = listBlobsInSegments(directory, token); //get the blobs in pages of 5000
+            for (ListBlobItem b : result.getResults()) {                                //add resultant blobs to list
+                if (b instanceof CloudBlob) {
+                    CloudBlob cloudBlob = (CloudBlob) b;
+                    blobList.add(cloudBlob);
+                }
+            }
+            token = result.getContinuationToken();
+        } while (token != null);
+        return blobList;
     }
 
     public static void readBufferFully(CloudBlob blob, Buffer buffer) throws IOException {
@@ -115,6 +111,38 @@ public final class AzureUtilities {
         return container.getDirectoryReference(dir);
     }
 
+    private static ResultSegment<ListBlobItem> listBlobsInSegments(CloudBlobDirectory directory,
+           ResultContinuation token) throws IOException {
+        ResultSegment<ListBlobItem> result = null;
+        IOException lastException = null;
+        for (int sleep = 10; sleep <= 10000; sleep *= 10) {  //increment the sleep time in steps.
+            try {
+                result = directory.listBlobsSegmented(
+                        null,
+                        false,
+                        EnumSet.of(BlobListingDetails.METADATA),
+                        5000,
+                        token,
+                        null,
+                        null);
+                break;  //we have the results, no need to retry
+            } catch (StorageException | URISyntaxException e) {
+                lastException = new IOException(e);
+                try {
+                    Thread.sleep(sleep); //Sleep and retry
+                } catch (InterruptedException ex) {
+                    log.warn("Interrupted", e);
+                }
+            }
+        }
+
+        if (result == null) {
+            throw lastException;
+        } else {
+            return result;
+        }
+    }
+
     private static class ByteBufferOutputStream extends OutputStream {
 
         @NotNull
@@ -134,6 +162,7 @@ public final class AzureUtilities {
             buffer.put(bytes, offset, length);
         }
     }
+
 }
 
 

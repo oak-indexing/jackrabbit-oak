@@ -23,7 +23,7 @@
   <parent>
     <groupId>org.apache.jackrabbit</groupId>
     <artifactId>oak-parent</artifactId>
-    <version>1.25-SNAPSHOT</version>
+    <version>1.35-SNAPSHOT</version>
     <relativePath>../oak-parent/pom.xml</relativePath>
   </parent>
 
@@ -35,6 +35,8 @@
     <groovy.version>2.4.17</groovy.version>
     <!--
       Size History:
+      + 55 MB Add support for segment persistent cache (OAK-7744)
+      + 54 MB AWS support for segment-tar (OAK-8827)
       + 52 MB AWS java sdk update (OAK-8875)
       + 51 MB AWS java sdk update (OAK-7536)
       + 49 MB MongoDB Java driver 3.6.3 is bigger (OAK-7359)
@@ -44,7 +46,7 @@
       + 41 MB build failing on the release profile (OAK-6250)
       + 38 MB. Initial value. Current 35MB plus a 10%
     -->
-    <max.jar.size>52000000</max.jar.size>
+    <max.jar.size>57671680</max.jar.size>
   </properties>
 
   <build>
@@ -167,6 +169,7 @@
             <phase>package</phase>
             <configuration>
               <rules>
+
                 <requireFilesSize>
                   <maxsize>${max.jar.size}</maxsize>
                   <files>
@@ -520,6 +523,13 @@
         <dependency>
           <groupId>org.apache.jackrabbit</groupId>
           <artifactId>oak-core</artifactId>
+          <version>${project.version}</version>
+          <type>test-jar</type>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>org.apache.jackrabbit</groupId>
+          <artifactId>oak-blob-plugins</artifactId>
           <version>${project.version}</version>
           <type>test-jar</type>
           <scope>test</scope>

@@ -17,6 +17,8 @@ The following runmodes are currently available:
     * debug           : Print status information about an Oak repository
     * explore         : Starts a GUI browser based on java swing
     * export          : Export repository content as json
+    * frozennoderefsbyscanning : Scan for nt:frozenNode references via query
+    * frozennoderefsusingindex : Scan for nt:frozenNode references via /oak:index
     * garbage         : Identifies blob garbage on a DocumentMK repository
     * help            : Print a list of available runmodes
     * history         : Trace the history of a node
@@ -135,6 +137,42 @@ The 'explore' mode starts a desktop browser GUI based on java swing which allows
 browsing of an existing oak repository.
 
     $ java -jar oak-run-*.jar explore /path/to/oak/repository [skip-size-check]
+
+frozennoderefsbyscanning
+------------------------
+
+This command executes a potentially expensive (!) traversing query searching for
+all properties formatted as a UUID (incl String, Reference types) and verifies
+if they represent (potential) references to nt:frozenNode.
+
+Since this is a rather expensive command, consider using frozennoderefsusingindex
+(at least first) instead.
+
+If this is used eg on a MongoDB, consider running the command against
+a secondary MongoDB node, such as to not overload the primary MongoDB node.
+
+This tool is part of the effort to change the default nt:frozenNode node type
+definition to no longer be a mix:referenceable (see OAK-9134). Even though
+existing definitions aren't modified, the tool can be used to verify if
+an existing repository would potentially be in violation of OAK-9134 - ie if
+there are existing use cases of nt:frozenNode being a mix:referenceable.
+
+
+frozennoderefsusingindex
+------------------------
+
+This command browses through /oak:index/references and verifies if they
+represent references to nt:frozenNode.
+
+If this is used eg on a MongoDB, consider running the command against
+a secondary MongoDB node, such as to not overload the primary MongoDB node.
+
+This tool is part of the effort to change the default nt:frozenNode node type
+definition to no longer be a mix:referenceable (see OAK-9134). Even though
+existing definitions aren't modified, the tool can be used to verify if
+an existing repository would potentially be in violation of OAK-9134 - ie if
+there are existing use cases of nt:frozenNode being a mix:referenceable.
+
 
 History
 -------
@@ -555,13 +593,18 @@ Maintenance commands for the DataStore:
             [--work-dir <temporary_path>] \
             [--max-age <seconds>] \
             [--verbose] \
+            [--verboseRootPath]
             [<store_path>|<mongo_uri>]
             [--metrics] [--export-metrics]
 
 The following operations are available:
     
-    --collect-garbage       - Execute garbage collection on the data store. If only mark phase to be run specify a true parameter.
-    --check-consistency     - List all the missing blobs by doing a consistency check.
+    --collect-garbage          - Execute garbage collection on the data store. If only mark phase to be run specify a true parameter.
+    --check-consistency        - List all the missing blobs by doing a consistency check.
+    --dump-ref                 - List all the blob references in the node store
+    --dump-id                  - List all the ids in the data store
+    --get-metadata             - Retrieves a machine readable format GC datastore metadata
+                                 e.g. <repoId>|<earliestRef_start_timestamp_secs>|<earliestRef_mark_timestamp_secs>|[*-] * for local repo id
 
 The following options are available:
 
@@ -576,14 +619,26 @@ The following options are available:
     --verbose               - Outputs backend friendly blobids and also adds the node path (for SegmentNodeStore) from where referred. 
                                This options would typically be a slower option since, it requires the whole repo traversal.  
                                Adds the sub-directories created in FDS to the id path and the changes done to the id for S3/Azure when stored in the respective container.
-    <store_path|mongo_uri>  - Path to the tar segment store or the segment azure uri as specified in 
-                               http://jackrabbit.apache.org/oak/docs/nodestore/segment/overview.html#remote-segment-stores
-                               or if Mongo NodeStore then the mongo uri.
+    --verboseRootPath       - Paths under which backend friendly blobids are required (Optional). If not specified, then --verbose uses "/" as the default path. For example,
+                              to list all blobids under /oak:index and /content/oak:index, use --verboseRootPath /oak:index,/content/oak:index (If providing more than one arguments to this option, 
+                                 use comma as a delimiter).
+                                 This option is NOT available for the collect-garbage operation. If specified with collect-garbage, the command execution will throw
+                                 an exception.
+    --verbosePathInclusionRegex- A Regex that can be used to limit the scan during traversal to a specific inclusion list of nodes identified by the regex.
+                                 For example , to look for blob refrences under specific paths such as /b1/b2/foo, /c1/c2/foo under the rootPath /a
+                                 use --verboseRootPath /a --verbosePathInclusionRegex /*/*/foo
+                                 This option is only available when --verboseRootPath is used.
+    <store_path|mongo_uri>     - Path to the tar segment store or the segment azure uri as specified in 
+                                 http://jackrabbit.apache.org/oak/docs/nodestore/segment/overview.html#remote-segment-stores
+                                 or if Mongo NodeStore then the mongo uri.
     --metrics                - If metrics are to be captured.
     --export-metrics         - Option to export the captured metrics. The format of the command is type;URL;key1=value1,key2=value2
                               Currently only [Prometheus Pushgateway](https://github.com/prometheus/pushgateway) is supported
                               e.g. --export-metrics "pushgateway;localhost:9091;key1=value1,key2=value2" 
-
+    --sweep-only-refs-past-retention - Sweep only if the earliest references from all repositories are past the retention period which is govered by the max-age parameter.
+                                       Boolean (Optional). Defaults to False. Only applicable for --collect-garbage
+    --check-consistency-gc    - Performs a consistency check immediately after the GC.        
+                                Boolean (Optional). Defaults to False. Only applicable for --collect-garbage                           
 Note:
 
 Note: When using --export-metrics the following additional jars have to be downloaded to support Prometheus Pushgatway

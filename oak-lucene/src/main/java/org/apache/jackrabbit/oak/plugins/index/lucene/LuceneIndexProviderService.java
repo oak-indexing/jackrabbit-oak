@@ -32,8 +32,6 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import javax.management.NotCompliantMBeanException;
-
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -69,7 +67,6 @@ import org.apache.jackrabbit.oak.plugins.index.lucene.hybrid.LuceneJournalProper
 import org.apache.jackrabbit.oak.plugins.index.lucene.hybrid.NRTIndexFactory;
 import org.apache.jackrabbit.oak.plugins.index.lucene.property.PropertyIndexCleaner;
 import org.apache.jackrabbit.oak.plugins.index.lucene.reader.DefaultIndexReaderFactory;
-import org.apache.jackrabbit.oak.plugins.index.lucene.score.ScorerProviderFactory;
 import org.apache.jackrabbit.oak.plugins.index.search.ExtractedTextCache;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.TextExtractionStatsMBean;
@@ -240,6 +237,15 @@ public class LuceneIndexProviderService {
     )
     private static final String PROP_HYBRID_QUEUE_SIZE = "hybridQueueSize";
 
+    public static final long PROP_HYBRID_QUEUE_TIMEOUT_DEFAULT = 100;
+    @Property(
+            longValue = PROP_HYBRID_QUEUE_TIMEOUT_DEFAULT,
+            label = "Queue timeout",
+            description = "Maximum time to wait for adding entries to the queue used for storing Lucene Documents which need to be " +
+                    "added to local index"
+    )
+    private static final String PROP_HYBRID_QUEUE_TIMEOUT = "hybridQueueTimeout";
+
     private static final boolean PROP_DISABLE_DEFN_STORAGE_DEFAULT = false;
     @Property(
             boolValue = PROP_DISABLE_DEFN_STORAGE_DEFAULT,
@@ -303,9 +309,6 @@ public class LuceneIndexProviderService {
     private BackgroundObserver externalIndexObserver;
 
     @Reference
-    ScorerProviderFactory scorerFactory;
-
-    @Reference
     private IndexAugmentorFactory augmentorFactory;
 
     @Reference
@@ -366,8 +369,7 @@ public class LuceneIndexProviderService {
     private AsyncIndexesSizeStatsUpdate asyncIndexesSizeStatsUpdate;
 
     @Activate
-    private void activate(BundleContext bundleContext, Map<String, ?> config)
-            throws NotCompliantMBeanException, IOException {
+    private void activate(BundleContext bundleContext, Map<String, ?> config) throws IOException {
         asyncIndexesSizeStatsUpdate = new AsyncIndexesSizeStatsUpdateImpl(
                 PropertiesUtil.toLong(config.get(LUCENE_INDEX_STATS_UPDATE_INTERVAL),
                         LUCENE_INDEX_STATS_UPDATE_INTERVAL_DEFAULT) * 1000); // convert seconds to millis
@@ -395,7 +397,7 @@ public class LuceneIndexProviderService {
         initializeIndexDir(bundleContext, config);
         initializeExtractedTextCache(bundleContext, config, statisticsProvider);
         tracker = createTracker(bundleContext, config);
-        indexProvider = new LuceneIndexProvider(tracker, scorerFactory, augmentorFactory);
+        indexProvider = new LuceneIndexProvider(tracker, augmentorFactory);
         initializeActiveBlobCollector(whiteboard, config);
         initializeLogging(config);
         initialize();
@@ -536,7 +538,7 @@ public class LuceneIndexProviderService {
             editorProvider.setIndexingQueue(checkNotNull(documentQueue));
         }
 
-        Dictionary<String, Object> props = new Hashtable<String, Object>();
+        Dictionary<String, Object> props = new Hashtable<>();
         props.put("type", TYPE_LUCENE);
         regs.add(bundleContext.registerService(IndexEditorProvider.class.getName(), editorProvider, props));
         oakRegs.add(registerMBean(whiteboard,
@@ -594,14 +596,9 @@ public class LuceneIndexProviderService {
 
     private ExecutorService createExecutor() {
         ThreadPoolExecutor executor = new ThreadPoolExecutor(5, 5, 60L, TimeUnit.SECONDS,
-                new LinkedBlockingQueue<Runnable>(), new ThreadFactory() {
+                new LinkedBlockingQueue<>(), new ThreadFactory() {
             private final AtomicInteger counter = new AtomicInteger();
-            private final Thread.UncaughtExceptionHandler handler = new Thread.UncaughtExceptionHandler() {
-                @Override
-                public void uncaughtException(Thread t, Throwable e) {
-                    log.warn("Error occurred in asynchronous processing ", e);
-                }
-            };
+            private final Thread.UncaughtExceptionHandler handler = (t, e) -> log.warn("Error occurred in asynchronous processing ", e);
             @Override
             public Thread newThread(@NotNull Runnable r) {
                 Thread thread = new Thread(r, createName());
@@ -643,7 +640,8 @@ public class LuceneIndexProviderService {
         }
 
         int queueSize = PropertiesUtil.toInteger(config.get(PROP_HYBRID_QUEUE_SIZE), PROP_HYBRID_QUEUE_SIZE_DEFAULT);
-        documentQueue = new DocumentQueue(queueSize, tracker, getExecutorService(), statisticsProvider);
+        long queueOfferTimeoutMillis = PropertiesUtil.toLong(config.get(PROP_HYBRID_QUEUE_TIMEOUT), PROP_HYBRID_QUEUE_TIMEOUT_DEFAULT);
+        documentQueue = new DocumentQueue(queueSize, queueOfferTimeoutMillis, tracker, getExecutorService(), statisticsProvider);
         LocalIndexObserver localIndexObserver = new LocalIndexObserver(documentQueue, statisticsProvider);
         regs.add(bundleContext.registerService(Observer.class.getName(), localIndexObserver, null));
 
@@ -828,7 +826,7 @@ public class LuceneIndexProviderService {
     }
 
     private void registerLuceneFileSystemStats(LuceneIndexFileSystemStatistics luceneIndexFSStats, long delayInSeconds) {
-        Map<String, Object> config = ImmutableMap.<String, Object>of(
+        Map<String, Object> config = ImmutableMap.of(
                 "scheduler.name", LuceneIndexFileSystemStatistics.class.getName()
         );
         oakRegs.add(scheduleWithFixedDelay(whiteboard, luceneIndexFSStats, config, delayInSeconds, false, true));

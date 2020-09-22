@@ -71,6 +71,7 @@ public abstract class OakFixture {
     public static final String OAK_RDB_DS = "Oak-RDB-DS";
 
     public static final String OAK_SEGMENT_TAR = "Oak-Segment-Tar";
+    public static final String OAK_SEGMENT_AWS = "Oak-Segment-Aws";
     public static final String OAK_SEGMENT_AZURE = "Oak-Segment-Azure";
     public static final String OAK_SEGMENT_TAR_DS = "Oak-Segment-Tar-DS";
     public static final String OAK_SEGMENT_TAR_COLD = "Oak-Segment-Tar-Cold";
@@ -225,7 +226,7 @@ public abstract class OakFixture {
                     builder.setBlobStore(blobStore);
                 }
                 Oak oak = newOak(builder.build());
-                if (blobStore != null) {
+                if (blobStore instanceof BlobAccessProvider) {
                     oak.getWhiteboard()
                         .register(BlobAccessProvider.class, (BlobAccessProvider) blobStore, Collections.EMPTY_MAP);
                 }
@@ -250,7 +251,7 @@ public abstract class OakFixture {
                     }
                     nodeStores[i] = builder.build();
                     cluster[i] = newOak(nodeStores[i]);
-                    if (blobStore != null) {
+                    if (blobStore instanceof BlobAccessProvider) {
                         cluster[i].getWhiteboard()
                             .register(BlobAccessProvider.class, (BlobAccessProvider) blobStore, Collections.EMPTY_MAP);
                     }
@@ -362,6 +363,15 @@ public abstract class OakFixture {
                 dsCacheInMB, true, syncInterval, shareBlobStore, secure, oneShotRun);
     }
 
+    public static OakFixture getSegmentTarWithAwsSegmentStore(final File base, final String awsBucketName,
+            final String awsRootPath, final String awsJournalTableName, final String awsLockTableName,
+            final int maxFileSizeMB, final int cacheSizeMB, final boolean useBlobStore, final int dsCacheInMB) {
+        return SegmentTarFixtureBuilder.segmentTarFixtureBuilder(OakFixture.OAK_SEGMENT_AWS, base)
+                .withAws(awsBucketName, awsRootPath, awsJournalTableName, awsLockTableName)
+                .withMaxFileSize(maxFileSizeMB).withSegmentCacheSize(cacheSizeMB).withBlobStore(useBlobStore)
+                .withDSCacheSize(dsCacheInMB).build();
+    }
+
     public static OakFixture getSegmentTarWithAzureSegmentStore(final File base, final String azureConnectionString, final String azureContainerName, final String azureRootPath,
                                                                 final int maxFileSizeMB, final int cacheSizeMB, final boolean useBlobStore, final int dsCacheInMB) {
         return SegmentTarFixtureBuilder
@@ -448,7 +458,7 @@ public abstract class OakFixture {
         @Override
         public Oak getOak(int clusterId) throws Exception {
             Oak oak = newOak(getBuilder(clusterId).build());
-            if (this.blobStore != null) {
+            if (this.blobStore instanceof BlobAccessProvider) {
                 oak.getWhiteboard()
                     .register(BlobAccessProvider.class, (BlobAccessProvider) this.blobStore, Collections.EMPTY_MAP);
             }
@@ -459,7 +469,7 @@ public abstract class OakFixture {
             Oak[] cluster = new Oak[builders.length];
             for (int i = 0; i < cluster.length; i++) {
                 cluster[i] = newOak(builders[i].build());
-                if (this.blobStore != null) {
+                if (this.blobStore instanceof BlobAccessProvider) {
                     cluster[i].getWhiteboard()
                         .register(BlobAccessProvider.class, (BlobAccessProvider) this.blobStore, Collections.EMPTY_MAP);
                 }

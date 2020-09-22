@@ -145,6 +145,10 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
 
     public static final String CREATION_TIMESTAMP = "creationTimestamp";
     public static final String REINDEX_COMPLETION_TIMESTAMP = "reindexCompletionTimestamp";
+    /**
+     * Property to store paths for documents failed during index updates.
+     */
+    public static final String FAILED_DOC_PATHS = "failedDocPaths";
 
     /**
      * Meta property which provides the unique id
@@ -261,6 +265,11 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
 
     private final boolean testMode;
 
+    /**
+     * See {@link FulltextIndexConstants#PROP_VALUE_REGEX}
+     */
+    private final Pattern propertyRegex;
+
     public boolean isTestMode() {
         return testMode;
     }
@@ -371,7 +380,11 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
 
             this.fullTextEnabled = hasFulltextEnabledIndexRule(definedIndexRules);
             this.evaluatePathRestrictions = getOptionalValue(defn, EVALUATE_PATH_RESTRICTION, false);
-
+            if (defn.hasProperty(PROP_VALUE_REGEX)) {
+                this.propertyRegex = Pattern.compile(getOptionalValue(defn, PROP_VALUE_REGEX, ""));
+            } else {
+                this.propertyRegex = null;
+            }
             String functionName = getOptionalValue(defn, FulltextIndexConstants.FUNC_NAME, null);
             if (fullTextEnabled && functionName == null) {
                 functionName = getDefaultFunctionName();
@@ -844,6 +857,10 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
         return false;
     }
 
+    public Pattern getPropertyRegex() {
+        return propertyRegex;
+    }
+
     public boolean isSuggestEnabled() {
         return suggestEnabled;
     }
@@ -1014,6 +1031,18 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
          */
         public String getBaseNodeType() {
             return baseNodeType;
+        }
+
+        /**
+         * Returns all the configured {@code PropertyDefinition}s for this {@code IndexRule}.
+         *
+         * In case of a pure nodetype index we just return primaryType and mixins.
+         *
+         * @return an {@code Iterable} of {@code PropertyDefinition}s.
+         * @see IndexDefinition#isPureNodeTypeIndex()
+         */
+        public Iterable<PropertyDefinition> getProperties() {
+            return propConfigs.values();
         }
 
         public List<PropertyDefinition> getNullCheckEnabledProperties() {

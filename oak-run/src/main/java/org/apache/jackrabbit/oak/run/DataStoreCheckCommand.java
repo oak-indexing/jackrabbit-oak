@@ -89,6 +89,10 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Command to check data store consistency and also optionally retrieve ids
  * and references.
+ *
+ * NOTE - OAK-7671 plans on deprecating this command to delegate internally to use
+ * @see org.apache.jackrabbit.oak.run.DataStoreCommand instead. So
+ * any new support around Datastore should be added to @see org.apache.jackrabbit.oak.run.DataStoreCommand
  */
 public class DataStoreCheckCommand implements Command {
     private static final String DELIM = ",";
@@ -514,9 +518,10 @@ public class DataStoreCheckCommand implements Command {
                         Iterator<Blob> iterator = p.getValue(Type.BINARIES).iterator();
                         while (iterator.hasNext()) {
 
-                            id = iterator.next().getContentIdentity();
+                            Blob blob = iterator.next();
+                            id = blob.getContentIdentity();
                             // Ignore inline encoded binaries in document mk
-                            if (id == null || p.getValue(Type.BINARY).isInlined()) {
+                            if (id == null || blob.isInlined()) {
                                 continue;
                             }
                             writeAsLine(writer,

@@ -82,6 +82,7 @@ import org.apache.jackrabbit.oak.plugins.document.locks.NodeDocumentLocks;
 import org.apache.jackrabbit.oak.plugins.document.locks.StripedNodeDocumentLocks;
 import org.apache.jackrabbit.oak.plugins.document.mongo.MongoDocumentStore;
 import org.apache.jackrabbit.oak.plugins.document.util.CloseableIterator;
+import org.apache.jackrabbit.oak.plugins.document.util.SystemPropertySupplier;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -695,6 +696,7 @@ public class RDBDocumentStore implements DocumentStore {
         private final String catalog;
         private final String name;
         private boolean idIsBinary = false;
+        private boolean dataIsNChar = false;
         private boolean hasVersion = false;
         private boolean hasSplitDocs = false;
         private int dataLimitInOctets = 16384;
@@ -736,6 +738,10 @@ public class RDBDocumentStore implements DocumentStore {
             return this.schemaInfo;
         }
 
+        public boolean isDataNChar() {
+            return this.dataIsNChar;
+        }
+
         public boolean isIdBinary() {
             return this.idIsBinary;
         }
@@ -746,6 +752,10 @@ public class RDBDocumentStore implements DocumentStore {
 
         public boolean hasVersion() {
             return this.hasVersion;
+        }
+
+        public void setDataIsNChar(boolean dataIsNChar) {
+            this.dataIsNChar = dataIsNChar;
         }
 
         public void setIdIsBinary(boolean idIsBinary) {
@@ -1084,10 +1094,10 @@ public class RDBDocumentStore implements DocumentStore {
             tableDiags.insert(0, ", ");
         }
 
-        String diag = dbInfo.getAdditionalDiagnostics(this.ch, this.tableMeta.get(Collection.NODES).getName()).toString();
+        Map<String, String> diag = dbInfo.getAdditionalDiagnostics(this.ch, this.tableMeta.get(Collection.NODES).getName());
 
         LOG.info("RDBDocumentStore (" + getModuleVersion() + ") instantiated for database " + dbDesc + ", using driver: "
-                + driverDesc + ", connecting to: " + dbUrl + (diag.isEmpty() ? "" : (", properties: " + diag))
+                + driverDesc + ", connecting to: " + dbUrl + (diag.isEmpty() ? "" : (", properties: " + diag.toString()))
                 + ", transaction isolation level: " + isolationDiags + tableDiags);
         if (!tablesPresent.isEmpty()) {
             LOG.info("Tables present upon startup: " + tablesPresent);
@@ -1102,6 +1112,10 @@ public class RDBDocumentStore implements DocumentStore {
         return sqlType == Types.VARBINARY || sqlType == Types.BINARY || sqlType == Types.LONGVARBINARY;
     }
 
+    private static boolean isNChar(int sqlType) {
+        return sqlType == Types.NCHAR || sqlType == Types.NVARCHAR || sqlType == Types.LONGNVARCHAR;
+    }
+
     private static void obtainFlagsFromResultSetMeta(ResultSetMetaData met, RDBTableMetaData tmd) throws SQLException {
 
         for (int i = 1; i <= met.getColumnCount(); i++) {
@@ -1111,6 +1125,7 @@ public class RDBDocumentStore implements DocumentStore {
             }
             if ("data".equals(lcName)) {
                 tmd.setDataLimitInOctets(met.getPrecision(i));
+                tmd.setDataIsNChar(isNChar(met.getColumnType(i)));
             }
             if ("version".equals(lcName)) {
                 tmd.setHasVersion(true);
@@ -2113,7 +2128,8 @@ public class RDBDocumentStore implements DocumentStore {
 
     private static void continueIfStringOverflow(SQLException ex) throws SQLException {
         String state = ex.getSQLState();
-        if ("22001".equals(state) /* everybody */|| ("72000".equals(state) && 1489 == ex.getErrorCode()) /* Oracle */) {
+        if ("22001".equals(state) /* everybody */|| ("72000".equals(state) && 1489 == ex.getErrorCode()) /* Oracle */
+        		|| ("S0001".equals(state) && 2628 == ex.getErrorCode()) /* MSSQL update*/) {
             // ok
         } else {
             throw (ex);
@@ -2189,23 +2205,34 @@ public class RDBDocumentStore implements DocumentStore {
     // configuration
 
     // Whether to use GZIP compression
-    private static final boolean NOGZIP = Boolean
-            .getBoolean("org.apache.jackrabbit.oak.plugins.document.rdb.RDBDocumentStore.NOGZIP");
+    private static final boolean NOGZIP = SystemPropertySupplier
+            .create("org.apache.jackrabbit.oak.plugins.document.rdb.RDBDocumentStore.NOGZIP", Boolean.FALSE).loggingTo(LOG).get();
+
     // Whether to use append operations (string concatenation) in the DATA column
-    private static final boolean NOAPPEND = Boolean
-            .getBoolean("org.apache.jackrabbit.oak.plugins.document.rdb.RDBDocumentStore.NOAPPEND");
+    private static final boolean NOAPPEND = SystemPropertySupplier
+            .create("org.apache.jackrabbit.oak.plugins.document.rdb.RDBDocumentStore.NOAPPEND", Boolean.FALSE).loggingTo(LOG).get();
+
     // Number of documents to insert at once for batch create
-    private static final int CHUNKSIZE = Integer.getInteger(
-            "org.apache.jackrabbit.oak.plugins.document.rdb.RDBDocumentStore.CHUNKSIZE", 64);
+    private static final int CHUNKSIZE = SystemPropertySupplier
+            .create("org.apache.jackrabbit.oak.plugins.document.rdb.RDBDocumentStore.CHUNKSIZE", 64).loggingTo(LOG)
+            .validateWith(value -> value > 0).get();
+
     // Number of query hits above which a diagnostic warning is generated
-    private static final int QUERYHITSLIMIT = Integer.getInteger(
-            "org.apache.jackrabbit.oak.plugins.document.rdb.RDBDocumentStore.QUERYHITSLIMIT", 4096);
+    private static final int QUERYHITSLIMIT = SystemPropertySupplier
+            .create("org.apache.jackrabbit.oak.plugins.document.rdb.RDBDocumentStore.QUERYHITSLIMIT", 4096).loggingTo(LOG)
+            .validateWith(value -> value > 0).get();
+
     // Number of elapsed ms in a query above which a diagnostic warning is generated
-    private static final int QUERYTIMELIMIT = Integer.getInteger(
-            "org.apache.jackrabbit.oak.plugins.document.rdb.RDBDocumentStore.QUERYTIMELIMIT", 10000);
-    // Whether to use JDBC batch commands for the createOrUpdate (default: true).
-    private static final boolean BATCHUPDATES = Boolean.parseBoolean(System
-            .getProperty("org.apache.jackrabbit.oak.plugins.document.rdb.RDBDocumentStore.BATCHUPDATES", "true"));
+    private static final int QUERYTIMELIMIT = SystemPropertySupplier
+            .create("org.apache.jackrabbit.oak.plugins.document.rdb.RDBDocumentStore.QUERYTIMELIMIT", 10000).loggingTo(LOG)
+            .validateWith(value -> value > 0).get();
+
+    // Whether to use JDBC batch commands for the createOrUpdate (default: true)
+    private static final boolean BATCHUPDATES = SystemPropertySupplier
+            .create(RDBDocumentStore.class.getName() + ".BATCHUPDATES", Boolean.TRUE).loggingTo(LOG)
+            .formatSetMessage((name, value) -> {
+                return String.format("Batch updates disabled (system property %s set to '%s')", name, value);
+            }).get();
 
     public static byte[] asBytes(@NotNull String data) {
         byte[] bytes;
