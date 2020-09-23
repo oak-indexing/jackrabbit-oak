@@ -91,7 +91,8 @@ public class ElasticIndexCleaner implements Runnable {
             Set<String> existingIndices = new HashSet<>();
             root.getChildNode(INDEX_DEFINITIONS_NAME).getChildNodeEntries().forEach(childNodeEntry -> {
                 PropertyState typeProperty = childNodeEntry.getNodeState().getProperty(IndexConstants.TYPE_PROPERTY_NAME);
-                if (typeProperty != null && typeProperty.getValue(Type.STRING).equals(ElasticIndexDefinition.TYPE_ELASTICSEARCH)) {
+                String typeValue = typeProperty != null ? typeProperty.getValue(Type.STRING) : "";
+                if (typeValue.equals(ElasticIndexDefinition.TYPE_ELASTICSEARCH) || typeValue.equals("disabled")) {
                     String indexPath = "/" + INDEX_DEFINITIONS_NAME + "/" + childNodeEntry.getName();
                     String remoteIndexName = ElasticIndexNameHelper.getRemoteIndexName(indexPrefix, childNodeEntry.getNodeState(), indexPath);
                     if (remoteIndexName != null) {
