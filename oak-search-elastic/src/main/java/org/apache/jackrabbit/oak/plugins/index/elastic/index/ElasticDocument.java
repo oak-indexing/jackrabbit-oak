@@ -27,7 +27,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -44,8 +44,8 @@ class ElasticDocument {
 
     ElasticDocument(String path) {
         this.path = path;
-        this.fulltext = new HashSet<>();
-        this.suggest = new HashSet<>();
+        this.fulltext = new LinkedHashSet<>();
+        this.suggest = new LinkedHashSet<>();
         this.notNullProps = new ArrayList<>();
         this.nullProps = new ArrayList<>();
         this.properties = new HashMap<>();
