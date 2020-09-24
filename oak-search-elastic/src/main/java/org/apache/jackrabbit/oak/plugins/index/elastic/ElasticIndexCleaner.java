@@ -92,6 +92,10 @@ public class ElasticIndexCleaner implements Runnable {
             root.getChildNode(INDEX_DEFINITIONS_NAME).getChildNodeEntries().forEach(childNodeEntry -> {
                 PropertyState typeProperty = childNodeEntry.getNodeState().getProperty(IndexConstants.TYPE_PROPERTY_NAME);
                 String typeValue = typeProperty != null ? typeProperty.getValue(Type.STRING) : "";
+                /*
+                If index type is "elasticsearch" or "disabled", we try to find remote index name. In case of disabled lucene or
+                property indices, the remote index name would be null. So only elasticsearch indices are affected here.
+                 */
                 if (typeValue.equals(ElasticIndexDefinition.TYPE_ELASTICSEARCH) || typeValue.equals("disabled")) {
                     String indexPath = "/" + INDEX_DEFINITIONS_NAME + "/" + childNodeEntry.getName();
                     String remoteIndexName = ElasticIndexNameHelper.getRemoteIndexName(indexPrefix, childNodeEntry.getNodeState(), indexPath);
