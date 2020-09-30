@@ -32,7 +32,6 @@ import java.io.Closeable;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -196,6 +195,13 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
      */
     private final int cleanupIntervalMinutes
             = Integer.getInteger("oak.async.checkpointCleanupIntervalMinutes", 5);
+
+    /**
+     * Setting this to true lead to lane execution (node traversal) even if there
+     * is no index assigned to this lane under /oak:index.
+     */
+    private final boolean traverseNodesIfLaneNotPresentInIndex
+            = Boolean.getBoolean("oak.async.traverseNodesIfLaneNotPresentInIndex");
 
     /**
      * The time in minutes since the epoch when the last checkpoint cleanup ran.
@@ -428,31 +434,9 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
 
     @Override
     public synchronized void run() {
-        boolean isIndexWithLanePresent = false;
-        NodeState oakIndexNode = store.getRoot().getChildNode("oak:index");
-        if (!oakIndexNode.exists()) {
-            log.info("lane: {} not present for indexes under /oak:index", name);
+        if (!traverseNodesIfLaneNotPresentInIndex && !isIndexLanePresent()) {
             return;
         }
-        for (ChildNodeEntry childNodeEntry : oakIndexNode.getChildNodeEntries()) {
-            PropertyState async = childNodeEntry.getNodeState().getProperty("async");
-            if (async != null) {
-                for (String s : async.getValue(Type.STRINGS)) {
-                    if (s.equals(name)) {
-                        isIndexWithLanePresent = true;
-                        break;
-                    }
-                }
-            }
-            if (isIndexWithLanePresent) {
-                break;
-            }
-        }
-        if (!isIndexWithLanePresent) {
-            log.info("lane: {} not present for indexes under /oak:index", name);
-            return;
-        }
-
         boolean permitAcquired = false;
         try{
             if (runPermit.tryAcquire()){
@@ -637,6 +621,33 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 postAsyncRunStatsStatus(indexStats);
             }
         }
+    }
+
+    private boolean isIndexLanePresent() {
+        boolean isIndexWithLanePresent = false;
+        NodeState oakIndexNode = store.getRoot().getChildNode("oak:index");
+        if (!oakIndexNode.exists()) {
+            log.info("lane: {} - no indexes exist under /oak:index", name);
+            return false;
+        }
+        for (ChildNodeEntry childNodeEntry : oakIndexNode.getChildNodeEntries()) {
+            PropertyState async = childNodeEntry.getNodeState().getProperty("async");
+            if (async != null) {
+                for (String s : async.getValue(Type.STRINGS)) {
+                    if (s.equals(name)) {
+                        isIndexWithLanePresent = true;
+                        break;
+                    }
+                }
+            }
+            if (isIndexWithLanePresent) {
+                break;
+            }
+        }
+        if (!isIndexWithLanePresent) {
+            log.info("lane: {} not present for indexes under /oak:index", name);
+        }
+        return isIndexWithLanePresent;
     }
 
     private void markFailingIndexesAsCorrupt(NodeBuilder builder) {

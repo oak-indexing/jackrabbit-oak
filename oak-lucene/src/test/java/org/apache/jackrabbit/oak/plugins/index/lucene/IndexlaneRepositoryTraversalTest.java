@@ -65,6 +65,7 @@ import static org.junit.Assert.assertTrue;
 public class IndexlaneRepositoryTraversalTest {
 
     private static final String indexLaneLog = "lane: async not present for indexes under /oak:index";
+    private static final String indexNotPresentLog = "lane: async - no indexes exist under /oak:index";
     private final long INDEX_CORRUPT_INTERVAL_IN_MILLIS = 100;
     private MemoryBlobStore blobStore;
 
@@ -131,24 +132,29 @@ public class IndexlaneRepositoryTraversalTest {
         root.commit();
         asyncIndexUpdate.run();
         List<String> logs = customLogger.getLogs();
-        assertFalse(isIndexLaneNotPresentLog(logs));
+        assertFalse(isAssertionLogPresent(logs, indexLaneLog));
+        assertFalse(isAssertionLogPresent(logs, indexNotPresentLog));
     }
 
     @Test
     public void noRepositoryTraversalIfLaneIsNotPresent() throws Exception {
-        deletePathRecursively("/oak:index");
+        Iterable<Tree> indexTree = root.getTree("/oak:index").getChildren();
+        for (Tree children : indexTree) {
+            deletePathRecursively(children.getPath());
+        }
         asyncIndexUpdate.run();
         List<String> logs = customLogger.getLogs();
-        assertTrue(isIndexLaneNotPresentLog(logs));
+        assertTrue(isAssertionLogPresent(logs, indexLaneLog));
+        assertFalse(isAssertionLogPresent(logs, indexNotPresentLog));
     }
 
     @Test
     public void noRepositoryTraversalIfNoIndexPresent() throws Exception {
         deletePathRecursively("/oak:index");
-        root.getTree("/oak:index").remove();
         asyncIndexUpdate.run();
         List<String> logs = customLogger.getLogs();
-        assertTrue(isIndexLaneNotPresentLog(logs));
+        assertTrue(isAssertionLogPresent(logs, indexNotPresentLog));
+        assertFalse(isAssertionLogPresent(logs, indexLaneLog));
     }
 
     private void deletePathRecursively(String path) throws CommitFailedException {
@@ -157,9 +163,9 @@ public class IndexlaneRepositoryTraversalTest {
         rd.run(path);
     }
 
-    private boolean isIndexLaneNotPresentLog(List<String> logs) {
+    private boolean isAssertionLogPresent(List<String> logs, String assertionLog) {
         for (String log : logs) {
-            if (log.equals(indexLaneLog)) {
+            if (log.equals(assertionLog)) {
                 return true;
             }
         }
