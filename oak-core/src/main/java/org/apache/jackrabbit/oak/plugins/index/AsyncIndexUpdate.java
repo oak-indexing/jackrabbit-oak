@@ -434,7 +434,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
 
     @Override
     public synchronized void run() {
-        if (!traverseNodesIfLaneNotPresentInIndex && !isIndexLanePresent()) {
+        if (!shouldProceed()){
             return;
         }
         boolean permitAcquired = false;
@@ -623,7 +623,31 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         }
     }
 
-    private boolean isIndexLanePresent() {
+    private boolean shouldProceed() {
+        boolean shouldProceed;
+        NodeState asyncNode = store.getRoot().getChildNode(":async");
+        /*
+            If /:async node already have the lane(under consideration) info, we can proceed ahead, as
+            majorly this change is to stop repository traversal on very first run. If lane had already
+            traversed nodes in repository there is no point stopping this now.
+         */
+        if (asyncNode.exists()) {
+            if (asyncNode.getProperty(name) != null) {
+                shouldProceed = true;
+            } else {
+                shouldProceed = traverseNodesIfLaneNotPresentInIndex || isIndexWithLanePresent();
+            }
+        } else {
+            shouldProceed = traverseNodesIfLaneNotPresentInIndex || isIndexWithLanePresent();
+        }
+        return shouldProceed;
+    }
+
+    /**
+     *
+     * @return true if there is at least one index present under /oak:index with indexingLane in action.
+     */
+    private boolean isIndexWithLanePresent(){
         boolean isIndexWithLanePresent = false;
         NodeState oakIndexNode = store.getRoot().getChildNode("oak:index");
         if (!oakIndexNode.exists()) {
