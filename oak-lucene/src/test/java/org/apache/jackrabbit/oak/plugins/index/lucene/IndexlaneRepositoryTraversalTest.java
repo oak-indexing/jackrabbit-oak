@@ -64,14 +64,13 @@ import static org.junit.Assert.assertTrue;
  */
 public class IndexlaneRepositoryTraversalTest {
 
-    private static final String indexLaneLog = "lane: async not present for indexes under /oak:index";
-    private static final String indexNotPresentLog = "lane: async - no indexes exist under /oak:index";
     private final long INDEX_CORRUPT_INTERVAL_IN_MILLIS = 100;
     private MemoryBlobStore blobStore;
 
     protected Root root;
 
     private AsyncIndexUpdate asyncIndexUpdate;
+    private AsyncIndexUpdate asyncIndexUpdateFulltext;
 
     NodeStore nodeStore;
     LogCustomizer customLogger;
@@ -104,6 +103,10 @@ public class IndexlaneRepositoryTraversalTest {
                 luceneIndexEditorProvider,
                 new NodeCounterEditorProvider()
         )));
+        asyncIndexUpdateFulltext = new AsyncIndexUpdate("fulltext-async", nodeStore, compose(newArrayList(
+                luceneIndexEditorProvider,
+                new NodeCounterEditorProvider()
+        )));
         TrackingCorruptIndexHandler trackingCorruptIndexHandler = new TrackingCorruptIndexHandler();
         trackingCorruptIndexHandler.setCorruptInterval(INDEX_CORRUPT_INTERVAL_IN_MILLIS, TimeUnit.MILLISECONDS);
         asyncIndexUpdate.setCorruptIndexHandler(trackingCorruptIndexHandler);
@@ -132,8 +135,8 @@ public class IndexlaneRepositoryTraversalTest {
         root.commit();
         asyncIndexUpdate.run();
         List<String> logs = customLogger.getLogs();
-        assertFalse(isAssertionLogPresent(logs, indexLaneLog));
-        assertFalse(isAssertionLogPresent(logs, indexNotPresentLog));
+        assertFalse(isAssertionLogPresent(logs, indexLaneLog("async")));
+        assertFalse(isAssertionLogPresent(logs, indexNotPresentLog("async")));
     }
 
     @Test
@@ -144,8 +147,8 @@ public class IndexlaneRepositoryTraversalTest {
         }
         asyncIndexUpdate.run();
         List<String> logs = customLogger.getLogs();
-        assertTrue(isAssertionLogPresent(logs, indexLaneLog));
-        assertFalse(isAssertionLogPresent(logs, indexNotPresentLog));
+        assertTrue(isAssertionLogPresent(logs, indexLaneLog("async")));
+        assertFalse(isAssertionLogPresent(logs, indexNotPresentLog("async")));
     }
 
     @Test
@@ -153,8 +156,31 @@ public class IndexlaneRepositoryTraversalTest {
         deletePathRecursively("/oak:index");
         asyncIndexUpdate.run();
         List<String> logs = customLogger.getLogs();
-        assertTrue(isAssertionLogPresent(logs, indexNotPresentLog));
-        assertFalse(isAssertionLogPresent(logs, indexLaneLog));
+        assertTrue(isAssertionLogPresent(logs, indexNotPresentLog("async")));
+        assertFalse(isAssertionLogPresent(logs, indexLaneLog("async")));
+    }
+
+    @Test
+    public void repositoryTraversalAsyncNodeContainsAsyncProperty() throws Exception {
+        // first run to populate /:async node.
+        asyncIndexUpdate.run();
+        asyncIndexUpdate.run();
+        List<String> logs = customLogger.getLogs();
+        assertFalse(isAssertionLogPresent(logs, indexLaneLog("async")));
+        assertFalse(isAssertionLogPresent(logs, indexNotPresentLog("async")));
+    }
+
+    @Test
+    public void repositoryTraversalAsyncNodeDonotContainsFulltextAsyncProperty() throws Exception {
+        // first run to populate /:async node.
+        asyncIndexUpdate.run();
+        List<String> logs = customLogger.getLogs();
+        assertFalse(isAssertionLogPresent(logs, indexLaneLog("async")));
+        assertFalse(isAssertionLogPresent(logs, indexNotPresentLog("async")));
+        asyncIndexUpdateFulltext.run();
+        logs = customLogger.getLogs();
+        assertFalse(isAssertionLogPresent(logs, indexNotPresentLog("fulltext-async")));
+        assertTrue(isAssertionLogPresent(logs, indexLaneLog("fulltext-async")));
     }
 
     private void deletePathRecursively(String path) throws CommitFailedException {
@@ -170,5 +196,13 @@ public class IndexlaneRepositoryTraversalTest {
             }
         }
         return false;
+    }
+
+    private String indexNotPresentLog(String lane) {
+        return "lane: " + lane + " - no indexes exist under /oak:index";
+    }
+
+    private String indexLaneLog(String lane) {
+        return "lane: " + lane + " not present for indexes under /oak:index";
     }
 }
