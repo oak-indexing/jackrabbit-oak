@@ -1066,7 +1066,7 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
             return similarityProperties;
         }
 
-        public Stream<PropertyDefinition> getNamePattersProperties() {
+        public Stream<PropertyDefinition> getNamePatternsProperties() {
             return namePatterns.stream().map(NamePattern::getConfig);
         }
 

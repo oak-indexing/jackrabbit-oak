@@ -103,7 +103,7 @@ public class ElasticIndexDefinition extends IndexDefinition {
 
         this.dynamicBoostProperties = getDefinedRules()
                 .stream()
-                .flatMap(IndexingRule::getNamePattersProperties)
+                .flatMap(IndexingRule::getNamePatternsProperties)
                 .filter(pd -> pd.dynamicBoost)
                 .collect(Collectors.toList());
     }
