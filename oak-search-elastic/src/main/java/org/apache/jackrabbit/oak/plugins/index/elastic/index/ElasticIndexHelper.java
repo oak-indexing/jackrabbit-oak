@@ -150,6 +150,7 @@ class ElasticIndexHelper {
     private static void mapIndexRules(ElasticIndexDefinition indexDefinition, XContentBuilder mappingBuilder) throws IOException {
         checkIndexRules(indexDefinition);
         boolean useInSuggest = false;
+        boolean useInSimilarity = false;
         for (Map.Entry<String, List<PropertyDefinition>> entry : indexDefinition.getPropertiesByName().entrySet()) {
             final String name = entry.getKey();
             final List<PropertyDefinition> propertyDefinitions = entry.getValue();
@@ -163,6 +164,9 @@ class ElasticIndexHelper {
                 }
                 if (pd.useInSuggest) {
                     useInSuggest = true;
+                }
+                if (pd.useInSimilarity) {
+                    useInSimilarity = true;
                 }
             }
 
@@ -206,7 +210,16 @@ class ElasticIndexHelper {
                 }
             }
             mappingBuilder.endObject();
+
+            if (useInSimilarity) {
+                mappingBuilder.startObject("sim:" + name);
+                mappingBuilder.field("type", "dense_vector");
+                mappingBuilder.field("dims", 1024);
+                mappingBuilder.endObject();
+            }
         }
+
+
 
         if (useInSuggest) {
             mappingBuilder.startObject(FieldNames.SUGGEST);
@@ -223,6 +236,7 @@ class ElasticIndexHelper {
             }
             mappingBuilder.endObject();
         }
+
     }
 
     // we need to check if in the defined rules there are properties with the same name and different types

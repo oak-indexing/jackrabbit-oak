@@ -16,16 +16,26 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic;
 
+import org.apache.commons.io.IOUtils;
+import org.apache.jackrabbit.oak.api.Blob;
 import org.apache.jackrabbit.oak.api.Tree;
+import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.plugins.index.search.util.IndexDefinitionBuilder;
 import org.junit.Test;
 
-import java.util.Arrays;
+import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.net.URI;
+import java.nio.ByteBuffer;
+import java.nio.charset.Charset;
+import java.util.*;
 
 import static java.util.Collections.singletonList;
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROPDEF_PROP_NODE_NAME;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.assertEquals;
 
 public class ElasticPropertyIndexTest extends ElasticAbstractQueryTest {
 
@@ -152,6 +162,66 @@ public class ElasticPropertyIndexTest extends ElasticAbstractQueryTest {
 
         assertEventually(() -> assertQuery("select [jcr:path] from [nt:base] where propa is not null",
                 Arrays.asList("/test/a", "/test/b")));
+    }
+
+
+    @Test
+    public void testSim() throws Exception {
+        IndexDefinitionBuilder builder = createIndex("fv");
+        builder.indexRule("nt:base").property("fv").useInSimilarity(true);
+        Tree index = setIndex("test1", builder);
+        root.commit();
+        Tree test = root.getTree("/").addChild("test");
+
+        URI uri = getClass().getResource("/org/apache/jackrabbit/oak/query/fvs.csv").toURI();
+        File file = new File(uri);
+
+        Collection<String> children = new LinkedList<>();
+        for (String line : IOUtils.readLines(new FileInputStream(file), Charset.defaultCharset())) {
+            String[] split = line.split(",");
+            List<Double> values = new LinkedList<>();
+            int i = 0;
+            for (String s : split) {
+                if (i > 0) {
+                    values.add(Double.parseDouble(s));
+                }
+                i++;
+            }
+
+            byte[] bytes = toByteArray(values);
+            List<Double> actual = toDoubles(bytes);
+            assertEquals(values, actual);
+
+            Blob blob = root.createBlob(new ByteArrayInputStream(bytes));
+            String name = split[0];
+            Tree child = test.addChild(name);
+            child.setProperty("fv", blob, Type.BINARY);
+            children.add(child.getPath());
+        }
+        root.commit();
+
+        Thread.sleep(10000);
+    }
+
+    private static byte[] toByteArray(List<Double> values) {
+        int blockSize = Double.SIZE / Byte.SIZE;
+        byte[] bytes = new byte[values.size() * blockSize];
+        for (int i = 0, j = 0; i < values.size(); i++, j += blockSize) {
+            ByteBuffer.wrap(bytes, j, blockSize).putDouble(values.get(i));
+        }
+        return bytes;
+    }
+
+    private static List<Double> toDoubles(byte[] array) {
+        int blockSize = Double.SIZE / Byte.SIZE;
+        ByteBuffer wrap = ByteBuffer.wrap(array);
+        int capacity = array.length / blockSize;
+        List<Double> doubles = new ArrayList<>(capacity);
+        for (int i = 0; i < capacity; i++) {
+            double e = wrap.getDouble(i * blockSize);
+            doubles.add(e);
+        }
+        return doubles;
     }
 
 }

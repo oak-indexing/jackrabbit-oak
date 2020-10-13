@@ -28,6 +28,7 @@ import org.apache.jackrabbit.oak.plugins.index.search.PropertyDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.binary.FulltextBinaryTextExtractor;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.editor.FulltextDocumentMaker;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
+import org.apache.lucene.document.Field;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -181,6 +182,10 @@ class ElasticDocumentMaker extends FulltextDocumentMaker<ElasticDocument> {
         // TODO : not implemented
         // see https://www.elastic.co/blog/text-similarity-search-with-vectors-in-elasticsearch
         // see https://www.elastic.co/guide/en/elasticsearch/reference/current/dense-vector.html
+
+        doc.addSimField(pd.name, blob);
+
+        // TODO : RERANK
     }
 
     @Override

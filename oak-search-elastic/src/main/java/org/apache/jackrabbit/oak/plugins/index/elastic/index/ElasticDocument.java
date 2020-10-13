@@ -16,8 +16,12 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.index;
 
+import org.apache.jackrabbit.oak.api.Blob;
 import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
+import org.apache.jackrabbit.oak.plugins.index.search.spi.binary.BlobByteSource;
+import org.apache.lucene.document.Field;
+import org.apache.lucene.document.TextField;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentFactory;
@@ -25,10 +29,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.nio.ByteBuffer;
+import java.util.*;
 
 class ElasticDocument {
     private static final Logger LOG = LoggerFactory.getLogger(ElasticDocument.class);
@@ -39,6 +41,7 @@ class ElasticDocument {
     private final List<String> notNullProps;
     private final List<String> nullProps;
     private final Map<String, Object> properties;
+    private final Map<String, Object> similarityFields;
 
     ElasticDocument(String path) {
         this.path = path;
@@ -47,6 +50,7 @@ class ElasticDocument {
         this.notNullProps = new ArrayList<>();
         this.nullProps = new ArrayList<>();
         this.properties = new HashMap<>();
+        this.similarityFields = new HashMap<>();
     }
 
     void addFulltext(String value) {
@@ -77,6 +81,11 @@ class ElasticDocument {
         properties.put(fieldName, value);
     }
 
+    void addSimField(String name, Blob value) throws IOException{
+        byte[] bytes = new BlobByteSource(value).read();
+        similarityFields.put(FieldNames.createSimilarityFieldName(name), toDoubleArray(bytes));
+    }
+
     void indexAncestors(String path) {
         String parPath = PathUtils.getParentPath(path);
         int depth = PathUtils.getDepth(path);
@@ -104,6 +113,9 @@ class ElasticDocument {
                 if (nullProps.size() > 0) {
                     builder.field(FieldNames.NULL_PROPS, nullProps);
                 }
+                for (Map.Entry<String, Object> simProp: similarityFields.entrySet()) {
+                    builder.field(simProp.getKey(), simProp.getValue());
+                }
                 for (Map.Entry<String, Object> prop : properties.entrySet()) {
                     builder.field(prop.getKey(), prop.getValue());
                 }
@@ -124,5 +136,44 @@ class ElasticDocument {
     @Override
     public String toString() {
         return build();
+    }
+
+    public static Collection<Field> newSimilarityFields(String name, Blob value) throws IOException {
+        Collection<Field> fields = new ArrayList<>(1);
+        byte[] bytes = new BlobByteSource(value).read();
+        fields.add(newSimilarityField(name, bytes));
+        return fields;
+    }
+
+    private static Field newSimilarityField(String name, byte[] bytes) {
+        return newSimilarityField(name, toDoubleString(bytes));
+    }
+
+    public static String toDoubleString(byte[] bytes) {
+        double[] a = toDoubleArray(bytes);
+        StringBuilder builder = new StringBuilder();
+        for (Double d : a) {
+            if (builder.length() > 0) {
+                builder.append(' ');
+            }
+            builder.append(d);
+        }
+        return builder.toString();
+    }
+
+    private static double[] toDoubleArray(byte[] array) {
+        int blockSize = Double.SIZE / Byte.SIZE;
+        ByteBuffer wrap = ByteBuffer.wrap(array);
+        int capacity = array.length / blockSize;
+        double[] doubles = new double[capacity];
+        for (int i = 0; i < capacity; i++) {
+            double e = wrap.getDouble(i * blockSize);
+            doubles[i] = e;
+        }
+        return doubles;
+    }
+
+    private static Field newSimilarityField(String name, String value) {
+        return new TextField(FieldNames.createSimilarityFieldName(name), value, Field.Store.YES);
     }
 }
