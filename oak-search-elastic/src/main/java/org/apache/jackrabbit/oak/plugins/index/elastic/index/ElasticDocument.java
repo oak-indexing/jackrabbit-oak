@@ -89,13 +89,13 @@ class ElasticDocument {
         addProperty(FieldNames.PATH_DEPTH, depth);
     }
 
-    void addDynamicBoostField(String propName, String token, double boost) {
-        List<Map<String, Object>> tokens = dynamicBoostFields.computeIfAbsent(propName, (s) -> new ArrayList<>());
+    void addDynamicBoostField(String propName, String value, double boost) {
+        List<Map<String, Object>> values = dynamicBoostFields.computeIfAbsent(propName, (s) -> new ArrayList<>());
 
-        Map<String, Object> tokenValue = new HashMap<>(2);
-        tokenValue.put("token", token);
-        tokenValue.put("boost", boost);
-        tokens.add(tokenValue);
+        Map<String, Object> valueBoost = new HashMap<>(2);
+        valueBoost.put("value", value);
+        valueBoost.put("boost", boost);
+        values.add(valueBoost);
     }
 
     public String build() {

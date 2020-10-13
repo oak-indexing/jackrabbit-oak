@@ -227,7 +227,7 @@ class ElasticIndexHelper {
                 mappingBuilder.field("type", "nested");
                 mappingBuilder.startObject("properties");
                 {
-                    mappingBuilder.startObject("token")
+                    mappingBuilder.startObject("value")
                             .field("type", "text")
                             .field("analyzer", "oak_analyzer")
                             .endObject();
