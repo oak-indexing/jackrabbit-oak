@@ -41,7 +41,7 @@ class ElasticDocument {
     private final List<String> notNullProps;
     private final List<String> nullProps;
     private final Map<String, Object> properties;
-    private final Map<String, List<Map<String, Object>>> dynamicBoostFields;
+    private final Map<String, Map<String, Double>> dynamicBoostFields;
 
     ElasticDocument(String path) {
         this.path = path;
@@ -90,12 +90,8 @@ class ElasticDocument {
     }
 
     void addDynamicBoostField(String propName, String value, double boost) {
-        List<Map<String, Object>> values = dynamicBoostFields.computeIfAbsent(propName, (s) -> new ArrayList<>());
-
-        Map<String, Object> valueBoost = new HashMap<>(2);
-        valueBoost.put("value", value);
-        valueBoost.put("boost", boost);
-        values.add(valueBoost);
+        dynamicBoostFields.computeIfAbsent(propName, s -> new HashMap<>())
+                .putIfAbsent(value, boost);
     }
 
     public String build() {
@@ -110,7 +106,7 @@ class ElasticDocument {
                 }
                 if (suggest.size() > 0) {
                     builder.startArray(FieldNames.SUGGEST);
-                    for(String val: suggest) {
+                    for (String val : suggest) {
                         builder.startObject().field("value", val).endObject();
                     }
                     builder.endArray();
@@ -124,8 +120,15 @@ class ElasticDocument {
                 for (Map.Entry<String, Object> prop : properties.entrySet()) {
                     builder.field(prop.getKey(), prop.getValue());
                 }
-                for (Map.Entry<String, List<Map<String, Object>>> f : dynamicBoostFields.entrySet()) {
-                    builder.field(f.getKey(), f.getValue());
+                for (Map.Entry<String, Map<String, Double>> f : dynamicBoostFields.entrySet()) {
+                    builder.startArray(f.getKey());
+                    for (Map.Entry<String, Double> v : f.getValue().entrySet()) {
+                        builder.startObject();
+                        builder.field("value", v.getKey());
+                        builder.field("boost", v.getValue());
+                        builder.endObject();
+                    }
+                    builder.endArray();
                 }
             }
             builder.endObject();

@@ -79,6 +79,7 @@ public class ElasticDynamicBoostQueryTest extends ElasticAbstractQueryTest {
 
         Tree test = createNodeWithType(root.getTree("/"), "test", NT_UNSTRUCTURED);
         Tree item1Metadata = createNodeWithMetadata(test, "item1", "flower with a lot of red and a bit of blue");
+        item1Metadata.setProperty("foo", "bar");
         Tree item1Color1 = createNodeWithType(item1Metadata,"color1", NT_UNSTRUCTURED);
         item1Color1.setProperty("name", "red");
         item1Color1.setProperty("confidence", 9.0);
