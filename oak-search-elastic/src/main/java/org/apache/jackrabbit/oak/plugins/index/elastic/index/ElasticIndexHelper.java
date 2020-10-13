@@ -44,7 +44,6 @@ class ElasticIndexHelper {
         final XContentBuilder mappingBuilder = XContentFactory.jsonBuilder();
         mappingBuilder.startObject();
         {
-            //mappingBuilder.field("dynamic", false);
             mappingBuilder.startObject("properties");
             {
                 mapInternalProperties(mappingBuilder);
