@@ -31,6 +31,8 @@ import java.io.InputStream;
 import java.util.Arrays;
 import java.util.UUID;
 
+import static org.apache.jackrabbit.JcrConstants.NT_UNSTRUCTURED;
+
 public class ElasticDynamicBoostQueryTest extends ElasticAbstractQueryTest {
 
     public static final String ASSET_NODE_TYPE =
@@ -39,26 +41,24 @@ public class ElasticDynamicBoostQueryTest extends ElasticAbstractQueryTest {
                     " - * (UNDEFINED)\n" +
                     " + * (nt:base) = oak:TestNode VERSION";
 
-    private static final String UNSTRUCTURED = "nt:unstructured";
-
     @Test
     public void dynamicBoost() throws CommitFailedException {
         configureIndex();
 
-        Tree test = createNodeWithType(root.getTree("/"), "test", UNSTRUCTURED);
+        Tree test = createNodeWithType(root.getTree("/"), "test", NT_UNSTRUCTURED);
         Tree item1Metadata = createNodeWithMetadata(test, "item1", "flower with a lot of red and a bit of blue");
-        Tree item1Color1 = createNodeWithType(item1Metadata,"color1", UNSTRUCTURED);
+        Tree item1Color1 = createNodeWithType(item1Metadata,"color1", NT_UNSTRUCTURED);
         item1Color1.setProperty("name", "red");
         item1Color1.setProperty("confidence", 9.0);
-        Tree item1Color2 = createNodeWithType(item1Metadata,"color2", UNSTRUCTURED);
+        Tree item1Color2 = createNodeWithType(item1Metadata,"color2", NT_UNSTRUCTURED);
         item1Color2.setProperty("name", "blue");
         item1Color2.setProperty("confidence", 1.0);
 
         Tree item2Metadata = createNodeWithMetadata(test, "item2", "flower with a lot of blue and a bit of red");
-        Tree item2Color1 = createNodeWithType(item2Metadata,"color1", UNSTRUCTURED);
+        Tree item2Color1 = createNodeWithType(item2Metadata,"color1", NT_UNSTRUCTURED);
         item2Color1.setProperty("name", "blue");
         item2Color1.setProperty("confidence", 9.0);
-        Tree item2Color2 = createNodeWithType(item2Metadata,"color2", UNSTRUCTURED);
+        Tree item2Color2 = createNodeWithType(item2Metadata,"color2", NT_UNSTRUCTURED);
         item2Color2.setProperty("name", "red");
         item2Color2.setProperty("confidence", 1.0);
         root.commit();
@@ -77,20 +77,20 @@ public class ElasticDynamicBoostQueryTest extends ElasticAbstractQueryTest {
     public void dynamicBoostAnalyzed() throws CommitFailedException {
         configureIndex();
 
-        Tree test = createNodeWithType(root.getTree("/"), "test", UNSTRUCTURED);
+        Tree test = createNodeWithType(root.getTree("/"), "test", NT_UNSTRUCTURED);
         Tree item1Metadata = createNodeWithMetadata(test, "item1", "flower with a lot of red and a bit of blue");
-        Tree item1Color1 = createNodeWithType(item1Metadata,"color1", UNSTRUCTURED);
+        Tree item1Color1 = createNodeWithType(item1Metadata,"color1", NT_UNSTRUCTURED);
         item1Color1.setProperty("name", "red");
         item1Color1.setProperty("confidence", 9.0);
-        Tree item1Color2 = createNodeWithType(item1Metadata,"color2", UNSTRUCTURED);
+        Tree item1Color2 = createNodeWithType(item1Metadata,"color2", NT_UNSTRUCTURED);
         item1Color2.setProperty("name", "blue");
         item1Color2.setProperty("confidence", 1.0);
 
         Tree item2Metadata = createNodeWithMetadata(test, "item2", "flower with a lot of blue and a bit of red");
-        Tree item2Color1 = createNodeWithType(item2Metadata,"color1", UNSTRUCTURED);
+        Tree item2Color1 = createNodeWithType(item2Metadata,"color1", NT_UNSTRUCTURED);
         item2Color1.setProperty("name", "blue");
         item2Color1.setProperty("confidence", 9.0);
-        Tree item2Color2 = createNodeWithType(item2Metadata,"color2", UNSTRUCTURED);
+        Tree item2Color2 = createNodeWithType(item2Metadata,"color2", NT_UNSTRUCTURED);
         item2Color2.setProperty("name", "red");
         item2Color2.setProperty("confidence", 1.0);
         root.commit();
@@ -111,10 +111,10 @@ public class ElasticDynamicBoostQueryTest extends ElasticAbstractQueryTest {
         IndexDefinitionBuilder.PropertyRule title = builder.indexRule("dam:Asset")
                 .property("title")
                 .analyzed();
-        title.getBuilderTree().setProperty(JcrConstants.JCR_PRIMARYTYPE, UNSTRUCTURED, Type.NAME);
+        title.getBuilderTree().setProperty(JcrConstants.JCR_PRIMARYTYPE, NT_UNSTRUCTURED, Type.NAME);
         IndexDefinitionBuilder.PropertyRule db = builder.indexRule("dam:Asset").property("dynamicBoost");
         Tree dbTree = db.getBuilderTree();
-        dbTree.setProperty(JcrConstants.JCR_PRIMARYTYPE, UNSTRUCTURED, Type.NAME);
+        dbTree.setProperty(JcrConstants.JCR_PRIMARYTYPE, NT_UNSTRUCTURED, Type.NAME);
         dbTree.setProperty("name", "jcr:content/metadata/.*");
         dbTree.setProperty("isRegexp", true);
         dbTree.setProperty("dynamicBoost", true);
@@ -127,8 +127,8 @@ public class ElasticDynamicBoostQueryTest extends ElasticAbstractQueryTest {
         item.setProperty("title", title);
 
         return createNodeWithType(
-                createNodeWithType(item, JcrConstants.JCR_CONTENT, UNSTRUCTURED),
-                "metadata", UNSTRUCTURED);
+                createNodeWithType(item, JcrConstants.JCR_CONTENT, NT_UNSTRUCTURED),
+                "metadata", NT_UNSTRUCTURED);
     }
 
     private static Tree createNodeWithType(Tree t, String nodeName, String typeName){

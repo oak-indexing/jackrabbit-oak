@@ -90,15 +90,12 @@ class ElasticDocument {
     }
 
     void addDynamicBoostField(String propName, String token, double boost) {
-        List<Map<String, Object>> tokens = dynamicBoostFields.get(propName);
-        if (tokens == null) {
-            tokens = new ArrayList<>();
-        }
+        List<Map<String, Object>> tokens = dynamicBoostFields.computeIfAbsent(propName, (s) -> new ArrayList<>());
+
         Map<String, Object> tokenValue = new HashMap<>(2);
         tokenValue.put("token", token);
         tokenValue.put("boost", boost);
         tokens.add(tokenValue);
-        dynamicBoostFields.put(propName, tokens);
     }
 
     public String build() {

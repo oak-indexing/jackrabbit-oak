@@ -20,7 +20,6 @@
 package org.apache.jackrabbit.oak.plugins.index.search.spi.editor;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -64,7 +63,6 @@ public abstract class FulltextDocumentMaker<D> implements DocumentMaker<D> {
 
     private static final String DYNAMIC_BOOST_TAG_NAME = "name";
     private static final String DYNAMIC_BOOST_TAG_CONFIDENCE = "confidence";
-    private static final String DYNAMIC_BOOST_SPLIT_REGEX = "[:/]";
 
     private final FulltextBinaryTextExtractor textExtractor;
     protected final IndexDefinition definition;
@@ -106,7 +104,16 @@ public abstract class FulltextDocumentMaker<D> implements DocumentMaker<D> {
 
     protected abstract void indexTypedProperty(D doc, PropertyState property, String pname, PropertyDefinition pd, int index);
 
-    protected abstract boolean indexDynamicBoost(D doc, String parent, String nodeName, String token, double confidence);
+    /**
+     * Indexes a text value that will be used to re-score results with the given confidence
+     * @param doc the full-text document
+     * @param parent the parent node
+     * @param nodeName the current node name
+     * @param value the value to be indexed
+     * @param confidence the confidence (or weight) used for re-scoring
+     * @return {@code true} id the value has been added, otherwise {@code false}
+     */
+    protected abstract boolean indexDynamicBoost(D doc, String parent, String nodeName, String value, double confidence);
 
     protected abstract void indexAncestors(D doc, String path);
 
@@ -127,7 +134,7 @@ public abstract class FulltextDocumentMaker<D> implements DocumentMaker<D> {
 
     @Nullable
     public D makeDocument(NodeState state) throws IOException {
-        return makeDocument(state, false, Collections.<PropertyState>emptyList());
+        return makeDocument(state, false, Collections.emptyList());
     }
 
     @Nullable
@@ -647,7 +654,7 @@ public abstract class FulltextDocumentMaker<D> implements DocumentMaker<D> {
                 log.warn(p.getName() + " is an array: {}", parentName);
                 continue;
             }
-            String dynaTagName = p.getValue(Type.STRING);
+            String dynaTagValue = p.getValue(Type.STRING);
             p = dynaTag.getProperty(DYNAMIC_BOOST_TAG_CONFIDENCE);
             if (p == null) {
                 // here we don't log a warning, because possibly it will be added later
@@ -668,34 +675,12 @@ public abstract class FulltextDocumentMaker<D> implements DocumentMaker<D> {
                 log.warn(p.getName() + " is not finite: {}", parentName);
                 continue;
             }
-            List<String> tokens = new ArrayList<>(splitForIndexing(dynaTagName));
-            if (tokens.size() > 1) {
-                // Actual name not in tokens
-                tokens.add(dynaTagName);
-            }
-            boolean addedForThisChild = false;
-            for (String token : tokens) {
-                if (indexDynamicBoost(doc, parentName, nodeName, token, dynaTagConfidence)) {
-                    addedForThisChild = true;
-                    added = true;
-                }
-            }
-            if (addedForThisChild) {
-                log.trace(
-                        "Added augmented fields: {}[{}], {}",
-                        parentName + "/", String.join(", ", tokens), dynaTagConfidence
-                );
+
+            if (indexDynamicBoost(doc, parentName, nodeName, dynaTagValue, dynaTagConfidence)) {
+                added = true;
             }
         }
         return added;
-    }
-
-    private static List<String> splitForIndexing(String tagName) {
-        return Arrays.asList(removeBackSlashes(tagName).split(DYNAMIC_BOOST_SPLIT_REGEX));
-    }
-
-    private static String removeBackSlashes(String text) {
-        return text.replaceAll("\\\\", "");
     }
 
     protected String getIndexName() {

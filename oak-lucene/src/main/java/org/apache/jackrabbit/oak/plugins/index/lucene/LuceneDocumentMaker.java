@@ -20,6 +20,8 @@
 package org.apache.jackrabbit.oak.plugins.index.lucene;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import org.apache.jackrabbit.oak.api.Blob;
@@ -52,6 +54,8 @@ import static org.apache.jackrabbit.oak.plugins.index.lucene.FieldFactory.newPro
 
 public class LuceneDocumentMaker extends FulltextDocumentMaker<Document> {
     private static final Logger log = LoggerFactory.getLogger(LuceneDocumentMaker.class);
+
+    private static final String DYNAMIC_BOOST_SPLIT_REGEX = "[:/]";
 
     private final FacetsConfigProvider facetsConfigProvider;
     private final IndexAugmentorFactory augmentorFactory;
@@ -332,15 +336,39 @@ public class LuceneDocumentMaker extends FulltextDocumentMaker<Document> {
     }
 
     @Override
-    protected boolean indexDynamicBoost(Document doc, String parent, String nodeName, String token, double confidence) {
-        if (token.length() > 0) {
-            AugmentedField f = new AugmentedField(parent + "/" + token.toLowerCase(), confidence);
-            if (doc.getField(f.name()) == null) {
-                doc.add(f);
-                return true;
+    protected boolean indexDynamicBoost(Document doc, String parent, String nodeName, String value, double confidence) {
+        List<String> tokens = new ArrayList<>(splitForIndexing(value));
+        if (tokens.size() > 1) {
+            // Actual name not in tokens
+            tokens.add(value);
+        }
+        boolean added = false;
+        for (String token : tokens) {
+            if (token.length() > 0) {
+                AugmentedField f = new AugmentedField(parent + "/" + token.toLowerCase(), confidence);
+                if (doc.getField(f.name()) == null) {
+                    doc.add(f);
+                    added = true;
+                }
             }
         }
-        return false;
+
+        if (added) {
+            log.trace(
+                    "Added augmented fields: {}[{}], {}",
+                    parent + "/", String.join(", ", tokens), confidence
+            );
+        }
+
+        return added;
+    }
+
+    private static List<String> splitForIndexing(String tagName) {
+        return Arrays.asList(removeBackSlashes(tagName).split(DYNAMIC_BOOST_SPLIT_REGEX));
+    }
+
+    private static String removeBackSlashes(String text) {
+        return text.replaceAll("\\\\", "");
     }
 
     private static class AugmentedField extends Field {

@@ -920,6 +920,9 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
          * Case insensitive map of lower cased propertyName to propertyConfigs
          */
         private final Map<String, PropertyDefinition> propConfigs;
+        /**
+         * List of {@code NamePattern}s configured for this rule
+         */
         private final List<NamePattern> namePatterns;
         private final List<PropertyDefinition> nullCheckEnabledProperties;
         private final List<PropertyDefinition> functionRestrictions;
