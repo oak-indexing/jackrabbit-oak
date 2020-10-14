@@ -250,7 +250,7 @@ abstract class ItemImpl<T extends ItemDelegate> implements Item {
     @Override
     public void save() throws RepositoryException {
         try {
-            sessionDelegate.performVoid(new ItemWriteOperation<Void>("save") {
+            sessionDelegate.performVoid(new ItemWriteOperation<Void>("save " + nodePath(dlg.getPath())) {
                 @Override
                 public void performVoid() throws RepositoryException {
                     dlg.save();
@@ -285,7 +285,7 @@ abstract class ItemImpl<T extends ItemDelegate> implements Item {
         if (!keepChanges) {
             log.warn("Item#refresh invokes Session#refresh!");
         }
-        sessionDelegate.performVoid(new SessionOperation<Void>("refresh") {
+        sessionDelegate.performVoid(new SessionOperation<Void>("refresh " + nodePath(dlg.getPath())) {
             @Override
             public void performVoid() throws InvalidItemStateException {
                 sessionDelegate.refresh(keepChanges);
@@ -407,6 +407,21 @@ abstract class ItemImpl<T extends ItemDelegate> implements Item {
         } else {
             throw new IllegalArgumentException();
         }
+    }
+
+
+    static final String nodePath(String path) {
+        if (path == null) {
+            return "";
+        }
+        return "@" + path + " *";
+    }
+
+    static final String nodePath(String path, String param) {
+        if (path == null) {
+            return "";
+        }
+        return "@" + path + " " + param;
     }
 
 }

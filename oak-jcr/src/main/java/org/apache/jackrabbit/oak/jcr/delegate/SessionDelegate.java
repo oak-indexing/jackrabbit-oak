@@ -432,6 +432,8 @@ public class SessionDelegate {
      * @param path Oak path
      * @return node or property delegate, or {@code null} if none exists
      */
+static long count,  notFoundParentItem, nodeItem, propertyItem, notFoundItem;
+
     @Nullable
     public ItemDelegate getItem(String path) {
         String name = PathUtils.getName(path);
@@ -439,13 +441,21 @@ public class SessionDelegate {
             return getRootNode();
         } else {
             Tree parent = root.getTree(PathUtils.getParentPath(path));
-
+if(count++ % 1000 == 0) {
+    log.trace("stat count " + count + " notFoundParent " + notFoundParentItem + " node " + nodeItem + " prop " + propertyItem + " not " + notFoundItem);
+}
+if (parent.exists()) {
+    notFoundParentItem++;
+}
             Tree child = parent.getChild(name);
             if (child.exists()) {
+nodeItem++;
                 return new NodeDelegate(this, child);
             } else if (parent.hasProperty(name)) {
+propertyItem++;
                 return new PropertyDelegate(this, parent, name);
             } else {
+notFoundItem++;
                 return null;
             }
         }

@@ -149,7 +149,7 @@ public class SessionImpl implements JackrabbitSession {
             throws RepositoryException {
         String p = sessionContext.getOakPathOrThrow(absPath);
         if (!PathUtils.isAbsolute(p)) {
-            throw new RepositoryException("Not an absolute path: " + absPath);
+            throw new RepositoryException("Not an absolute path: " + ItemImpl.nodePath(absPath));
         }
         return p;
     }
@@ -179,7 +179,7 @@ public class SessionImpl implements JackrabbitSession {
     public Node getNodeOrNull(final String absPath) throws RepositoryException {
         checkNotNull(absPath);
         checkAlive();
-        return sd.performNullable(new ReadOperation<Node>("getNodeOrNull") {
+        return sd.performNullable(new ReadOperation<Node>("getNodeOrNull " + ItemImpl.nodePath(absPath)) {
             @Override
             public Node performNullable() throws RepositoryException {
                 try {
@@ -204,7 +204,7 @@ public class SessionImpl implements JackrabbitSession {
             } catch (PathNotFoundException e) {
                 return null;
             }
-            return sd.performNullable(new ReadOperation<Property>("getPropertyOrNull") {
+            return sd.performNullable(new ReadOperation<Property>("getPropertyOrNull " + ItemImpl.nodePath(absPath)) {
                 @Override
                 public Property performNullable() {
                     PropertyDelegate pd = sd.getProperty(oakPath);
@@ -223,7 +223,7 @@ public class SessionImpl implements JackrabbitSession {
     public Item getItemOrNull(final String absPath) throws RepositoryException {
         checkNotNull(absPath);
         checkAlive();
-        return sd.performNullable(new ReadOperation<Item>("getItemOrNull") {
+        return sd.performNullable(new ReadOperation<Item>("getItemOrNull " + ItemImpl.nodePath(absPath)) {
             @Override
             public Item performNullable() throws RepositoryException {
                 return getItemInternal(getOakPathOrThrow(absPath));
@@ -379,7 +379,7 @@ public class SessionImpl implements JackrabbitSession {
         checkIndexOnName(checkNotNull(destAbsPath));
         final String srcOakPath = getOakPathOrThrowNotFound(checkNotNull(srcAbsPath));
         final String destOakPath = getOakPathOrThrowNotFound(destAbsPath);
-        sd.performVoid(new WriteOperation<Void>("move") {
+        sd.performVoid(new WriteOperation<Void>("move " + srcAbsPath) {
             @Override
             public void checkPreconditions() throws RepositoryException {
                 super.checkPreconditions();
@@ -628,7 +628,7 @@ public class SessionImpl implements JackrabbitSession {
         checkAlive();
         final String oakPath = getOakPathOrThrow(checkNotNull(absPath));
         checkNotNull(actions);
-        return sd.perform(new ReadOperation<Boolean>("hasPermission") {
+        return sd.perform(new ReadOperation<Boolean>("hasPermission " + absPath) {
             @NotNull
             @Override
             public Boolean perform() throws RepositoryException {
@@ -700,7 +700,7 @@ public class SessionImpl implements JackrabbitSession {
                 }
                 NodeDelegate parentDelegate = dlg.getParent();
                 if (parentDelegate != null) {
-                    return accessMgr.hasPermissions(parentDelegate.getTree(), ((PropertyDelegate) dlg).getPropertyState(), permission) 
+                    return accessMgr.hasPermissions(parentDelegate.getTree(), ((PropertyDelegate) dlg).getPropertyState(), permission)
                             && !isMountedReadOnly(parentDelegate.getPath());
                 } else {
                     return accessMgr.hasPermissions(dlg.getPath(), (permission == Permissions.MODIFY_PROPERTY) ? Session.ACTION_SET_PROPERTY : Session.ACTION_REMOVE)

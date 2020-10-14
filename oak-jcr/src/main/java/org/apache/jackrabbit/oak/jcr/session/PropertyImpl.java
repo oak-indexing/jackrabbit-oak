@@ -41,6 +41,7 @@ import javax.jcr.version.VersionException;
 
 import org.apache.jackrabbit.oak.api.Tree.Status;
 import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.jcr.delegate.NodeDelegate;
 import org.apache.jackrabbit.oak.jcr.delegate.PropertyDelegate;
 import org.apache.jackrabbit.oak.jcr.session.operation.PropertyOperation;
@@ -69,10 +70,17 @@ public class PropertyImpl extends ItemImpl<PropertyDelegate> implements Property
         return false;
     }
 
+    private static final String propertyPath(String path) {
+        if (path == null) {
+            return "";
+        }
+        return "@" + PathUtils.getParentPath(path) + " " + PathUtils.getName(path);
+    }
+
     @Override
     @NotNull
     public Node getParent() throws RepositoryException {
-        return perform(new PropertyOperation<Node>(dlg, "getParent") {
+        return perform(new PropertyOperation<Node>(dlg, "getParent " + propertyPath(dlg.getPath())) {
             @NotNull
             @Override
             public Node perform() throws RepositoryException {
@@ -110,7 +118,7 @@ public class PropertyImpl extends ItemImpl<PropertyDelegate> implements Property
 
     @Override
     public void remove() throws RepositoryException {
-        sessionDelegate.performVoid(new ItemWriteOperation<Void>("remove") {
+        sessionDelegate.performVoid(new ItemWriteOperation<Void>("remove " + propertyPath(dlg.getPath())) {
             @Override
             public void checkPreconditions() throws RepositoryException {
                 super.checkPreconditions();
@@ -245,7 +253,7 @@ public class PropertyImpl extends ItemImpl<PropertyDelegate> implements Property
     @Override
     @NotNull
     public Value getValue() throws RepositoryException {
-        return perform(new PropertyOperation<Value>(dlg, "getValue") {
+        return perform(new PropertyOperation<Value>(dlg, "getValue " + propertyPath(dlg.getPath())) {
             @NotNull
             @Override
             public Value perform() throws RepositoryException {
@@ -258,7 +266,7 @@ public class PropertyImpl extends ItemImpl<PropertyDelegate> implements Property
     @Override
     @NotNull
     public Value[] getValues() throws RepositoryException {
-        return perform(new PropertyOperation<List<Value>>(dlg, "getValues") {
+        return perform(new PropertyOperation<List<Value>>(dlg, "getValues " + propertyPath(dlg.getPath())) {
             @NotNull
             @Override
             public List<Value> perform() throws RepositoryException {
@@ -317,7 +325,7 @@ public class PropertyImpl extends ItemImpl<PropertyDelegate> implements Property
     @Override
     @NotNull
     public Node getNode() throws RepositoryException {
-        return perform(new PropertyOperation<Node>(dlg, "getNode") {
+        return perform(new PropertyOperation<Node>(dlg, "getNode " + propertyPath(dlg.getPath())) {
             @NotNull
             @Override
             public Node perform() throws RepositoryException {
@@ -371,7 +379,7 @@ public class PropertyImpl extends ItemImpl<PropertyDelegate> implements Property
     @Override
     @NotNull
     public Property getProperty() throws RepositoryException {
-        return perform(new PropertyOperation<Property>(dlg, "getProperty") {
+        return perform(new PropertyOperation<Property>(dlg, "getProperty " + propertyPath(dlg.getPath())) {
             @NotNull
             @Override
             public Property perform() throws RepositoryException {
@@ -408,7 +416,7 @@ public class PropertyImpl extends ItemImpl<PropertyDelegate> implements Property
     @Override
     @NotNull
     public PropertyDefinition getDefinition() throws RepositoryException {
-        return perform(new PropertyOperation<PropertyDefinition>(dlg, "getDefinition") {
+        return perform(new PropertyOperation<PropertyDefinition>(dlg, "getDefinition " + propertyPath(dlg.getPath())) {
             @NotNull
             @Override
             public PropertyDefinition perform() throws RepositoryException {
@@ -421,7 +429,7 @@ public class PropertyImpl extends ItemImpl<PropertyDelegate> implements Property
 
     @Override
     public int getType() throws RepositoryException {
-        return perform(new PropertyOperation<Integer>(dlg, "getType") {
+        return perform(new PropertyOperation<Integer>(dlg, "getType " + propertyPath(dlg.getPath())) {
             @NotNull
             @Override
             public Integer perform() throws RepositoryException {
@@ -432,8 +440,7 @@ public class PropertyImpl extends ItemImpl<PropertyDelegate> implements Property
 
     @Override
     public boolean isMultiple() throws RepositoryException {
-        return perform(new PropertyOperation<Boolean>(dlg, "isMultiple") {
-            @NotNull
+        return perform(new PropertyOperation<Boolean>(dlg, "isMultiple " + propertyPath(dlg.getPath())) {
             @Override
             public Boolean perform() throws RepositoryException {
                 return property.getPropertyState().isArray();
@@ -460,7 +467,7 @@ public class PropertyImpl extends ItemImpl<PropertyDelegate> implements Property
 
     private void internalSetValue(@NotNull final Value value)
             throws RepositoryException {
-        sessionDelegate.performVoid(new ItemWriteOperation<Void>("internalSetValue") {
+        sessionDelegate.performVoid(new ItemWriteOperation<Void>("internalSetValue " + propertyPath(dlg.getPath())) {
             @Override
             public void checkPreconditions() throws RepositoryException {
                 super.checkPreconditions();
@@ -496,7 +503,7 @@ public class PropertyImpl extends ItemImpl<PropertyDelegate> implements Property
             LOG.warn("Large multi valued property [{}] detected ({} values).",dlg.getPath(), values.length);
         }
 
-        sessionDelegate.performVoid(new ItemWriteOperation<Void>("internalSetValue") {
+        sessionDelegate.performVoid(new ItemWriteOperation<Void>("internalSetValue " + propertyPath(dlg.getPath())) {
             @Override
             public void checkPreconditions() throws RepositoryException {
                 super.checkPreconditions();
