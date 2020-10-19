@@ -16,6 +16,8 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.query;
 
+import org.apache.jackrabbit.oak.api.Blob;
+import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
@@ -25,6 +27,7 @@ import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.MoreLikeThisHelperUtil;
 import org.apache.jackrabbit.oak.plugins.index.search.PropertyDefinition;
+import org.apache.jackrabbit.oak.plugins.index.search.spi.binary.BlobByteSource;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndexPlanner;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndexPlanner.PlanResult;
@@ -38,9 +41,12 @@ import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextExpression;
 import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextOr;
 import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextTerm;
 import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextVisitor;
+import org.apache.jackrabbit.oak.spi.state.NodeState;
+import org.apache.lucene.search.Query;
 import org.apache.lucene.search.WildcardQuery;
 import org.apache.lucene.search.join.ScoreMode;
 import org.elasticsearch.index.query.BoolQueryBuilder;
+import org.elasticsearch.index.query.ExistsQueryBuilder;
 import org.elasticsearch.index.query.InnerHitBuilder;
 import org.elasticsearch.index.query.MatchBoolPrefixQueryBuilder;
 import org.elasticsearch.index.query.MatchPhraseQueryBuilder;
@@ -50,7 +56,12 @@ import org.elasticsearch.index.query.NestedQueryBuilder;
 import org.elasticsearch.index.query.Operator;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
+import org.elasticsearch.index.query.ScriptQueryBuilder;
+import org.elasticsearch.index.query.functionscore.FunctionScoreQueryBuilder;
+import org.elasticsearch.index.query.functionscore.ScriptScoreQueryBuilder;
 import org.elasticsearch.index.search.MatchQuery;
+import org.elasticsearch.script.Script;
+import org.elasticsearch.script.ScriptType;
 import org.elasticsearch.search.aggregations.AggregationBuilders;
 import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.elasticsearch.search.sort.FieldSortBuilder;
@@ -64,9 +75,14 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.jcr.Node;
 import javax.jcr.PropertyType;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -78,6 +94,7 @@ import static org.apache.jackrabbit.JcrConstants.JCR_MIXINTYPES;
 import static org.apache.jackrabbit.JcrConstants.JCR_PRIMARYTYPE;
 import static org.apache.jackrabbit.oak.commons.PathUtils.denotesRoot;
 import static org.apache.jackrabbit.oak.commons.PathUtils.getParentPath;
+import static org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils.toDoubleArray;
 import static org.apache.jackrabbit.oak.plugins.index.elastic.util.TermQueryBuilderFactory.newAncestorQuery;
 import static org.apache.jackrabbit.oak.plugins.index.elastic.util.TermQueryBuilderFactory.newDepthQuery;
 import static org.apache.jackrabbit.oak.plugins.index.elastic.util.TermQueryBuilderFactory.newMixinTypeQuery;
@@ -92,6 +109,7 @@ import static org.apache.jackrabbit.oak.plugins.index.elastic.util.TermQueryBuil
 import static org.apache.jackrabbit.oak.plugins.index.elastic.util.TermQueryBuilderFactory.newWildcardQuery;
 import static org.apache.jackrabbit.oak.spi.query.QueryConstants.JCR_PATH;
 import static org.apache.jackrabbit.oak.spi.query.QueryConstants.JCR_SCORE;
+import static org.apache.jackrabbit.util.ISO8601.format;
 import static org.apache.jackrabbit.util.ISO8601.parse;
 import static org.elasticsearch.index.query.MoreLikeThisQueryBuilder.Item;
 import static org.elasticsearch.index.query.QueryBuilders.boolQuery;
@@ -121,8 +139,9 @@ public class ElasticRequestHandler {
     private final PlanResult planResult;
     private final ElasticIndexDefinition elasticIndexDefinition;
     private final String propertyRestrictionQuery;
+    private final NodeState rootState;
 
-    ElasticRequestHandler(@NotNull IndexPlan indexPlan, @NotNull FulltextIndexPlanner.PlanResult planResult) {
+    ElasticRequestHandler(@NotNull IndexPlan indexPlan, @NotNull FulltextIndexPlanner.PlanResult planResult, NodeState rootState) {
         this.indexPlan = indexPlan;
         this.filter = indexPlan.getFilter();
         this.planResult = planResult;
@@ -135,6 +154,7 @@ public class ElasticRequestHandler {
         }
 
         this.propertyRestrictionQuery = pr != null ? String.valueOf(pr.first.getValue(pr.first.getType())) : null;
+        this.rootState = rootState;
     }
 
     public BoolQueryBuilder baseQuery() {
@@ -148,11 +168,20 @@ public class ElasticRequestHandler {
 
         if (propertyRestrictionQuery != null) {
             if (propertyRestrictionQuery.startsWith("mlt?")) {
-                // SimilarityImpl in oak-core sets property restriction for sim search and the query is something like
-                // mlt?mlt.fl=:path&mlt.mindf=0&stream.body=<path> . We need parse this query string and turn into a query
-                // elastic can understand.
-                String mltQueryString = propertyRestrictionQuery.replace("mlt?", "");
-                boolQuery.must(moreLikeThisQuery(mltQueryString));
+                List<PropertyDefinition> sp = new LinkedList<>();
+                for (IndexDefinition.IndexingRule r : elasticIndexDefinition.getDefinedRules()) {
+                    sp.addAll(r.getSimilarityProperties());
+                }
+                if (sp.isEmpty()) {
+                    // SimilarityImpl in oak-core sets property restriction for sim search and the query is something like
+                    // mlt?mlt.fl=:path&mlt.mindf=0&stream.body=<path> . We need parse this query string and turn into a query
+                    // elastic can understand.
+                    String mltQueryString = propertyRestrictionQuery.replace("mlt?", "");
+                    boolQuery.must(moreLikeThisQuery(mltQueryString));
+                } else {
+                    String mltQueryString = propertyRestrictionQuery.replace("mlt?", "");
+                    boolQuery.must(similarityQuery(mltQueryString, sp));
+                }
 
             } else {
                 boolQuery.must(queryStringQuery(propertyRestrictionQuery));
@@ -259,6 +288,69 @@ public class ElasticRequestHandler {
                 .stream(planResult.indexingRule.getProperties().spliterator(), false)
                 .filter(pd -> pd.useInSpellcheck)
                 .map(pd -> pd.name);
+    }
+
+    private QueryBuilder similarityQuery(String mltQueryString, List<PropertyDefinition> sp) {
+        LOG.debug("parsing similarity query on {}", mltQueryString);
+        String text = null;
+        for (String param : mltQueryString.split("&")) {
+            String[] keyValuePair = param.split("=");
+            if (keyValuePair.length != 2 || keyValuePair[0] == null || keyValuePair[1] == null) {
+                throw new RuntimeException("Unparsable native query for fv similarity: " + mltQueryString);
+            } else {
+                if ("stream.body".equals(keyValuePair[0])) {
+                    text = keyValuePair[1];
+                    break;
+                }
+            }
+        }
+        BoolQueryBuilder query = boolQuery();
+        if (text != null && !sp.isEmpty()) {
+            LOG.debug("generating similarity query for {}", text);
+            String [] pathTokens = text.substring(1).split("/");
+            NodeState targetNodeState = rootState;
+            for (String token : pathTokens) {
+                targetNodeState = targetNodeState.getChildNode(token);
+            }
+            if (!targetNodeState.exists()) {
+                throw new IllegalArgumentException("Could not find node " + text);
+            }
+            for (PropertyDefinition pd : sp) {
+                int slashLastIndex = pd.name.lastIndexOf('/');
+                String propertyPath = slashLastIndex != -1 ? pd.name.substring(0, slashLastIndex) : "";
+                String propertyName = pd.name.substring(slashLastIndex+1);
+                String [] propertyPathTokens = propertyPath.split("/");
+                NodeState tempState = targetNodeState;
+                for (String token : propertyPathTokens) {
+                    if (token.isEmpty()) {
+                        break;
+                    }
+                    tempState = tempState.getChildNode(token);
+                }
+                PropertyState ps = tempState.getProperty(propertyName);
+                Blob property = ps != null ? ps.getValue(Type.BINARY) : null;
+                if (property == null) {
+                    LOG.error("Couldn't find property {} on {}", pd.name, text);
+                    continue;
+                }
+                byte[] bytes = null;
+                try {
+                    bytes = new BlobByteSource(property).read();
+                } catch (IOException e) {
+                    LOG.error("Error reading bytes from property {} on {}", pd.name, text);
+                    continue;
+                }
+                String similarityPropFieldName = FieldNames.createSimilarityFieldName(pd.name);
+                Map<String, Object> paramMap = new HashMap<>();
+                paramMap.put("query_vector", toDoubleArray(bytes));
+                paramMap.put("field_name", similarityPropFieldName);
+                ScriptScoreQueryBuilder scriptScoreQueryBuilder = new ScriptScoreQueryBuilder(new ExistsQueryBuilder(similarityPropFieldName),
+                        new Script(ScriptType.INLINE, Script.DEFAULT_SCRIPT_LANG, "cosineSimilarity(params.query_vector, params.field_name) + 1.0",
+                                Collections.emptyMap(), paramMap));
+                query.should(scriptScoreQueryBuilder);
+            }
+        }
+        return query;
     }
 
     /*

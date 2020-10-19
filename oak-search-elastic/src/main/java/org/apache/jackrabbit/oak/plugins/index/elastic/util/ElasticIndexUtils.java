@@ -17,11 +17,20 @@
 package org.apache.jackrabbit.oak.plugins.index.elastic.util;
 
 
+import org.apache.jackrabbit.oak.api.Blob;
+import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
+import org.apache.jackrabbit.oak.plugins.index.search.spi.binary.BlobByteSource;
+import org.apache.lucene.document.Field;
+import org.apache.lucene.document.TextField;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Collection;
 
 public class ElasticIndexUtils {
 
@@ -45,5 +54,29 @@ public class ElasticIndexUtils {
             }
         }
         return path;
+    }
+
+    public static String toDoubleString(byte[] bytes) {
+        double[] a = toDoubleArray(bytes);
+        StringBuilder builder = new StringBuilder();
+        for (Double d : a) {
+            if (builder.length() > 0) {
+                builder.append(' ');
+            }
+            builder.append(d);
+        }
+        return builder.toString();
+    }
+
+    public static double[] toDoubleArray(byte[] array) {
+        int blockSize = Double.SIZE / Byte.SIZE;
+        ByteBuffer wrap = ByteBuffer.wrap(array);
+        int capacity = array.length / blockSize;
+        double[] doubles = new double[capacity];
+        for (int i = 0; i < capacity; i++) {
+            double e = wrap.getDouble(i * blockSize);
+            doubles[i] = e;
+        }
+        return doubles;
     }
 }

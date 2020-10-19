@@ -18,6 +18,7 @@ package org.apache.jackrabbit.oak.plugins.index.elastic.index;
 
 import org.apache.jackrabbit.oak.api.Blob;
 import org.apache.jackrabbit.oak.commons.PathUtils;
+import org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils;
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.binary.BlobByteSource;
 import org.apache.lucene.document.Field;
@@ -38,6 +39,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import static org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils.toDoubleArray;
 
 class ElasticDocument {
     private static final Logger LOG = LoggerFactory.getLogger(ElasticDocument.class);
@@ -157,31 +160,7 @@ class ElasticDocument {
     }
 
     private static Field newSimilarityField(String name, byte[] bytes) {
-        return newSimilarityField(name, toDoubleString(bytes));
-    }
-
-    public static String toDoubleString(byte[] bytes) {
-        double[] a = toDoubleArray(bytes);
-        StringBuilder builder = new StringBuilder();
-        for (Double d : a) {
-            if (builder.length() > 0) {
-                builder.append(' ');
-            }
-            builder.append(d);
-        }
-        return builder.toString();
-    }
-
-    private static double[] toDoubleArray(byte[] array) {
-        int blockSize = Double.SIZE / Byte.SIZE;
-        ByteBuffer wrap = ByteBuffer.wrap(array);
-        int capacity = array.length / blockSize;
-        double[] doubles = new double[capacity];
-        for (int i = 0; i < capacity; i++) {
-            double e = wrap.getDouble(i * blockSize);
-            doubles[i] = e;
-        }
-        return doubles;
+        return newSimilarityField(name, ElasticIndexUtils.toDoubleString(bytes));
     }
 
     private static Field newSimilarityField(String name, String value) {
