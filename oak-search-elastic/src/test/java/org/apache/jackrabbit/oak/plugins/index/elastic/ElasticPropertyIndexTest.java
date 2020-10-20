@@ -169,7 +169,7 @@ public class ElasticPropertyIndexTest extends ElasticAbstractQueryTest {
     @Test
     public void testSim() throws Exception {
         IndexDefinitionBuilder builder = createIndex("fv");
-        builder.indexRule("nt:base").property("fv").useInSimilarity(true);
+        builder.indexRule("nt:base").property("fv").useInSimilarity(true).nodeScopeIndex();
         Tree index = setIndex("test1", builder);
         root.commit();
         Tree test = root.getTree("/").addChild("test");
@@ -200,6 +200,22 @@ public class ElasticPropertyIndexTest extends ElasticAbstractQueryTest {
             children.add(child.getPath());
         }
         root.commit();
+
+        // check that similarity changes across different feature vectors
+        List<String> baseline = new LinkedList<>();
+        for (String similarPath : children) {
+            String query = "select [jcr:path] from [nt:base] where similar(., '" + similarPath + "')";
+
+            Iterator<String> result = executeQuery(query, "JCR-SQL2", false, true).iterator();
+            List<String> current = new LinkedList<>();
+            while (result.hasNext()) {
+                String next = result.next();
+                current.add(next);
+            }
+            assertNotEquals(baseline, current);
+            baseline.clear();
+            baseline.addAll(current);
+        }
 
         Thread.sleep(10000);
     }
