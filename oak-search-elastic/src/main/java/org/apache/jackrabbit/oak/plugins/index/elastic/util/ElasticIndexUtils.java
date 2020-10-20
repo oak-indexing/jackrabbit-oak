@@ -17,20 +17,14 @@
 package org.apache.jackrabbit.oak.plugins.index.elastic.util;
 
 
-import org.apache.jackrabbit.oak.api.Blob;
-import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
-import org.apache.jackrabbit.oak.plugins.index.search.spi.binary.BlobByteSource;
-import org.apache.lucene.document.Field;
-import org.apache.lucene.document.TextField;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.Collection;
+import java.util.List;
 
 public class ElasticIndexUtils {
 
@@ -56,8 +50,13 @@ public class ElasticIndexUtils {
         return path;
     }
 
+    /**
+     * Converts a given byte array (of doubles) to a string of space separated doubles.
+     * @param bytes given byte array
+     * @return string of doubles
+     */
     public static String toDoubleString(byte[] bytes) {
-        double[] a = toDoubleArray(bytes);
+        List<Double> a = toDoubles(bytes);
         StringBuilder builder = new StringBuilder();
         for (Double d : a) {
             if (builder.length() > 0) {
@@ -68,15 +67,34 @@ public class ElasticIndexUtils {
         return builder.toString();
     }
 
-    public static double[] toDoubleArray(byte[] array) {
+    /**
+     * Converts a given byte array (of doubles) to a list of doubles
+     * @param array given byte array
+     * @return list of doubles
+     */
+    public static List<Double> toDoubles(byte[] array) {
         int blockSize = Double.SIZE / Byte.SIZE;
         ByteBuffer wrap = ByteBuffer.wrap(array);
         int capacity = array.length / blockSize;
-        double[] doubles = new double[capacity];
+        List<Double> doubles = new ArrayList<>(capacity);
         for (int i = 0; i < capacity; i++) {
             double e = wrap.getDouble(i * blockSize);
-            doubles[i] = e;
+            doubles.add(e);
         }
         return doubles;
+    }
+
+    /**
+     * Converts a given list of double values into a byte array
+     * @param values given list of doubles
+     * @return byte array
+     */
+    public static byte[] toByteArray(List<Double> values) {
+        int blockSize = Double.SIZE / Byte.SIZE;
+        byte[] bytes = new byte[values.size() * blockSize];
+        for (int i = 0, j = 0; i < values.size(); i++, j += blockSize) {
+            ByteBuffer.wrap(bytes, j, blockSize).putDouble(values.get(i));
+        }
+        return bytes;
     }
 }

@@ -30,8 +30,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -40,7 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import static org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils.toDoubleArray;
+import static org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils.toDoubles;
 
 class ElasticDocument {
     private static final Logger LOG = LoggerFactory.getLogger(ElasticDocument.class);
@@ -93,7 +91,7 @@ class ElasticDocument {
 
     void addSimField(String name, Blob value) throws IOException{
         byte[] bytes = new BlobByteSource(value).read();
-        similarityFields.put(FieldNames.createSimilarityFieldName(name), toDoubleArray(bytes));
+        similarityFields.put(FieldNames.createSimilarityFieldName(name), toDoubles(bytes));
     }
 
     void indexAncestors(String path) {

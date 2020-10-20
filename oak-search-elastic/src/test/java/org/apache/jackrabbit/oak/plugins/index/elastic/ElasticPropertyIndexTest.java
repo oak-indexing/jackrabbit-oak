@@ -29,9 +29,17 @@ import java.io.FileInputStream;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import static java.util.Collections.singletonList;
+import static org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils.toByteArray;
+import static org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils.toDoubles;
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROPDEF_PROP_NODE_NAME;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -180,15 +188,7 @@ public class ElasticPropertyIndexTest extends ElasticAbstractQueryTest {
         Collection<String> children = new LinkedList<>();
         for (String line : IOUtils.readLines(new FileInputStream(file), Charset.defaultCharset())) {
             String[] split = line.split(",");
-            List<Double> values = new LinkedList<>();
-            int i = 0;
-            for (String s : split) {
-                if (i > 0) {
-                    values.add(Double.parseDouble(s));
-                }
-                i++;
-            }
-
+            List<Double> values = Arrays.stream(split).skip(1).map(Double::parseDouble).collect(Collectors.toList());
             byte[] bytes = toByteArray(values);
             List<Double> actual = toDoubles(bytes);
             assertEquals(values, actual);
@@ -218,27 +218,6 @@ public class ElasticPropertyIndexTest extends ElasticAbstractQueryTest {
         }
 
         Thread.sleep(10000);
-    }
-
-    private static byte[] toByteArray(List<Double> values) {
-        int blockSize = Double.SIZE / Byte.SIZE;
-        byte[] bytes = new byte[values.size() * blockSize];
-        for (int i = 0, j = 0; i < values.size(); i++, j += blockSize) {
-            ByteBuffer.wrap(bytes, j, blockSize).putDouble(values.get(i));
-        }
-        return bytes;
-    }
-
-    private static List<Double> toDoubles(byte[] array) {
-        int blockSize = Double.SIZE / Byte.SIZE;
-        ByteBuffer wrap = ByteBuffer.wrap(array);
-        int capacity = array.length / blockSize;
-        List<Double> doubles = new ArrayList<>(capacity);
-        for (int i = 0; i < capacity; i++) {
-            double e = wrap.getDouble(i * blockSize);
-            doubles.add(e);
-        }
-        return doubles;
     }
 
 }
