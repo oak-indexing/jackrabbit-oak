@@ -215,8 +215,6 @@ class ElasticIndexHelper {
             }
         }
 
-
-
         if (useInSuggest) {
             mappingBuilder.startObject(FieldNames.SUGGEST);
             {
@@ -252,7 +250,6 @@ class ElasticIndexHelper {
             }
             mappingBuilder.endObject();
         }
-
     }
 
     // we need to check if in the defined rules there are properties with the same name and different types
