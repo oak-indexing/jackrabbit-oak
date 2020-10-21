@@ -227,7 +227,7 @@
         </dependency>
         <dependency>
             <groupId>org.apache.lucene</groupId>
-            <artifactId>lucene-spatial</artifactId>
+            <artifactId>lucene-spatial-extras</artifactId>
             <version>${solr.version}</version>
             <scope>runtime</scope>
         </dependency>
