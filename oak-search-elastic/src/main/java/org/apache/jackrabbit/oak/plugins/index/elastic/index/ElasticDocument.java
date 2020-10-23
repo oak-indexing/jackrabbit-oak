@@ -17,6 +17,7 @@
 package org.apache.jackrabbit.oak.plugins.index.elastic.index;
 
 import org.apache.jackrabbit.oak.commons.PathUtils;
+import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.xcontent.XContentBuilder;
@@ -42,6 +43,7 @@ class ElasticDocument {
     private final List<String> nullProps;
     private final Map<String, Object> properties;
     private final Map<String, Map<String, Double>> dynamicBoostFields;
+    private final Set<String> similarityTags;
 
     ElasticDocument(String path) {
         this.path = path;
@@ -51,6 +53,7 @@ class ElasticDocument {
         this.nullProps = new ArrayList<>();
         this.properties = new HashMap<>();
         this.dynamicBoostFields = new HashMap<>();
+        this.similarityTags = new LinkedHashSet<>();
     }
 
     void addFulltext(String value) {
@@ -94,6 +97,10 @@ class ElasticDocument {
                 .putIfAbsent(value, boost);
     }
 
+    void addSimilarityTag(String value) {
+        similarityTags.add(value);
+    }
+
     public String build() {
         String ret;
         try {
@@ -129,6 +136,9 @@ class ElasticDocument {
                         builder.endObject();
                     }
                     builder.endArray();
+                }
+                if (!similarityTags.isEmpty()) {
+                    builder.field(ElasticIndexDefinition.SIMILARITY_TAGS, similarityTags);
                 }
             }
             builder.endObject();

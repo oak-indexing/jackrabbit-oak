@@ -99,6 +99,7 @@ import static org.elasticsearch.index.query.QueryBuilders.boolQuery;
 import static org.elasticsearch.index.query.QueryBuilders.functionScoreQuery;
 import static org.elasticsearch.index.query.QueryBuilders.matchAllQuery;
 import static org.elasticsearch.index.query.QueryBuilders.matchQuery;
+import static org.elasticsearch.index.query.QueryBuilders.moreLikeThisQuery;
 import static org.elasticsearch.index.query.QueryBuilders.multiMatchQuery;
 import static org.elasticsearch.index.query.QueryBuilders.nestedQuery;
 import static org.elasticsearch.index.query.QueryBuilders.queryStringQuery;
@@ -154,8 +155,13 @@ public class ElasticRequestHandler {
                 // mlt?mlt.fl=:path&mlt.mindf=0&stream.body=<path> . We need parse this query string and turn into a query
                 // elastic can understand.
                 String mltQueryString = propertyRestrictionQuery.replace("mlt?", "");
-                boolQuery.must(moreLikeThisQuery(mltQueryString));
-
+                MoreLikeThisQueryBuilder mltqb = mltQuery(mltQueryString);
+                boolQuery.must(mltqb);
+                // add should clause to improve relevance using similarity tags
+                boolQuery.should(moreLikeThisQuery(
+                        new String[]{ElasticIndexDefinition.SIMILARITY_TAGS}, null, mltqb.likeItems())
+                        .minTermFreq(1).minDocFreq(1)
+                );
             } else {
                 boolQuery.must(queryStringQuery(propertyRestrictionQuery));
             }
@@ -280,32 +286,32 @@ public class ElasticRequestHandler {
        (The above is important since this is not a one-size-fits-all situation and the default values might not
        be useful in every situation based on the type of content)
      */
-    private QueryBuilder moreLikeThisQuery(String mltQueryString) {
-        MoreLikeThisQueryBuilder mlt;
+    private MoreLikeThisQueryBuilder mltQuery(String mltQueryString) {
         Map<String, String> paramMap = MoreLikeThisHelperUtil.getParamMapFromMltQuery(mltQueryString);
         String text = paramMap.get(MoreLikeThisHelperUtil.MLT_STREAM_BODY);
-        String fields = paramMap.get(MoreLikeThisHelperUtil.MLT_FILED);
 
-        if (text != null) {
-            // It's expected the text here to be the path of the doc
-            // In case the path of a node is greater than 512 bytes,
-            // we hash it before storing it as the _id for the elastic doc
-            text = ElasticIndexUtils.idFromPath(text);
-            if (FieldNames.PATH.equals(fields) || fields == null) {
-                // Handle the case 1) where default query sent by SimilarImpl (No Custom fields)
-                // We just need to specify the doc (Item) whose similar content we need to find
-                // We store path as the _id so no need to do anything extra here
-                // We expect Similar impl to send a query where text would have evaluated to node path.
-                mlt = new MoreLikeThisQueryBuilder(null, new Item[]{new Item(null, text)});
-            } else {
-                // This is for native queries if someone send additional fields via mlt.fl=field1,field2
-                String[] fieldsArray = fields.split(",");
-                mlt = new MoreLikeThisQueryBuilder(fieldsArray, null, new Item[]{new Item(null, text)});
-            }
+        if (text == null) {
             // TODO : See if we might want to support like Text here (passed as null in above constructors)
             // IT is not supported in our lucene implementation.
+            throw new RuntimeException("Missing required field stream.body in MLT query: " + mltQueryString);
+        }
+
+        MoreLikeThisQueryBuilder mlt;
+        String fields = paramMap.get(MoreLikeThisHelperUtil.MLT_FILED);
+        // It's expected the text here to be the path of the doc
+        // In case the path of a node is greater than 512 bytes,
+        // we hash it before storing it as the _id for the elastic doc
+        text = ElasticIndexUtils.idFromPath(text);
+        if (FieldNames.PATH.equals(fields) || fields == null) {
+            // Handle the case 1) where default query sent by SimilarImpl (No Custom fields)
+            // We just need to specify the doc (Item) whose similar content we need to find
+            // We store path as the _id so no need to do anything extra here
+            // We expect Similar impl to send a query where text would have evaluated to node path.
+            mlt = moreLikeThisQuery(new Item[]{new Item(null, text)});
         } else {
-            throw new RuntimeException("Missing required field stream.body in  MLT query: " + mltQueryString);
+            // This is for native queries if someone send additional fields via mlt.fl=field1,field2
+            String[] fieldsArray = fields.split(",");
+            mlt = moreLikeThisQuery(fieldsArray, null, new Item[]{new Item(null, text)});
         }
 
         for (String key : paramMap.keySet()) {

@@ -387,6 +387,11 @@ public class IndexDefinitionBuilder {
             return this;
         }
 
+        public PropertyRule similarityTags(boolean rerank) {
+            propTree.setProperty(FulltextIndexConstants.PROP_SIMILARITY_TAGS, rerank);
+            return this;
+        }
+
         public PropertyRule type(String type) {
             //This would throw an IAE if type is invalid
             PropertyType.valueFromName(type);

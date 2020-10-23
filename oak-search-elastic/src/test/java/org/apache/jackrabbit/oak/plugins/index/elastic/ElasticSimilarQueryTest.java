@@ -178,12 +178,35 @@ public class ElasticSimilarQueryTest extends ElasticAbstractQueryTest {
                 Arrays.asList("/test/b", "/test/c", "/test/d", "/test/f", "/test/g", "/test/h")));
     }
 
+    @Test
+    public void similarityTagsAffectRelevance() throws Exception {
+        createIndex(false);
+
+        Tree test = root.getTree("/").addChild("test");
+        Tree a = test.addChild("a");
+        a.setProperty("text", "Hello World Hello World");
+        a.setProperty("tags", "foo");
+        Tree b = test.addChild("b");
+        b.setProperty("text", "Hello World Hello World");
+        b.setProperty("tags", "bar");
+        Tree c = test.addChild("c");
+        c.setProperty("text", "Hello World Hello World");
+        c.setProperty("tags", "foo");
+        root.commit();
+
+        assertEventually(() -> assertOrderedQuery("select [jcr:path] from [nt:base] where similar(., '/test/a')",
+                Arrays.asList("/test/c", "/test/b")));
+        assertEventually(() -> assertOrderedQuery("select [jcr:path] from [nt:base] where similar(., '/test/c')",
+                Arrays.asList("/test/a", "/test/b")));
+    }
+
     private void createIndex(boolean nativeQuery) throws Exception {
-        IndexDefinitionBuilder builder = createIndex("text");
+        IndexDefinitionBuilder builder = createIndex("text", "tags");
         if (nativeQuery) {
             builder.getBuilderTree().setProperty(FulltextIndexConstants.FUNC_NAME, "elastic-sim");
         }
         builder.indexRule("nt:base").property("text").analyzed();
+        builder.indexRule("nt:base").property("tags").similarityTags(true);
         String indexId = UUID.randomUUID().toString();
         setIndex(indexId, builder);
         root.commit();
