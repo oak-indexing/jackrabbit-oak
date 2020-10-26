@@ -1065,8 +1065,14 @@ public class QueryImpl implements Query {
                 for (IndexPlan p : ipList) {
                     
                     long entryCount = p.getEstimatedEntryCount();
+                    if (LOG.isDebugEnabled()) {
+                        logDebug("EstimatedEntryCount " + entryCount);
+                    }
                     if (p.getSupportsPathRestriction()) {
                         entryCount = scaleEntryCount(rootState, filter, entryCount);
+                        if (LOG.isDebugEnabled()) {
+                            logDebug("ScaleDown with pathRestriction " + entryCount);
+                        }
                     }
                     if (sortOrder == null || p.getSortOrder() != null) {
                         // if the query is unordered, or
@@ -1077,6 +1083,8 @@ public class QueryImpl implements Query {
                     double c = p.getCostPerExecution() + entryCount * p.getCostPerEntry();
 
                     if (LOG.isDebugEnabled()) {
+                        logDebug("cost estimating params for " + p.getPlanName() + "planCostPerExecution:" + p.getCostPerExecution()
+                                + ", entryCount:" + entryCount + ", planCostPerEntry" + p.getCostPerEntry());
                         String plan = advIndex.getPlanDescription(p, rootState);
                         String msg = String.format("cost for [%s] of type (%s) with plan [%s] is %1.2f", p.getPlanName(), indexName, plan, c);
                         logDebug(msg);
@@ -1194,6 +1202,10 @@ public class QueryImpl implements Query {
         // except if the above estimates are incorrect,
         // so this is just for safety feature
         count = Math.max(count, countScaledDown);
+        if (LOG.isDebugEnabled()) {
+            logDebug("pathRestriction scaleDown params entryCount:" + count
+                    + ", filterPathCount:" + filterPathCount + ", totalNodesCount:" + totalNodesCount);
+        }
         return count;
     }
 
