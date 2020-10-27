@@ -92,8 +92,9 @@ public class ElasticIndexUtils {
     public static byte[] toByteArray(List<Double> values) {
         int blockSize = Double.SIZE / Byte.SIZE;
         byte[] bytes = new byte[values.size() * blockSize];
+        ByteBuffer wrap = ByteBuffer.wrap(bytes);
         for (int i = 0, j = 0; i < values.size(); i++, j += blockSize) {
-            ByteBuffer.wrap(bytes, j, blockSize).putDouble(values.get(i));
+            wrap.putDouble(values.get(i));
         }
         return bytes;
     }

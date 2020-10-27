@@ -34,6 +34,11 @@ import java.util.stream.Collectors;
  */
 class ElasticIndexHelper {
 
+    private static final String ES_DENSE_VECTOR_TYPE = "dense_vector";
+    private static final String ES_DENSE_VECTOR_DIM_PROP = "dims";
+    public static final String PROP_ES_SIMILARITY_SEARCH_DENSE_VECTOR_SIZE = "elasticsearch.similaritySearch.denseVectorSize";
+    public static final int ES_SIMILARITY_SEARCH_DENSE_VECTOR_SIZE_DEFAULT = 1024;
+
     public static CreateIndexRequest createIndexRequest(String remoteIndexName, ElasticIndexDefinition indexDefinition) throws IOException {
         final CreateIndexRequest request = new CreateIndexRequest(remoteIndexName);
 
@@ -208,9 +213,10 @@ class ElasticIndexHelper {
             mappingBuilder.endObject();
 
             if (useInSimilarity) {
-                mappingBuilder.startObject("sim:" + name);
-                mappingBuilder.field("type", "dense_vector");
-                mappingBuilder.field("dims", 1024);
+                mappingBuilder.startObject(FieldNames.createSimilarityFieldName(name));
+                mappingBuilder.field("type", ES_DENSE_VECTOR_TYPE);
+                mappingBuilder.field(ES_DENSE_VECTOR_DIM_PROP, Integer.parseInt(System.getProperty(PROP_ES_SIMILARITY_SEARCH_DENSE_VECTOR_SIZE,
+                        "" + ES_SIMILARITY_SEARCH_DENSE_VECTOR_SIZE_DEFAULT)));
                 mappingBuilder.endObject();
             }
         }

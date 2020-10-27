@@ -173,7 +173,7 @@ public class ElasticPropertyIndexTest extends ElasticAbstractQueryTest {
 
 
     @Test
-    public void testSim() throws Exception {
+    public void vectorSimilarity() throws Exception {
         IndexDefinitionBuilder builder = createIndex("fv");
         builder.indexRule("nt:base").property("fv").useInSimilarity(true).nodeScopeIndex();
         Tree index = setIndex("test1", builder);

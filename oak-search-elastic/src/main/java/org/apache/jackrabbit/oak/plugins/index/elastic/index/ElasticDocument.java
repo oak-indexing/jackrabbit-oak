@@ -91,7 +91,7 @@ class ElasticDocument {
         properties.put(fieldName, value);
     }
 
-    void addSimField(String name, Blob value) throws IOException{
+    void addSimilarityField(String name, Blob value) throws IOException{
         byte[] bytes = new BlobByteSource(value).read();
         similarityFields.put(FieldNames.createSimilarityFieldName(name), toDoubles(bytes));
     }
@@ -170,15 +170,7 @@ class ElasticDocument {
     public static Collection<Field> newSimilarityFields(String name, Blob value) throws IOException {
         Collection<Field> fields = new ArrayList<>(1);
         byte[] bytes = new BlobByteSource(value).read();
-        fields.add(newSimilarityField(name, bytes));
+        fields.add(new TextField(FieldNames.createSimilarityFieldName(name), ElasticIndexUtils.toDoubleString(bytes), Field.Store.YES));
         return fields;
-    }
-
-    private static Field newSimilarityField(String name, byte[] bytes) {
-        return newSimilarityField(name, ElasticIndexUtils.toDoubleString(bytes));
-    }
-
-    private static Field newSimilarityField(String name, String value) {
-        return new TextField(FieldNames.createSimilarityFieldName(name), value, Field.Store.YES);
     }
 }
