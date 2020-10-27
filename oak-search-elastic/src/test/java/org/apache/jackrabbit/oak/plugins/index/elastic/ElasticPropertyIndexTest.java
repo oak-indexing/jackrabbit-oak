@@ -203,19 +203,19 @@ public class ElasticPropertyIndexTest extends ElasticAbstractQueryTest {
         List<String> baseline = new LinkedList<>();
         for (String similarPath : children) {
             String query = "select [jcr:path] from [nt:base] where similar(., '" + similarPath + "')";
-
-            Iterator<String> result = executeQuery(query, "JCR-SQL2", false, true).iterator();
             List<String> current = new LinkedList<>();
-            while (result.hasNext()) {
-                String next = result.next();
-                current.add(next);
-            }
-            assertNotEquals(baseline, current);
+            assertEventually(() -> {
+                Iterator<String> result = executeQuery(query, "JCR-SQL2", false, true).iterator();
+                current.clear();
+                while (result.hasNext()) {
+                    String next = result.next();
+                    current.add(next);
+                }
+                assertNotEquals(baseline, current);
+            });
             baseline.clear();
             baseline.addAll(current);
         }
-
-        Thread.sleep(10000);
     }
 
 }

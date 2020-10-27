@@ -304,8 +304,7 @@ public class ElasticRequestHandler {
                 throw new IllegalArgumentException("Could not find node " + text);
             }
             for (PropertyDefinition pd : sp) {
-                int slashLastIndex = pd.name.lastIndexOf('/');
-                String propertyPath = slashLastIndex != -1 ? pd.name.substring(0, slashLastIndex) : "";
+                String propertyPath = PathUtils.getParentPath(pd.name);;
                 String propertyName = PathUtils.getName(pd.name);
                 NodeState tempState = targetNodeState;
                 for (String token : PathUtils.elements(propertyPath)) {
