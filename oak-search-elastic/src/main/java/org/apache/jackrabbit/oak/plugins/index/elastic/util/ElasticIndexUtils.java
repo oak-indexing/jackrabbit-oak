@@ -18,6 +18,8 @@ package org.apache.jackrabbit.oak.plugins.index.elastic.util;
 
 
 import org.jetbrains.annotations.NotNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -27,6 +29,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ElasticIndexUtils {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ElasticIndexUtils.class);
 
     /**
      * Transforms a path into an _id compatible with Elasticsearch specification. The path cannot be larger than 512
@@ -75,6 +79,9 @@ public class ElasticIndexUtils {
     public static List<Double> toDoubles(byte[] array) {
         int blockSize = Double.SIZE / Byte.SIZE;
         ByteBuffer wrap = ByteBuffer.wrap(array);
+        if (array.length % blockSize != 0) {
+            LOG.warn("Unexpected byte array length {}", array.length);
+        }
         int capacity = array.length / blockSize;
         List<Double> doubles = new ArrayList<>(capacity);
         for (int i = 0; i < capacity; i++) {
