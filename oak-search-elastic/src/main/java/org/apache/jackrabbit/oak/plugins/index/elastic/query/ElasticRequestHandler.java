@@ -169,14 +169,13 @@ public class ElasticRequestHandler {
                 for (IndexDefinition.IndexingRule r : elasticIndexDefinition.getDefinedRules()) {
                     sp.addAll(r.getSimilarityProperties());
                 }
+                String mltQueryString = propertyRestrictionQuery.replace("mlt?", "");
                 if (sp.isEmpty()) {
                     // SimilarityImpl in oak-core sets property restriction for sim search and the query is something like
                     // mlt?mlt.fl=:path&mlt.mindf=0&stream.body=<path> . We need parse this query string and turn into a query
                     // elastic can understand.
-                    String mltQueryString = propertyRestrictionQuery.replace("mlt?", "");
                     boolQuery.must(moreLikeThisQuery(mltQueryString));
                 } else {
-                    String mltQueryString = propertyRestrictionQuery.replace("mlt?", "");
                     boolQuery.must(similarityQuery(mltQueryString, sp));
                 }
 
@@ -341,9 +340,9 @@ public class ElasticRequestHandler {
                 Map<String, Object> paramMap = new HashMap<>();
                 paramMap.put("query_vector", toDoubles(bytes));
                 paramMap.put("field_name", similarityPropFieldName);
-                ScriptScoreQueryBuilder scriptScoreQueryBuilder = new ScriptScoreQueryBuilder(new ExistsQueryBuilder(similarityPropFieldName),
+                ScriptScoreQueryBuilder scriptScoreQueryBuilder = scriptScoreQuery(existsQuery(similarityPropFieldName), 
                         new Script(ScriptType.INLINE, Script.DEFAULT_SCRIPT_LANG, "cosineSimilarity(params.query_vector, params.field_name) + 1.0",
-                                Collections.emptyMap(), paramMap));
+                        Collections.emptyMap(), paramMap));
                 query.should(scriptScoreQueryBuilder);
             }
         }
