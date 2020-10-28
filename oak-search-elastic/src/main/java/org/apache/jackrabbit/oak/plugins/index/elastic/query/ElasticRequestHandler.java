@@ -293,7 +293,7 @@ public class ElasticRequestHandler {
         if (text == null) {
             // TODO : See if we might want to support like Text here (passed as null in above constructors)
             // IT is not supported in our lucene implementation.
-            throw new RuntimeException("Missing required field stream.body in MLT query: " + mltQueryString);
+            throw new IllegalArgumentException("Missing required field stream.body in MLT query: " + mltQueryString);
         }
 
         MoreLikeThisQueryBuilder mlt;
@@ -302,7 +302,7 @@ public class ElasticRequestHandler {
         // In case the path of a node is greater than 512 bytes,
         // we hash it before storing it as the _id for the elastic doc
         text = ElasticIndexUtils.idFromPath(text);
-        if (FieldNames.PATH.equals(fields) || fields == null) {
+        if (fields == null || FieldNames.PATH.equals(fields)) {
             // Handle the case 1) where default query sent by SimilarImpl (No Custom fields)
             // We just need to specify the doc (Item) whose similar content we need to find
             // We store path as the _id so no need to do anything extra here
