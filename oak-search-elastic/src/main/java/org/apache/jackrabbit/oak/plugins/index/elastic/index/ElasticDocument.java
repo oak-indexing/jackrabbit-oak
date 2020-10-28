@@ -18,11 +18,8 @@ package org.apache.jackrabbit.oak.plugins.index.elastic.index;
 
 import org.apache.jackrabbit.oak.api.Blob;
 import org.apache.jackrabbit.oak.commons.PathUtils;
-import org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils;
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.binary.BlobByteSource;
-import org.apache.lucene.document.Field;
-import org.apache.lucene.document.TextField;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentFactory;
@@ -31,7 +28,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -167,10 +163,4 @@ class ElasticDocument {
         return build();
     }
 
-    public static Collection<Field> newSimilarityFields(String name, Blob value) throws IOException {
-        Collection<Field> fields = new ArrayList<>(1);
-        byte[] bytes = new BlobByteSource(value).read();
-        fields.add(new TextField(FieldNames.createSimilarityFieldName(name), ElasticIndexUtils.toDoubleString(bytes), Field.Store.YES));
-        return fields;
-    }
 }

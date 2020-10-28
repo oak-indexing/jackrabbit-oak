@@ -295,9 +295,8 @@ public class ElasticRequestHandler {
         BoolQueryBuilder query = boolQuery();
         if (text != null && !sp.isEmpty()) {
             LOG.debug("generating similarity query for {}", text);
-            String [] pathTokens = text.substring(1).split("/");
             NodeState targetNodeState = rootState;
-            for (String token : pathTokens) {
+            for (String token : PathUtils.elements(text)) {
                 targetNodeState = targetNodeState.getChildNode(token);
             }
             if (!targetNodeState.exists()) {
