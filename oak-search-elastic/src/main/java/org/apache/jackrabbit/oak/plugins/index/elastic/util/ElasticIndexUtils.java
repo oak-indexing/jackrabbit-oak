@@ -55,23 +55,6 @@ public class ElasticIndexUtils {
     }
 
     /**
-     * Converts a given byte array (of doubles) to a string of space separated doubles.
-     * @param bytes given byte array
-     * @return string of doubles
-     */
-    public static String toDoubleString(byte[] bytes) {
-        List<Double> a = toDoubles(bytes);
-        StringBuilder builder = new StringBuilder();
-        for (Double d : a) {
-            if (builder.length() > 0) {
-                builder.append(' ');
-            }
-            builder.append(d);
-        }
-        return builder.toString();
-    }
-
-    /**
      * Converts a given byte array (of doubles) to a list of doubles
      * @param array given byte array
      * @return list of doubles
