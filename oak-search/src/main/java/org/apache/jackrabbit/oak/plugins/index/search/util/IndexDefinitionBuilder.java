@@ -52,7 +52,7 @@ import static org.apache.jackrabbit.oak.api.Type.STRINGS;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEPRECATED;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_TAGS;
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.FIELD_BOOST;
-import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.SIMILARITY_SEARCH_DENSE_VECTOR_SIZE;
+import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROP_SIMILARITY_SEARCH_DENSE_VECTOR_SIZE;
 import static org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState.EMPTY_NODE;
 
 /**
@@ -462,7 +462,7 @@ public class IndexDefinitionBuilder {
         }
 
         public PropertyRule similaritySearchDenseVectorSize(int size) {
-            propTree.setProperty(SIMILARITY_SEARCH_DENSE_VECTOR_SIZE, size);
+            propTree.setProperty(PROP_SIMILARITY_SEARCH_DENSE_VECTOR_SIZE, size);
             return this;
         }
 

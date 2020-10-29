@@ -40,7 +40,7 @@ import static org.apache.jackrabbit.oak.commons.PathUtils.isAbsolute;
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.FIELD_BOOST;
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROP_IS_REGEX;
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROP_WEIGHT;
-import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.SIMILARITY_SEARCH_DENSE_VECTOR_SIZE;
+import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROP_SIMILARITY_SEARCH_DENSE_VECTOR_SIZE;
 import static org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndexPlanner.DEFAULT_PROPERTY_WEIGHT;
 import static org.apache.jackrabbit.oak.plugins.index.search.util.ConfigUtil.getOptionalValue;
 
@@ -174,7 +174,7 @@ public class PropertyDefinition {
         this.nullCheckEnabled = getOptionalValueIfIndexed(defn, FulltextIndexConstants.PROP_NULL_CHECK_ENABLED, false);
         this.notNullCheckEnabled = getOptionalValueIfIndexed(defn, FulltextIndexConstants.PROP_NOT_NULL_CHECK_ENABLED, false);
         this.excludeFromAggregate = getOptionalValueIfIndexed(defn, FulltextIndexConstants.PROP_EXCLUDE_FROM_AGGREGATE, false);
-        this.similaritySearchDVS = getOptionalValue(defn, SIMILARITY_SEARCH_DENSE_VECTOR_SIZE,
+        this.similaritySearchDVS = getOptionalValue(defn, PROP_SIMILARITY_SEARCH_DENSE_VECTOR_SIZE,
                 SIMILARITY_SEARCH_DENSE_VECTOR_SIZE_DEFAULT);
         this.nonRelativeName = determineNonRelativeName();
         this.ancestors = computeAncestors(name);
