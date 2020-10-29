@@ -20,7 +20,11 @@ import org.apache.commons.io.IOUtils;
 import org.apache.jackrabbit.oak.api.Blob;
 import org.apache.jackrabbit.oak.api.Tree;
 import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.apache.jackrabbit.oak.plugins.index.search.util.IndexDefinitionBuilder;
+import org.elasticsearch.client.RequestOptions;
+import org.elasticsearch.client.indices.GetFieldMappingsRequest;
+import org.elasticsearch.client.indices.GetFieldMappingsResponse;
 import org.junit.Test;
 
 import java.io.ByteArrayInputStream;
@@ -28,11 +32,13 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.net.URI;
 import java.nio.charset.Charset;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import static java.util.Collections.singletonList;
@@ -169,6 +175,38 @@ public class ElasticPropertyIndexTest extends ElasticAbstractQueryTest {
 
         assertEventually(() -> assertQuery("select [jcr:path] from [nt:base] where propa is not null",
                 Arrays.asList("/test/a", "/test/b")));
+    }
+
+    @Test
+    public void vectorSimilarityCustomVectorSize() throws Exception {
+        final String indexName = "test1";
+        final String fieldName1 = "fv1";
+        final String fieldName2 = "fv2";
+        final String similarityFieldName1 = FieldNames.createSimilarityFieldName(fieldName1);
+        final String similarityFieldName2 = FieldNames.createSimilarityFieldName(fieldName2);
+        IndexDefinitionBuilder builder = createIndex(fieldName1, fieldName2);
+        builder.indexRule("nt:base").property(fieldName1).useInSimilarity(true).nodeScopeIndex()
+                .similaritySearchDenseVectorSize(10);
+        builder.indexRule("nt:base").property(fieldName2).useInSimilarity(true).nodeScopeIndex()
+                .similaritySearchDenseVectorSize(20);
+        Tree index = setIndex(indexName, builder);
+        root.commit();
+        String alias =  ElasticIndexNameHelper.getIndexAlias(esConnection.getIndexPrefix(), "/oak:index/" + indexName);
+        GetFieldMappingsRequest fieldMappingsRequest = new GetFieldMappingsRequest();
+        fieldMappingsRequest.indices(alias).fields(similarityFieldName1, similarityFieldName2);
+        GetFieldMappingsResponse mappingsResponse = esConnection.getClient().indices().
+                getFieldMapping(fieldMappingsRequest, RequestOptions.DEFAULT);
+        final Map<String, Map<String, GetFieldMappingsResponse.FieldMappingMetadata>> mappings =
+                mappingsResponse.mappings();
+        assertEquals("More than one index found", 1, mappings.keySet().size());
+        @SuppressWarnings("unchecked")
+        Map<String, Integer> map1 = (Map<String, Integer>)mappings.entrySet().iterator().next().getValue().
+                get(similarityFieldName1).sourceAsMap().get(similarityFieldName1);
+        assertEquals("Dense vector size doesn't match", 10, map1.get("dims").intValue());
+        @SuppressWarnings("unchecked")
+        Map<String, Integer> map2 = (Map<String, Integer>)mappings.entrySet().iterator().next().getValue().
+                get(similarityFieldName2).sourceAsMap().get(similarityFieldName2);
+        assertEquals("Dense vector size doesn't match", 20, map2.get("dims").intValue());
     }
 
 

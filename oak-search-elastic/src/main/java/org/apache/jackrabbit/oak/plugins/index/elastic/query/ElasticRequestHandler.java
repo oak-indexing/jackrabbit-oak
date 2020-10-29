@@ -171,7 +171,7 @@ public class ElasticRequestHandler {
                 for (IndexDefinition.IndexingRule r : elasticIndexDefinition.getDefinedRules()) {
                     sp.addAll(r.getSimilarityProperties());
                 }
-                String mltQueryString = propertyRestrictionQuery.replace("mlt?", "");
+                String mltQueryString = propertyRestrictionQuery.substring("mlt?".length());
                 if (sp.isEmpty()) {
                     // SimilarityImpl in oak-core sets property restriction for sim search and the query is something like
                     // mlt?mlt.fl=:path&mlt.mindf=0&stream.body=<path> . We need parse this query string and turn into a query
