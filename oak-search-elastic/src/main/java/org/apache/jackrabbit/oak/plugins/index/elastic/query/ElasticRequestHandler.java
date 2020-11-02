@@ -192,7 +192,7 @@ public class ElasticRequestHandler {
                             .minTermFreq(1).minDocFreq(1)
                     );
                 } else {
-                    boolQuery.must(similarityQuery(mltParams, sp));
+                    boolQuery.must(similarityQuery(text, sp));
                     // add should clause to improve relevance using similarity tags
                     boolQuery.should(moreLikeThisQuery(
                             new String[]{ElasticIndexDefinition.SIMILARITY_TAGS}, null,
@@ -307,10 +307,9 @@ public class ElasticRequestHandler {
                 .map(pd -> pd.name);
     }
 
-    private QueryBuilder similarityQuery(Map<String, String> mltParams, List<PropertyDefinition> sp) {
-        String text = mltParams.get(MoreLikeThisHelperUtil.MLT_STREAM_BODY);
+    private QueryBuilder similarityQuery(@NotNull String text, List<PropertyDefinition> sp) {
         BoolQueryBuilder query = boolQuery();
-        if (text != null && !sp.isEmpty()) {
+        if (!sp.isEmpty()) {
             LOG.debug("generating similarity query for {}", text);
             NodeState targetNodeState = rootState;
             for (String token : PathUtils.elements(text)) {
