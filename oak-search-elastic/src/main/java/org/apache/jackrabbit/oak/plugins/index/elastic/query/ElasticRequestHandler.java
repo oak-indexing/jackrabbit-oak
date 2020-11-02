@@ -88,8 +88,6 @@ import java.util.stream.StreamSupport;
 
 import static org.apache.jackrabbit.JcrConstants.JCR_MIXINTYPES;
 import static org.apache.jackrabbit.JcrConstants.JCR_PRIMARYTYPE;
-import static org.apache.jackrabbit.oak.commons.PathUtils.denotesRoot;
-import static org.apache.jackrabbit.oak.commons.PathUtils.getParentPath;
 import static org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils.toDoubles;
 import static org.apache.jackrabbit.oak.plugins.index.elastic.util.TermQueryBuilderFactory.newAncestorQuery;
 import static org.apache.jackrabbit.oak.plugins.index.elastic.util.TermQueryBuilderFactory.newDepthQuery;
@@ -573,7 +571,7 @@ public class ElasticRequestHandler {
                 }
                 break;
             case PARENT:
-                if (denotesRoot(path)) {
+                if (PathUtils.denotesRoot(path)) {
                     // there's no parent of the root node
                     // we add a path that can not possibly occur because there
                     // is no way to say "match no documents" in Lucene
@@ -584,10 +582,10 @@ public class ElasticRequestHandler {
                     if (planResult.isPathTransformed()) {
                         String parentPathSegment = planResult.getParentPathSegment();
                         if (!any.test(PathUtils.elements(parentPathSegment), "*")) {
-                            queries.add(newPathQuery(getParentPath(path) + parentPathSegment));
+                            queries.add(newPathQuery(PathUtils.getParentPath(path) + parentPathSegment));
                         }
                     } else {
-                        queries.add(newPathQuery(getParentPath(path)));
+                        queries.add(newPathQuery(PathUtils.getParentPath(path)));
                     }
                 }
                 break;
