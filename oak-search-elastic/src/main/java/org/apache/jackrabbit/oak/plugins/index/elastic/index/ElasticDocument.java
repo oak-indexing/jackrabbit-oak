@@ -16,9 +16,11 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.index;
 
+import org.apache.jackrabbit.oak.api.Blob;
 import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
+import org.apache.jackrabbit.oak.plugins.index.search.spi.binary.BlobByteSource;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentFactory;
@@ -33,6 +35,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils.toDoubles;
+
 class ElasticDocument {
     private static final Logger LOG = LoggerFactory.getLogger(ElasticDocument.class);
 
@@ -42,6 +46,7 @@ class ElasticDocument {
     private final List<String> notNullProps;
     private final List<String> nullProps;
     private final Map<String, Object> properties;
+    private final Map<String, Object> similarityFields;
     private final Map<String, Map<String, Double>> dynamicBoostFields;
     private final Set<String> similarityTags;
 
@@ -52,6 +57,7 @@ class ElasticDocument {
         this.notNullProps = new ArrayList<>();
         this.nullProps = new ArrayList<>();
         this.properties = new HashMap<>();
+        this.similarityFields = new HashMap<>();
         this.dynamicBoostFields = new HashMap<>();
         this.similarityTags = new LinkedHashSet<>();
     }
@@ -82,6 +88,11 @@ class ElasticDocument {
     // (interpretation of date etc: https://www.elastic.co/guide/en/elasticsearch/reference/current/dynamic-field-mapping.html)
     void addProperty(String fieldName, Object value) {
         properties.put(fieldName, value);
+    }
+
+    void addSimilarityField(String name, Blob value) throws IOException{
+        byte[] bytes = new BlobByteSource(value).read();
+        similarityFields.put(FieldNames.createSimilarityFieldName(name), toDoubles(bytes));
     }
 
     void indexAncestors(String path) {
@@ -124,6 +135,9 @@ class ElasticDocument {
                 if (nullProps.size() > 0) {
                     builder.field(FieldNames.NULL_PROPS, nullProps);
                 }
+                for (Map.Entry<String, Object> simProp: similarityFields.entrySet()) {
+                    builder.field(simProp.getKey(), simProp.getValue());
+                }
                 for (Map.Entry<String, Object> prop : properties.entrySet()) {
                     builder.field(prop.getKey(), prop.getValue());
                 }
@@ -158,4 +172,5 @@ class ElasticDocument {
     public String toString() {
         return build();
     }
+
 }
