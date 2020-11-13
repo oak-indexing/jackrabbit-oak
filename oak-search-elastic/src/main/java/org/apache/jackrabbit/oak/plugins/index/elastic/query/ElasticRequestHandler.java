@@ -372,10 +372,13 @@ public class ElasticRequestHandler {
        be useful in every situation based on the type of content)
      */
     private MoreLikeThisQueryBuilder mltQuery(Map<String, String> mltParams) {
-        String text = mltParams.get(MoreLikeThisHelperUtil.MLT_STREAM_BODY);
+        // creates a shallow copy of mltParams so we can remove the entries to
+        // improve validation without changing the original structure
+        Map<String, String> shallowMltParams = new HashMap<>(mltParams);
+        String text = shallowMltParams.remove(MoreLikeThisHelperUtil.MLT_STREAM_BODY);
 
         MoreLikeThisQueryBuilder mlt;
-        String fields = mltParams.get(MoreLikeThisHelperUtil.MLT_FILED);
+        String fields = shallowMltParams.remove(MoreLikeThisHelperUtil.MLT_FILED);
         // It's expected the text here to be the path of the doc
         // In case the path of a node is greater than 512 bytes,
         // we hash it before storing it as the _id for the elastic doc
@@ -392,26 +395,32 @@ public class ElasticRequestHandler {
             mlt = moreLikeThisQuery(fieldsArray, null, new Item[]{new Item(null, text)});
         }
 
-        BiConsumer<String, Consumer<String>> mltParamSetter = (key, setter) -> {
-            String val = mltParams.get(key);
-            if (val != null) {
-                setter.accept(val);
-            }
-        };
+        if (!shallowMltParams.isEmpty()) {
+            BiConsumer<String, Consumer<String>> mltParamSetter = (key, setter) -> {
+                String val = shallowMltParams.remove(key);
+                if (val != null) {
+                    setter.accept(val);
+                }
+            };
 
-        mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MIN_DOC_FREQ, (val) -> mlt.minDocFreq(Integer.parseInt(val)));
-        mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MIN_TERM_FREQ, (val) -> mlt.minTermFreq(Integer.parseInt(val)));
-        mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_BOOST_FACTOR, (val) -> mlt.boost(Float.parseFloat(val)));
-        mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MAX_DOC_FREQ, (val) -> mlt.maxDocFreq(Integer.parseInt(val)));
-        mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MAX_QUERY_TERMS, (val) -> mlt.maxQueryTerms(Integer.parseInt(val)));
-        mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MAX_WORD_LENGTH, (val) -> mlt.maxWordLength(Integer.parseInt(val)));
-        mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MIN_WORD_LENGTH, (val) -> mlt.minWordLength(Integer.parseInt(val)));
-        mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MIN_SHOULD_MATCH, mlt::minimumShouldMatch);
-        mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_STOP_WORDS, (val) -> {
-            // TODO : Read this from a stopwords text file, configured via index defn maybe ?
-            String[] stopWords = val.split(",");
-            mlt.stopWords(stopWords);
-        });
+            mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MIN_DOC_FREQ, (val) -> mlt.minDocFreq(Integer.parseInt(val)));
+            mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MIN_TERM_FREQ, (val) -> mlt.minTermFreq(Integer.parseInt(val)));
+            mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_BOOST_FACTOR, (val) -> mlt.boost(Float.parseFloat(val)));
+            mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MAX_DOC_FREQ, (val) -> mlt.maxDocFreq(Integer.parseInt(val)));
+            mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MAX_QUERY_TERMS, (val) -> mlt.maxQueryTerms(Integer.parseInt(val)));
+            mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MAX_WORD_LENGTH, (val) -> mlt.maxWordLength(Integer.parseInt(val)));
+            mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MIN_WORD_LENGTH, (val) -> mlt.minWordLength(Integer.parseInt(val)));
+            mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MIN_SHOULD_MATCH, mlt::minimumShouldMatch);
+            mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_STOP_WORDS, (val) -> {
+                // TODO : Read this from a stopwords text file, configured via index defn maybe ?
+                String[] stopWords = val.split(",");
+                mlt.stopWords(stopWords);
+            });
+
+            if (!shallowMltParams.isEmpty()) {
+                LOG.warn("mlt query contains unrecognized params {} that will be skipped", shallowMltParams);
+            }
+        }
 
         return mlt;
     }
