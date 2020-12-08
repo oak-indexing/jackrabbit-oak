@@ -216,8 +216,20 @@ class ElasticIndexHelper {
 
             if (useInSimilarity) {
                 mappingBuilder.startObject(FieldNames.createSimilarityFieldName(name));
-                mappingBuilder.field("type", ES_DENSE_VECTOR_TYPE);
-                mappingBuilder.field(ES_DENSE_VECTOR_DIM_PROP, denseVectorSize);
+                {
+                    mappingBuilder.field("type", "elastiknn_dense_float_vector");
+                    mappingBuilder.startObject("elastiknn");
+                    {
+                        //todo read these from index configuration
+                        mappingBuilder.field(ES_DENSE_VECTOR_DIM_PROP, denseVectorSize);
+                        mappingBuilder.field("model", "lsh");
+                        mappingBuilder.field("similarity", "l2");
+                        mappingBuilder.field("L", 99);
+                        mappingBuilder.field("k", 1);
+                        mappingBuilder.field("w", 3);
+                    }
+                    mappingBuilder.endObject();
+                }
                 mappingBuilder.endObject();
             }
         }

@@ -44,6 +44,9 @@ import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextVisitor;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.lucene.search.WildcardQuery;
 import org.apache.lucene.search.join.ScoreMode;
+import org.elasticsearch.common.Strings;
+import org.elasticsearch.common.xcontent.XContentBuilder;
+import org.elasticsearch.common.xcontent.json.JsonXContent;
 import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.InnerHitBuilder;
 import org.elasticsearch.index.query.MatchBoolPrefixQueryBuilder;
@@ -54,11 +57,9 @@ import org.elasticsearch.index.query.NestedQueryBuilder;
 import org.elasticsearch.index.query.Operator;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
-import org.elasticsearch.index.query.functionscore.ScriptScoreQueryBuilder;
+import org.elasticsearch.index.query.WrapperQueryBuilder;
 import org.elasticsearch.index.query.functionscore.ScoreFunctionBuilders;
 import org.elasticsearch.index.search.MatchQuery;
-import org.elasticsearch.script.Script;
-import org.elasticsearch.script.ScriptType;
 import org.elasticsearch.search.aggregations.AggregationBuilders;
 import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.elasticsearch.search.sort.FieldSortBuilder;
@@ -76,7 +77,6 @@ import javax.jcr.PropertyType;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -108,7 +108,6 @@ import static org.apache.jackrabbit.oak.spi.query.QueryConstants.JCR_SCORE;
 import static org.apache.jackrabbit.util.ISO8601.parse;
 import static org.elasticsearch.index.query.MoreLikeThisQueryBuilder.Item;
 import static org.elasticsearch.index.query.QueryBuilders.boolQuery;
-import static org.elasticsearch.index.query.QueryBuilders.existsQuery;
 import static org.elasticsearch.index.query.QueryBuilders.functionScoreQuery;
 import static org.elasticsearch.index.query.QueryBuilders.matchAllQuery;
 import static org.elasticsearch.index.query.QueryBuilders.matchQuery;
@@ -116,8 +115,8 @@ import static org.elasticsearch.index.query.QueryBuilders.moreLikeThisQuery;
 import static org.elasticsearch.index.query.QueryBuilders.multiMatchQuery;
 import static org.elasticsearch.index.query.QueryBuilders.nestedQuery;
 import static org.elasticsearch.index.query.QueryBuilders.queryStringQuery;
-import static org.elasticsearch.index.query.QueryBuilders.scriptScoreQuery;
 import static org.elasticsearch.index.query.QueryBuilders.termQuery;
+import static org.elasticsearch.index.query.QueryBuilders.wrapperQuery;
 
 /**
  * Class to map query plans into Elastic request objects.
@@ -342,13 +341,37 @@ public class ElasticRequestHandler {
                     continue;
                 }
                 String similarityPropFieldName = FieldNames.createSimilarityFieldName(pd.name);
-                Map<String, Object> paramMap = new HashMap<>();
-                paramMap.put("query_vector", toDoubles(bytes));
-                paramMap.put("field_name", similarityPropFieldName);
-                ScriptScoreQueryBuilder scriptScoreQueryBuilder = scriptScoreQuery(existsQuery(similarityPropFieldName),
-                        new Script(ScriptType.INLINE, Script.DEFAULT_SCRIPT_LANG, "cosineSimilarity(params.query_vector, params.field_name) + 1.0",
-                                Collections.emptyMap(), paramMap));
-                query.should(scriptScoreQueryBuilder);
+                try {
+                    XContentBuilder contentBuilder = JsonXContent.contentBuilder();
+                    contentBuilder.startObject();
+                    contentBuilder.field("elastiknn_nearest_neighbors");
+                    contentBuilder.startObject();
+                    {
+                        contentBuilder.field("field", similarityPropFieldName);
+                        contentBuilder.field("vec");
+                        contentBuilder.startObject();
+                        {
+                            contentBuilder.field("values");
+                            contentBuilder.startArray();
+                            for (Double d : toDoubles(bytes)) {
+                                contentBuilder.value(d);
+                            }
+                            contentBuilder.endArray();
+                        }
+                        contentBuilder.endObject();
+                        //todo read these from index configuration
+                        contentBuilder.field("model", "lsh");
+                        contentBuilder.field("similarity", "l2");
+                        contentBuilder.field("candidates", 50);
+                        contentBuilder.field("probes", 2);
+                    }
+                    contentBuilder.endObject();
+                    contentBuilder.endObject();
+                    WrapperQueryBuilder wqb = wrapperQuery(Strings.toString(contentBuilder));
+                    query.should(wqb);
+                } catch (IOException e){
+                    LOG.error("Could not create similarity query ", e);
+                }
             }
         }
         return query;
