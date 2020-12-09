@@ -74,6 +74,8 @@ import org.slf4j.LoggerFactory;
 
 import javax.jcr.PropertyType;
 import java.io.IOException;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -757,7 +759,10 @@ public class ElasticRequestHandler {
         QueryBuilder in;
         switch (propType) {
             case PropertyType.DATE: {
-                in = newPropertyRestrictionQuery(field, pr, value -> parse(value.getValue(Type.DATE)).getTime());
+                final DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSX")
+                        .withZone(ZoneId.of("UTC"));
+                in = newPropertyRestrictionQuery(field, pr, value -> dtf.
+                        format(parse(value.getValue(Type.DATE)).toInstant()));
                 break;
             }
             case PropertyType.DOUBLE: {
