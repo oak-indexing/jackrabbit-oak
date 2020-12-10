@@ -759,10 +759,7 @@ public class ElasticRequestHandler {
         QueryBuilder in;
         switch (propType) {
             case PropertyType.DATE: {
-                final DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSX")
-                        .withZone(ZoneId.of("UTC"));
-                in = newPropertyRestrictionQuery(field, pr, value -> dtf.
-                        format(parse(value.getValue(Type.DATE)).toInstant()));
+                in = newPropertyRestrictionQuery(field, pr, value -> parse(value.getValue(Type.DATE)).getTimeInMillis());
                 break;
             }
             case PropertyType.DOUBLE: {

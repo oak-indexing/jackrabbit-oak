@@ -178,8 +178,8 @@ public abstract class PropertyIndexCommonTest extends AbstractQueryTest {
         TestUtil.useV2(indexDefn);
 
         Tree props = TestUtil.newRulePropTree(indexDefn, "nt:base");
-        TestUtil.enablePropertyIndex(props, "date", false);
-        props.setProperty(FulltextIndexConstants.PROP_TYPE, TYPENAME_DATE);
+        Tree prop = TestUtil.enablePropertyIndex(props, "date", false);
+        prop.setProperty(FulltextIndexConstants.PROP_TYPE, TYPENAME_DATE);
         root.commit();
 
         Tree test = root.getTree("/").addChild("test");
@@ -198,6 +198,8 @@ public abstract class PropertyIndexCommonTest extends AbstractQueryTest {
         assertEventually(() -> assertQuery("select [jcr:path] from [nt:base] where date > CAST('2020-12-07T12:32:35.886Z' AS DATE) " +
                         "and date < CAST('2020-12-07T20:32:35.886Z' AS DATE)",
                 Arrays.asList("/test/b", "/test/d")));
+        assertEventually(() -> assertQuery("select [jcr:path] from [nt:base] where date < CAST('2020-12-07T11:23:33.933-09:00' AS DATE)",
+                Arrays.asList("/test/a", "/test/b", "/test/d")));
     }
 
     private String explain(String query) {
