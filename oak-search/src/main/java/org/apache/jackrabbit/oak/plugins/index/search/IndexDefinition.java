@@ -85,6 +85,7 @@ import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.REINDEX_COU
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.*;
 import static org.apache.jackrabbit.oak.plugins.index.search.PropertyDefinition.DEFAULT_BOOST;
 import static org.apache.jackrabbit.oak.plugins.index.search.util.ConfigUtil.getOptionalValue;
+import static org.apache.jackrabbit.oak.plugins.index.search.util.ConfigUtil.getOptionalValues;
 import static org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState.EMPTY_NODE;
 import static org.apache.jackrabbit.oak.spi.nodetype.NodeTypeConstants.JCR_NODE_TYPES;
 import static org.apache.jackrabbit.oak.spi.nodetype.NodeTypeConstants.NODE_TYPES_PATH;
@@ -362,7 +363,7 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
             this.definition = defn;
             this.indexPath = checkNotNull(indexPath);
             this.indexName = indexPath;
-            this.indexTags = getOptionalStrings(defn, IndexConstants.INDEX_TAGS);
+            this.indexTags = getOptionalValues(defn, IndexConstants.INDEX_TAGS, Type.STRINGS, String.class);
             this.nodeTypeIndex = getOptionalValue(defn, FulltextIndexConstants.PROP_INDEX_NODE_TYPE, false);
 
             this.blobSize = getOptionalValue(defn, BLOB_SIZE, DEFAULT_BLOB_SIZE);
@@ -411,7 +412,7 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
             this.scorerProviderName = getOptionalValue(defn, FulltextIndexConstants.PROP_SCORER_PROVIDER, null);
             this.reindexCount = getOptionalValue(defn, REINDEX_COUNT, 0);
             this.pathFilter = PathFilter.from(new ReadOnlyBuilder(defn));
-            this.queryPaths = getOptionalStrings(defn, IndexConstants.QUERY_PATHS);
+            this.queryPaths = getOptionalValues(defn, IndexConstants.QUERY_PATHS, Type.STRINGS, String.class);
             this.suggestAnalyzed = evaluateSuggestAnalyzed(defn, false);
 
             {
@@ -1782,14 +1783,6 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
         }
 
         return result;
-    }
-
-    private static String[] getOptionalStrings(NodeState defn, String propertyName) {
-        PropertyState ps = defn.getProperty(propertyName);
-        if (ps != null) {
-            return Iterables.toArray(ps.getValue(Type.STRINGS), String.class);
-        }
-        return null;
     }
 
     private static IndexFormatVersion versionFrom(PropertyState ps){
