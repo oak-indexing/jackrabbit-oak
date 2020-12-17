@@ -99,7 +99,7 @@ public class ElasticIndexDefinition extends IndexDefinition {
     private final String remoteAlias;
     public final int numberOfShards;
     public final int numberOfReplicas;
-    public final Long[] queryFetchSizes;
+    public final int[] queryFetchSizes;
 
     private final Map<String, List<PropertyDefinition>> propertiesByName;
     private final List<PropertyDefinition> dynamicBoostProperties;
@@ -114,7 +114,8 @@ public class ElasticIndexDefinition extends IndexDefinition {
         this.bulkRetriesBackoff = getOptionalValue(defn, BULK_RETRIES_BACKOFF, BULK_RETRIES_BACKOFF_DEFAULT);
         this.numberOfShards = getOptionalValue(defn, NUMBER_OF_SHARDS, NUMBER_OF_SHARDS_DEFAULT);
         this.numberOfReplicas = getOptionalValue(defn, NUMBER_OF_REPLICAS, NUMBER_OF_REPLICAS_DEFAULT);
-        this.queryFetchSizes = getOptionalValues(defn, QUERY_FETCH_SIZES, Type.LONGS, Long.class, QUERY_FETCH_SIZES_DEFAULT);
+        this.queryFetchSizes = Arrays.stream(getOptionalValues(defn, QUERY_FETCH_SIZES, Type.LONGS, Long.class, QUERY_FETCH_SIZES_DEFAULT))
+                .mapToInt(Long::intValue).toArray();
 
         this.propertiesByName = getDefinedRules()
                 .stream()

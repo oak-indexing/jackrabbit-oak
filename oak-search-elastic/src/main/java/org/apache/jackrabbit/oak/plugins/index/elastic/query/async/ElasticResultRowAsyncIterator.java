@@ -181,9 +181,9 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
         // concurrent data structures to coordinate chunks loading
         private final AtomicBoolean anyDataLeft = new AtomicBoolean(false);
 
-        private int scannedRows = 0;
-        private int requests = 0;
-        private boolean fullScan = false;
+        private int scannedRows;
+        private int requests;
+        private boolean fullScan;
         private long searchStartTime;
 
         // reference to the last document sort values for search_after queries
@@ -339,9 +339,9 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
 
         /* picks the size in the fetch array at index=requests or the last if out of bound */
         private int getFetchSize() {
-            Long[] queryFetchSizes = indexNode.getDefinition().queryFetchSizes;
+            int[] queryFetchSizes = indexNode.getDefinition().queryFetchSizes;
             return queryFetchSizes.length > requests ?
-                    queryFetchSizes[requests].intValue() : queryFetchSizes[queryFetchSizes.length -1].intValue();
+                    queryFetchSizes[requests] : queryFetchSizes[queryFetchSizes.length -1];
         }
 
         // close all listeners
