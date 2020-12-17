@@ -679,8 +679,7 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
 
     @Nullable
     public Aggregate getAggregate(String nodeType){
-        Aggregate agg = aggregates.get(nodeType);
-        return agg;
+        return aggregates.get(nodeType);
     }
 
     private Map<String, Aggregate> collectAggregates(NodeState defn) {
@@ -729,8 +728,7 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
         List<IndexingRule> rules = null;
         List<IndexingRule> r = indexRules.get(primaryNodeType);
         if (r != null) {
-            rules = new ArrayList<IndexingRule>();
-            rules.addAll(r);
+            rules = new ArrayList<>(r);
         }
 
         if (rules != null) {
@@ -759,15 +757,14 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
         List<IndexingRule> rules = null;
         List<IndexingRule> r = indexRules.get(getPrimaryTypeName(state));
         if (r != null) {
-            rules = new ArrayList<IndexingRule>();
-            rules.addAll(r);
+            rules = new ArrayList<>(r);
         }
 
         for (String name : getMixinTypeNames(state)) {
             r = indexRules.get(name);
             if (r != null) {
                 if (rules == null) {
-                    rules = new ArrayList<IndexingRule>();
+                    rules = new ArrayList<>();
                 }
                 rules.addAll(r);
             }
@@ -820,11 +817,7 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
 
             for (String ntName : ntNames) {
                 if (ntReg.isNodeType(ntName, rule.getNodeTypeName())) {
-                    List<IndexingRule> perNtConfig = nt2rules.get(ntName);
-                    if (perNtConfig == null) {
-                        perNtConfig = new ArrayList<IndexingRule>();
-                        nt2rules.put(ntName, perNtConfig);
-                    }
+                    List<IndexingRule> perNtConfig = nt2rules.computeIfAbsent(ntName, k -> new ArrayList<>());
                     log.trace("Registering rule '{}' for name '{}'", rule, ntName);
                     perNtConfig.add(new IndexingRule(rule, ntName));
                 }
@@ -836,11 +829,6 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
         }
 
         return ImmutableMap.copyOf(nt2rules);
-    }
-
-    private boolean areAllTypesIndexed() {
-        IndexingRule ntBaseRule = getApplicableIndexingRule(NT_BASE);
-        return ntBaseRule != null;
     }
 
     private boolean evaluateSuggestionEnabled() {
@@ -1506,7 +1494,7 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
             }
         }
 
-        List<String> propNames = new ArrayList<String>(propNamesSet);
+        List<String> propNames = new ArrayList<>(propNamesSet);
 
         final String includeAllProp = FulltextIndexConstants.REGEX_ALL_PROPS;
         if (fullTextEnabled
@@ -1617,7 +1605,7 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
 
     private static Set<String> getMultiProperty(NodeState definition, String propName){
         PropertyState pse = definition.getProperty(propName);
-        return pse != null ? ImmutableSet.copyOf(pse.getValue(Type.STRINGS)) : Collections.<String>emptySet();
+        return pse != null ? ImmutableSet.copyOf(pse.getValue(Type.STRINGS)) : Collections.emptySet();
     }
 
     private static Set<String> toLowerCase(Set<String> values) {
