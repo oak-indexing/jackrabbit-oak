@@ -242,10 +242,7 @@ public class IndexName implements Comparable<IndexName> {
                 return true;
             }
         }
-        if (isIndexActiveMerged(indexNode, rootState)) {
-            return true;
-        }
-        return false;
+        return isIndexActiveMerged(indexNode, rootState);
     }
 
     private static boolean isIndexActiveMerged(NodeState indexNode, NodeState rootState) {
