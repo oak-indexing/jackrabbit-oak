@@ -104,7 +104,7 @@ public class ConfigUtil {
 
     public static Iterable<String> getMixinNames(NodeState nodeState) {
         PropertyState ps = nodeState.getProperty(JcrConstants.JCR_MIXINTYPES);
-        return (ps == null) ? Collections.<String>emptyList() : ps.getValue(Type.NAMES);
+        return (ps == null) ? Collections.emptyList() : ps.getValue(Type.NAMES);
     }
 
     /**
