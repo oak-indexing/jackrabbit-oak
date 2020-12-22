@@ -224,7 +224,7 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
                     .query(query)
                     // use a smaller size when the query contains aggregations. This improves performance
                     // when the client is only interested in insecure facets
-                    .size(needsAggregations.get() ? Math.min(SMALL_RESULT_SET_SIZE, getFetchSize(requests)) : getFetchSize(requests))
+                    .size(needsAggregations.get() ? Math.min(SMALL_RESULT_SET_SIZE, getFetchSize()) : getFetchSize())
                     .fetchSource(sourceFields, null);
 
             this.sorts.forEach(searchSourceBuilder::sort);
@@ -318,7 +318,7 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
             if (semaphore.tryAcquire() && anyDataLeft.get()) {
                 final SearchSourceBuilder searchSourceBuilder = SearchSourceBuilder.searchSource()
                         .query(query)
-                        .size(getFetchSize(requests++))
+                        .size(getFetchSize())
                         .fetchSource(sourceFields, null)
                         .searchAfter(lastHitSortValues);
 
@@ -329,6 +329,7 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
                 LOG.trace("Kicking new search after query {}", searchRequest.source());
 
                 searchStartTime = System.currentTimeMillis();
+                requests++;
                 indexNode.getConnection().getClient().searchAsync(searchRequest, RequestOptions.DEFAULT, this);
                 elasticMetricHandler.markQuery(false);
             } else {
@@ -337,10 +338,10 @@ public class ElasticResultRowAsyncIterator implements Iterator<FulltextResultRow
         }
 
         /* picks the size in the fetch array at index=requests or the last if out of bound */
-        private int getFetchSize(int requestId) {
+        private int getFetchSize() {
             int[] queryFetchSizes = indexNode.getDefinition().queryFetchSizes;
-            return queryFetchSizes.length > requestId ?
-                    queryFetchSizes[requestId] : queryFetchSizes[queryFetchSizes.length -1];
+            return queryFetchSizes.length > requests ?
+                    queryFetchSizes[requests] : queryFetchSizes[queryFetchSizes.length -1];
         }
 
         // close all listeners
