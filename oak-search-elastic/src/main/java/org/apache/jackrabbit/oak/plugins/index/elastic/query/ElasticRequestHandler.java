@@ -16,6 +16,8 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.query;
 
+import org.apache.jackrabbit.oak.api.Blob;
+import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
@@ -25,6 +27,7 @@ import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.MoreLikeThisHelperUtil;
 import org.apache.jackrabbit.oak.plugins.index.search.PropertyDefinition;
+import org.apache.jackrabbit.oak.plugins.index.search.spi.binary.BlobByteSource;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndexPlanner;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndexPlanner.PlanResult;
@@ -38,6 +41,7 @@ import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextExpression;
 import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextOr;
 import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextTerm;
 import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextVisitor;
+import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.lucene.search.WildcardQuery;
 import org.apache.lucene.search.join.ScoreMode;
 import org.elasticsearch.index.query.BoolQueryBuilder;
@@ -50,7 +54,11 @@ import org.elasticsearch.index.query.NestedQueryBuilder;
 import org.elasticsearch.index.query.Operator;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
+import org.elasticsearch.index.query.functionscore.ScriptScoreQueryBuilder;
+import org.elasticsearch.index.query.functionscore.ScoreFunctionBuilders;
 import org.elasticsearch.index.search.MatchQuery;
+import org.elasticsearch.script.Script;
+import org.elasticsearch.script.ScriptType;
 import org.elasticsearch.search.aggregations.AggregationBuilders;
 import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.elasticsearch.search.sort.FieldSortBuilder;
@@ -65,19 +73,24 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.jcr.PropertyType;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
 import java.util.function.BiPredicate;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 import static org.apache.jackrabbit.JcrConstants.JCR_MIXINTYPES;
 import static org.apache.jackrabbit.JcrConstants.JCR_PRIMARYTYPE;
-import static org.apache.jackrabbit.oak.commons.PathUtils.denotesRoot;
-import static org.apache.jackrabbit.oak.commons.PathUtils.getParentPath;
+import static org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils.toDoubles;
 import static org.apache.jackrabbit.oak.plugins.index.elastic.util.TermQueryBuilderFactory.newAncestorQuery;
 import static org.apache.jackrabbit.oak.plugins.index.elastic.util.TermQueryBuilderFactory.newDepthQuery;
 import static org.apache.jackrabbit.oak.plugins.index.elastic.util.TermQueryBuilderFactory.newMixinTypeQuery;
@@ -95,11 +108,15 @@ import static org.apache.jackrabbit.oak.spi.query.QueryConstants.JCR_SCORE;
 import static org.apache.jackrabbit.util.ISO8601.parse;
 import static org.elasticsearch.index.query.MoreLikeThisQueryBuilder.Item;
 import static org.elasticsearch.index.query.QueryBuilders.boolQuery;
+import static org.elasticsearch.index.query.QueryBuilders.existsQuery;
+import static org.elasticsearch.index.query.QueryBuilders.functionScoreQuery;
 import static org.elasticsearch.index.query.QueryBuilders.matchAllQuery;
 import static org.elasticsearch.index.query.QueryBuilders.matchQuery;
+import static org.elasticsearch.index.query.QueryBuilders.moreLikeThisQuery;
 import static org.elasticsearch.index.query.QueryBuilders.multiMatchQuery;
 import static org.elasticsearch.index.query.QueryBuilders.nestedQuery;
 import static org.elasticsearch.index.query.QueryBuilders.queryStringQuery;
+import static org.elasticsearch.index.query.QueryBuilders.scriptScoreQuery;
 import static org.elasticsearch.index.query.QueryBuilders.termQuery;
 
 /**
@@ -121,8 +138,9 @@ public class ElasticRequestHandler {
     private final PlanResult planResult;
     private final ElasticIndexDefinition elasticIndexDefinition;
     private final String propertyRestrictionQuery;
+    private final NodeState rootState;
 
-    ElasticRequestHandler(@NotNull IndexPlan indexPlan, @NotNull FulltextIndexPlanner.PlanResult planResult) {
+    ElasticRequestHandler(@NotNull IndexPlan indexPlan, @NotNull FulltextIndexPlanner.PlanResult planResult, NodeState rootState) {
         this.indexPlan = indexPlan;
         this.filter = indexPlan.getFilter();
         this.planResult = planResult;
@@ -135,6 +153,7 @@ public class ElasticRequestHandler {
         }
 
         this.propertyRestrictionQuery = pr != null ? String.valueOf(pr.first.getValue(pr.first.getType())) : null;
+        this.rootState = rootState;
     }
 
     public BoolQueryBuilder baseQuery() {
@@ -148,12 +167,39 @@ public class ElasticRequestHandler {
 
         if (propertyRestrictionQuery != null) {
             if (propertyRestrictionQuery.startsWith("mlt?")) {
-                // SimilarityImpl in oak-core sets property restriction for sim search and the query is something like
-                // mlt?mlt.fl=:path&mlt.mindf=0&stream.body=<path> . We need parse this query string and turn into a query
-                // elastic can understand.
-                String mltQueryString = propertyRestrictionQuery.replace("mlt?", "");
-                boolQuery.must(moreLikeThisQuery(mltQueryString));
+                List<PropertyDefinition> sp = new LinkedList<>();
+                for (IndexDefinition.IndexingRule r : elasticIndexDefinition.getDefinedRules()) {
+                    sp.addAll(r.getSimilarityProperties());
+                }
+                String mltQueryString = propertyRestrictionQuery.substring("mlt?".length());
+                Map<String, String> mltParams = MoreLikeThisHelperUtil.getParamMapFromMltQuery(mltQueryString);
+                String text = mltParams.get(MoreLikeThisHelperUtil.MLT_STREAM_BODY);
 
+                if (text == null) {
+                    // TODO : See if we might want to support like Text here (passed as null in above constructors)
+                    // IT is not supported in our lucene implementation.
+                    throw new IllegalArgumentException("Missing required field stream.body in MLT query: " + mltQueryString);
+                }
+                if (sp.isEmpty()) {
+                    // SimilarityImpl in oak-core sets property restriction for sim search and the query is something like
+                    // mlt?mlt.fl=:path&mlt.mindf=0&stream.body=<path> . We need parse this query string and turn into a query
+                    // elastic can understand.
+                    MoreLikeThisQueryBuilder mltqb = mltQuery(mltParams);
+                    boolQuery.must(mltqb);
+                    // add should clause to improve relevance using similarity tags
+                    boolQuery.should(moreLikeThisQuery(
+                            new String[]{ElasticIndexDefinition.SIMILARITY_TAGS}, null, mltqb.likeItems())
+                            .minTermFreq(1).minDocFreq(1)
+                    );
+                } else {
+                    boolQuery.must(similarityQuery(text, sp));
+                    // add should clause to improve relevance using similarity tags
+                    boolQuery.should(moreLikeThisQuery(
+                            new String[]{ElasticIndexDefinition.SIMILARITY_TAGS}, null,
+                            new Item[]{new Item(null, ElasticIndexUtils.idFromPath(text))})
+                            .minTermFreq(1).minDocFreq(1)
+                    );
+                }
             } else {
                 boolQuery.must(queryStringQuery(propertyRestrictionQuery));
             }
@@ -261,6 +307,53 @@ public class ElasticRequestHandler {
                 .map(pd -> pd.name);
     }
 
+    private QueryBuilder similarityQuery(@NotNull String text, List<PropertyDefinition> sp) {
+        BoolQueryBuilder query = boolQuery();
+        if (!sp.isEmpty()) {
+            LOG.debug("generating similarity query for {}", text);
+            NodeState targetNodeState = rootState;
+            for (String token : PathUtils.elements(text)) {
+                targetNodeState = targetNodeState.getChildNode(token);
+            }
+            if (!targetNodeState.exists()) {
+                throw new IllegalArgumentException("Could not find node " + text);
+            }
+            for (PropertyDefinition pd : sp) {
+                String propertyPath = PathUtils.getParentPath(pd.name);
+                String propertyName = PathUtils.getName(pd.name);
+                NodeState tempState = targetNodeState;
+                for (String token : PathUtils.elements(propertyPath)) {
+                    if (token.isEmpty()) {
+                        break;
+                    }
+                    tempState = tempState.getChildNode(token);
+                }
+                PropertyState ps = tempState.getProperty(propertyName);
+                Blob property = ps != null ? ps.getValue(Type.BINARY) : null;
+                if (property == null) {
+                    LOG.warn("Couldn't find property {} on {}", pd.name, text);
+                    continue;
+                }
+                byte[] bytes;
+                try {
+                    bytes = new BlobByteSource(property).read();
+                } catch (IOException e) {
+                    LOG.error("Error reading bytes from property " + pd.name +" on " + text, e);
+                    continue;
+                }
+                String similarityPropFieldName = FieldNames.createSimilarityFieldName(pd.name);
+                Map<String, Object> paramMap = new HashMap<>();
+                paramMap.put("query_vector", toDoubles(bytes));
+                paramMap.put("field_name", similarityPropFieldName);
+                ScriptScoreQueryBuilder scriptScoreQueryBuilder = scriptScoreQuery(existsQuery(similarityPropFieldName),
+                        new Script(ScriptType.INLINE, Script.DEFAULT_SCRIPT_LANG, "cosineSimilarity(params.query_vector, params.field_name) + 1.0",
+                                Collections.emptyMap(), paramMap));
+                query.should(scriptScoreQueryBuilder);
+            }
+        }
+        return query;
+    }
+
     /*
     Generates mlt query builder from the given mltQueryString
     There could be 2 cases here -
@@ -278,58 +371,54 @@ public class ElasticRequestHandler {
        (The above is important since this is not a one-size-fits-all situation and the default values might not
        be useful in every situation based on the type of content)
      */
-    private QueryBuilder moreLikeThisQuery(String mltQueryString) {
-        MoreLikeThisQueryBuilder mlt;
-        Map<String, String> paramMap = MoreLikeThisHelperUtil.getParamMapFromMltQuery(mltQueryString);
-        String text = paramMap.get(MoreLikeThisHelperUtil.MLT_STREAM_BODY);
-        String fields = paramMap.get(MoreLikeThisHelperUtil.MLT_FILED);
+    private MoreLikeThisQueryBuilder mltQuery(Map<String, String> mltParams) {
+        // creates a shallow copy of mltParams so we can remove the entries to
+        // improve validation without changing the original structure
+        Map<String, String> shallowMltParams = new HashMap<>(mltParams);
+        String text = shallowMltParams.remove(MoreLikeThisHelperUtil.MLT_STREAM_BODY);
 
-        if (text != null) {
-            // It's expected the text here to be the path of the doc
-            // In case the path of a node is greater than 512 bytes,
-            // we hash it before storing it as the _id for the elastic doc
-            text = ElasticIndexUtils.idFromPath(text);
-            if (FieldNames.PATH.equals(fields) || fields == null) {
-                // Handle the case 1) where default query sent by SimilarImpl (No Custom fields)
-                // We just need to specify the doc (Item) whose similar content we need to find
-                // We store path as the _id so no need to do anything extra here
-                // We expect Similar impl to send a query where text would have evaluated to node path.
-                mlt = new MoreLikeThisQueryBuilder(null, new Item[]{new Item(null, text)});
-            } else {
-                // This is for native queries if someone send additional fields via mlt.fl=field1,field2
-                String[] fieldsArray = fields.split(",");
-                mlt = new MoreLikeThisQueryBuilder(fieldsArray, null, new Item[]{new Item(null, text)});
-            }
-            // TODO : See if we might want to support like Text here (passed as null in above constructors)
-            // IT is not supported in our lucene implementation.
+        MoreLikeThisQueryBuilder mlt;
+        String fields = shallowMltParams.remove(MoreLikeThisHelperUtil.MLT_FILED);
+        // It's expected the text here to be the path of the doc
+        // In case the path of a node is greater than 512 bytes,
+        // we hash it before storing it as the _id for the elastic doc
+        text = ElasticIndexUtils.idFromPath(text);
+        if (fields == null || FieldNames.PATH.equals(fields)) {
+            // Handle the case 1) where default query sent by SimilarImpl (No Custom fields)
+            // We just need to specify the doc (Item) whose similar content we need to find
+            // We store path as the _id so no need to do anything extra here
+            // We expect Similar impl to send a query where text would have evaluated to node path.
+            mlt = moreLikeThisQuery(new Item[]{new Item(null, text)});
         } else {
-            throw new RuntimeException("Missing required field stream.body in  MLT query: " + mltQueryString);
+            // This is for native queries if someone send additional fields via mlt.fl=field1,field2
+            String[] fieldsArray = fields.split(",");
+            mlt = moreLikeThisQuery(fieldsArray, null, new Item[]{new Item(null, text)});
         }
 
-        for (String key : paramMap.keySet()) {
-            String val = paramMap.get(key);
-            if (MoreLikeThisHelperUtil.MLT_MIN_DOC_FREQ.equals(key)) {
-                mlt.minDocFreq(Integer.parseInt(val));
-            } else if (MoreLikeThisHelperUtil.MLT_MIN_TERM_FREQ.equals(key)) {
-                mlt.minTermFreq(Integer.parseInt(val));
-            } else if (MoreLikeThisHelperUtil.MLT_BOOST_FACTOR.equals(key)) {
-                mlt.boost(Float.parseFloat(val));
-            } else if (MoreLikeThisHelperUtil.MLT_MAX_DOC_FREQ.equals(key)) {
-                mlt.maxDocFreq(Integer.parseInt(val));
-            } else if (MoreLikeThisHelperUtil.MLT_MAX_QUERY_TERMS.equals(key)) {
-                mlt.maxQueryTerms(Integer.parseInt(val));
-            } else if (MoreLikeThisHelperUtil.MLT_MAX_WORD_LENGTH.equals(key)) {
-                mlt.maxWordLength(Integer.parseInt(val));
-            } else if (MoreLikeThisHelperUtil.MLT_MIN_WORD_LENGTH.equals(key)) {
-                mlt.minWordLength(Integer.parseInt(val));
-            } else if (MoreLikeThisHelperUtil.MLT_MIN_SHOULD_MATCH.equals(key)) {
-                mlt.minimumShouldMatch(val);
-            } else if (MoreLikeThisHelperUtil.MLT_STOP_WORDS.equals(key)) {
+        if (!shallowMltParams.isEmpty()) {
+            BiConsumer<String, Consumer<String>> mltParamSetter = (key, setter) -> {
+                String val = shallowMltParams.remove(key);
+                if (val != null) {
+                    setter.accept(val);
+                }
+            };
+
+            mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MIN_DOC_FREQ, (val) -> mlt.minDocFreq(Integer.parseInt(val)));
+            mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MIN_TERM_FREQ, (val) -> mlt.minTermFreq(Integer.parseInt(val)));
+            mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_BOOST_FACTOR, (val) -> mlt.boost(Float.parseFloat(val)));
+            mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MAX_DOC_FREQ, (val) -> mlt.maxDocFreq(Integer.parseInt(val)));
+            mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MAX_QUERY_TERMS, (val) -> mlt.maxQueryTerms(Integer.parseInt(val)));
+            mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MAX_WORD_LENGTH, (val) -> mlt.maxWordLength(Integer.parseInt(val)));
+            mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MIN_WORD_LENGTH, (val) -> mlt.minWordLength(Integer.parseInt(val)));
+            mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_MIN_SHOULD_MATCH, mlt::minimumShouldMatch);
+            mltParamSetter.accept(MoreLikeThisHelperUtil.MLT_STOP_WORDS, (val) -> {
                 // TODO : Read this from a stopwords text file, configured via index defn maybe ?
                 String[] stopWords = val.split(",");
                 mlt.stopWords(stopWords);
-            } else {
-                LOG.warn("Unrecognized param {} in the mlt query {}", key, mltQueryString);
+            });
+
+            if (!shallowMltParams.isEmpty()) {
+                LOG.warn("mlt query contains unrecognized params {} that will be skipped", shallowMltParams);
             }
         }
 
@@ -422,20 +511,32 @@ public class ElasticRequestHandler {
             }
 
             private boolean visitTerm(String propertyName, String text, String boost, boolean not) {
-                QueryBuilder q = fullTextQuery(text, getElasticFieldName(propertyName), pr);
+                // base query
+                QueryBuilder fullTextQuery = fullTextQuery(text, getElasticFieldName(propertyName), pr);
                 if (boost != null) {
-                    q.boost(Float.parseFloat(boost));
+                    fullTextQuery.boost(Float.parseFloat(boost));
                 }
+                BoolQueryBuilder boolQueryBuilder = boolQuery().must(fullTextQuery);
+                // add dynamic boosts in SHOULD if available
+                Stream<QueryBuilder> dynamicScoreQueries = dynamicScoreQueries(text);
+                dynamicScoreQueries.forEach(boolQueryBuilder::should);
+
                 if (not) {
-                    BoolQueryBuilder bq = boolQuery().mustNot(q);
+                    BoolQueryBuilder bq = boolQuery().mustNot(boolQueryBuilder);
                     result.set(bq);
                 } else {
-                    result.set(q);
+                    result.set(boolQueryBuilder);
                 }
                 return true;
             }
         });
         return result.get();
+    }
+
+    private Stream<QueryBuilder> dynamicScoreQueries(String text) {
+        return elasticIndexDefinition.getDynamicBoostProperties().stream()
+                .map(pd -> nestedQuery(pd.nodeName, functionScoreQuery(matchQuery(pd.nodeName + ".value", text),
+                        ScoreFunctionBuilders.fieldValueFactorFunction(pd.nodeName + ".boost")), ScoreMode.Avg));
     }
 
     private List<QueryBuilder> nonFullTextConstraints(IndexPlan plan, PlanResult planResult) {
@@ -475,7 +576,7 @@ public class ElasticRequestHandler {
                 }
                 break;
             case PARENT:
-                if (denotesRoot(path)) {
+                if (PathUtils.denotesRoot(path)) {
                     // there's no parent of the root node
                     // we add a path that can not possibly occur because there
                     // is no way to say "match no documents" in Lucene
@@ -486,10 +587,10 @@ public class ElasticRequestHandler {
                     if (planResult.isPathTransformed()) {
                         String parentPathSegment = planResult.getParentPathSegment();
                         if (!any.test(PathUtils.elements(parentPathSegment), "*")) {
-                            queries.add(newPathQuery(getParentPath(path) + parentPathSegment));
+                            queries.add(newPathQuery(PathUtils.getParentPath(path) + parentPathSegment));
                         }
                     } else {
-                        queries.add(newPathQuery(getParentPath(path)));
+                        queries.add(newPathQuery(PathUtils.getParentPath(path)));
                     }
                 }
                 break;
@@ -543,10 +644,9 @@ public class ElasticRequestHandler {
     }
 
     public BoolQueryBuilder suggestionMatchQuery(String suggestion) {
-        QueryBuilder qb = new MatchBoolPrefixQueryBuilder(FieldNames.SUGGEST + ".suggestion", suggestion).operator(Operator.AND);
+        QueryBuilder qb = new MatchBoolPrefixQueryBuilder(FieldNames.SUGGEST + ".value", suggestion).operator(Operator.AND);
         NestedQueryBuilder nestedQueryBuilder = nestedQuery(FieldNames.SUGGEST, qb, ScoreMode.Max);
-        InnerHitBuilder in = new InnerHitBuilder().setSize(100);
-        nestedQueryBuilder.innerHit(in);
+        nestedQueryBuilder.innerHit(new InnerHitBuilder().setSize(100));
         BoolQueryBuilder query = boolQuery()
                 .must(nestedQueryBuilder);
         nonFullTextConstraints(indexPlan, planResult).forEach(query::must);
@@ -635,6 +735,7 @@ public class ElasticRequestHandler {
         } else {
             return matchQuery(fieldName, text).operator(Operator.AND);
         }
+
     }
 
     private QueryBuilder createQuery(String propertyName, Filter.PropertyRestriction pr,
@@ -656,7 +757,7 @@ public class ElasticRequestHandler {
         QueryBuilder in;
         switch (propType) {
             case PropertyType.DATE: {
-                in = newPropertyRestrictionQuery(field, pr, value -> parse(value.getValue(Type.DATE)).getTime());
+                in = newPropertyRestrictionQuery(field, pr, value -> parse(value.getValue(Type.DATE)).getTimeInMillis());
                 break;
             }
             case PropertyType.DOUBLE: {

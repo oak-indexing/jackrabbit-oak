@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import javax.jcr.PropertyType;
 import javax.jcr.RepositoryException;
@@ -84,6 +85,7 @@ import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.REINDEX_COU
 import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.*;
 import static org.apache.jackrabbit.oak.plugins.index.search.PropertyDefinition.DEFAULT_BOOST;
 import static org.apache.jackrabbit.oak.plugins.index.search.util.ConfigUtil.getOptionalValue;
+import static org.apache.jackrabbit.oak.plugins.index.search.util.ConfigUtil.getOptionalValues;
 import static org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState.EMPTY_NODE;
 import static org.apache.jackrabbit.oak.spi.nodetype.NodeTypeConstants.JCR_NODE_TYPES;
 import static org.apache.jackrabbit.oak.spi.nodetype.NodeTypeConstants.NODE_TYPES_PATH;
@@ -175,7 +177,7 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
      * native sort order
      */
     public static final OrderEntry NATIVE_SORT_ORDER = new OrderEntry(JCR_SCORE, Type.UNDEFINED,
-        OrderEntry.Order.DESCENDING);
+            OrderEntry.Order.DESCENDING);
 
     protected final boolean fullTextEnabled;
 
@@ -361,7 +363,7 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
             this.definition = defn;
             this.indexPath = checkNotNull(indexPath);
             this.indexName = indexPath;
-            this.indexTags = getOptionalStrings(defn, IndexConstants.INDEX_TAGS);
+            this.indexTags = getOptionalValues(defn, IndexConstants.INDEX_TAGS, Type.STRINGS, String.class);
             this.nodeTypeIndex = getOptionalValue(defn, FulltextIndexConstants.PROP_INDEX_NODE_TYPE, false);
 
             this.blobSize = getOptionalValue(defn, BLOB_SIZE, DEFAULT_BLOB_SIZE);
@@ -410,7 +412,7 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
             this.scorerProviderName = getOptionalValue(defn, FulltextIndexConstants.PROP_SCORER_PROVIDER, null);
             this.reindexCount = getOptionalValue(defn, REINDEX_COUNT, 0);
             this.pathFilter = PathFilter.from(new ReadOnlyBuilder(defn));
-            this.queryPaths = getOptionalStrings(defn, IndexConstants.QUERY_PATHS);
+            this.queryPaths = getOptionalValues(defn, IndexConstants.QUERY_PATHS, Type.STRINGS, String.class);
             this.suggestAnalyzed = evaluateSuggestAnalyzed(defn, false);
 
             {
@@ -677,8 +679,7 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
 
     @Nullable
     public Aggregate getAggregate(String nodeType){
-        Aggregate agg = aggregates.get(nodeType);
-        return agg;
+        return aggregates.get(nodeType);
     }
 
     private Map<String, Aggregate> collectAggregates(NodeState defn) {
@@ -727,8 +728,7 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
         List<IndexingRule> rules = null;
         List<IndexingRule> r = indexRules.get(primaryNodeType);
         if (r != null) {
-            rules = new ArrayList<IndexingRule>();
-            rules.addAll(r);
+            rules = new ArrayList<>(r);
         }
 
         if (rules != null) {
@@ -757,15 +757,14 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
         List<IndexingRule> rules = null;
         List<IndexingRule> r = indexRules.get(getPrimaryTypeName(state));
         if (r != null) {
-            rules = new ArrayList<IndexingRule>();
-            rules.addAll(r);
+            rules = new ArrayList<>(r);
         }
 
         for (String name : getMixinTypeNames(state)) {
             r = indexRules.get(name);
             if (r != null) {
                 if (rules == null) {
-                    rules = new ArrayList<IndexingRule>();
+                    rules = new ArrayList<>();
                 }
                 rules.addAll(r);
             }
@@ -818,11 +817,7 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
 
             for (String ntName : ntNames) {
                 if (ntReg.isNodeType(ntName, rule.getNodeTypeName())) {
-                    List<IndexingRule> perNtConfig = nt2rules.get(ntName);
-                    if (perNtConfig == null) {
-                        perNtConfig = new ArrayList<IndexingRule>();
-                        nt2rules.put(ntName, perNtConfig);
-                    }
+                    List<IndexingRule> perNtConfig = nt2rules.computeIfAbsent(ntName, k -> new ArrayList<>());
                     log.trace("Registering rule '{}' for name '{}'", rule, ntName);
                     perNtConfig.add(new IndexingRule(rule, ntName));
                 }
@@ -834,11 +829,6 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
         }
 
         return ImmutableMap.copyOf(nt2rules);
-    }
-
-    private boolean areAllTypesIndexed() {
-        IndexingRule ntBaseRule = getApplicableIndexingRule(NT_BASE);
-        return ntBaseRule != null;
     }
 
     private boolean evaluateSuggestionEnabled() {
@@ -919,6 +909,9 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
          * Case insensitive map of lower cased propertyName to propertyConfigs
          */
         private final Map<String, PropertyDefinition> propConfigs;
+        /**
+         * List of {@code NamePattern}s configured for this rule
+         */
         private final List<NamePattern> namePatterns;
         private final List<PropertyDefinition> nullCheckEnabledProperties;
         private final List<PropertyDefinition> functionRestrictions;
@@ -1065,6 +1058,10 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
             return similarityProperties;
         }
 
+        public Stream<PropertyDefinition> getNamePatternsProperties() {
+            return namePatterns.stream().map(NamePattern::getConfig);
+        }
+
         @Override
         public String toString() {
             String str = "IndexRule: "+ nodeTypeName;
@@ -1144,7 +1141,7 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
         }
 
         public boolean includePropertyType(int type){
-           return IndexDefinition.includePropertyType(propertyTypes, type);
+            return IndexDefinition.includePropertyType(propertyTypes, type);
         }
 
         public Aggregate getAggregate() {
@@ -1182,7 +1179,7 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
 
             if (propNode.exists() && !hasOrderableChildren(propNode)){
                 log.warn("Properties node for [{}] does not have orderable " +
-                    "children in [{}]", this, IndexDefinition.this);
+                        "children in [{}]", this, IndexDefinition.this);
             }
 
             //In case of a pure nodetype index we just index primaryType and mixins
@@ -1247,8 +1244,8 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
 
                     //Include props with name, boosted and nodeScopeIndex
                     if (pd.nodeScopeIndex
-                        && pd.analyzed
-                        && !pd.isRegexp){
+                            && pd.analyzed
+                            && !pd.isRegexp){
                         nodeScopeAnalyzedProps.add(pd);
                     }
 
@@ -1497,7 +1494,7 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
             }
         }
 
-        List<String> propNames = new ArrayList<String>(propNamesSet);
+        List<String> propNames = new ArrayList<>(propNamesSet);
 
         final String includeAllProp = FulltextIndexConstants.REGEX_ALL_PROPS;
         if (fullTextEnabled
@@ -1608,7 +1605,7 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
 
     private static Set<String> getMultiProperty(NodeState definition, String propName){
         PropertyState pse = definition.getProperty(propName);
-        return pse != null ? ImmutableSet.copyOf(pse.getValue(Type.STRINGS)) : Collections.<String>emptySet();
+        return pse != null ? ImmutableSet.copyOf(pse.getValue(Type.STRINGS)) : Collections.emptySet();
     }
 
     private static Set<String> toLowerCase(Set<String> values) {
@@ -1774,14 +1771,6 @@ public class IndexDefinition implements Aggregate.AggregateMapper {
         }
 
         return result;
-    }
-
-    private static String[] getOptionalStrings(NodeState defn, String propertyName) {
-        PropertyState ps = defn.getProperty(propertyName);
-        if (ps != null) {
-            return Iterables.toArray(ps.getValue(Type.STRINGS), String.class);
-        }
-        return null;
     }
 
     private static IndexFormatVersion versionFrom(PropertyState ps){

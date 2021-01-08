@@ -82,7 +82,7 @@ public abstract class FulltextIndex implements AdvancedQueryIndex, QueryIndex, N
 
     protected abstract Predicate<NodeState> getIndexDefinitionPredicate();
 
-    protected abstract String getFulltextRequestString(IndexPlan plan, IndexNode indexNode);
+    protected abstract String getFulltextRequestString(IndexPlan plan, IndexNode indexNode, NodeState rootState);
 
     /**
      * Whether replaced indexes (that is, if a new version of the index is
@@ -153,7 +153,7 @@ public abstract class FulltextIndex implements AdvancedQueryIndex, QueryIndex, N
                     .append("(")
                     .append(path)
                     .append(") ");
-            sb.append(getFulltextRequestString(plan, index));
+            sb.append(getFulltextRequestString(plan, index, root));
             if (plan.getSortOrder() != null && !plan.getSortOrder().isEmpty()) {
                 sb.append(" ordering:").append(plan.getSortOrder());
             }
@@ -498,7 +498,9 @@ public abstract class FulltextIndex implements AdvancedQueryIndex, QueryIndex, N
                                 writer.endObject();
                                 return PropertyValues.newString(writer.toString());
                             }
-                        } catch (Exception e) {
+                        } catch (IOException | RuntimeException e) {
+                            LOG.warn(e.getMessage());
+                            LOG.debug(e.getMessage(), e);
                             throw new RuntimeException(e);
                         }
                     }

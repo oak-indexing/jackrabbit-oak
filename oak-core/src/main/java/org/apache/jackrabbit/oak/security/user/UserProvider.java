@@ -196,7 +196,7 @@ class UserProvider extends AuthorizableBaseProvider {
         } else {
             if (!(intermediateJcrPath.startsWith(relSysPath) ||
                 intermediateJcrPath.startsWith(userPath + '/' + relSysPath))) {
-                throw new ConstraintViolationException("System users must be located in the 'system' subtree of the user root.");
+                throw new ConstraintViolationException("System users must be located in the '"+relSysPath+"' subtree of the user root.");
             }
             relPath = intermediateJcrPath;
         }
@@ -290,8 +290,8 @@ class UserProvider extends AuthorizableBaseProvider {
      * @throws RepositoryException If an error occurs
      */
     private Tree createFolderNodes(@NotNull String nodeName,
-                                       boolean isGroup,
-                                       @Nullable String intermediatePath) throws RepositoryException {
+                                   boolean isGroup,
+                                   @Nullable String intermediatePath) throws RepositoryException {
         String authRoot = (isGroup) ? groupPath : userPath;
         String folderPath = new StringBuilder()
                 .append(authRoot)

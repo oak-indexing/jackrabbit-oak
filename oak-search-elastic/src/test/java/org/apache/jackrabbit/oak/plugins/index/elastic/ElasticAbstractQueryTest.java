@@ -50,12 +50,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import static com.google.common.collect.Lists.newArrayList;
 import static org.apache.jackrabbit.oak.plugins.index.CompositeIndexEditorProvider.compose;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NAME;
 import static org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition.BULK_FLUSH_INTERVAL_MS_DEFAULT;
+import static org.junit.Assert.assertEquals;
 
 public abstract class ElasticAbstractQueryTest extends AbstractQueryTest {
 
@@ -141,8 +143,7 @@ public abstract class ElasticAbstractQueryTest extends AbstractQueryTest {
         esConnection = elasticRule.useDocker() ? elasticRule.getElasticConnectionForDocker() :
                 elasticRule.getElasticConnectionFromString();
         ElasticIndexEditorProvider editorProvider = getElasticIndexEditorProvider(esConnection);
-        ElasticIndexProvider indexProvider = new ElasticIndexProvider(esConnection,
-                new ElasticMetricHandler(StatisticsProvider.NOOP));
+        ElasticIndexProvider indexProvider = new ElasticIndexProvider(esConnection, getMetricHandler());
 
         nodeStore = getNodeStore();
 
@@ -170,21 +171,25 @@ public abstract class ElasticAbstractQueryTest extends AbstractQueryTest {
         return oak.createContentRepository();
     }
 
+    protected ElasticMetricHandler getMetricHandler() {
+        return new ElasticMetricHandler(StatisticsProvider.NOOP);
+    }
+
     protected void assertEventually(Runnable r) {
         ElasticTestUtils.assertEventually(r,
                 ((useAsyncIndexing() ? DEFAULT_ASYNC_INDEXING_TIME_IN_SECONDS : 0) + BULK_FLUSH_INTERVAL_MS_DEFAULT) * 5);
     }
 
     protected IndexDefinitionBuilder createIndex(String... propNames) {
-        return createIndex(true, propNames);
+        return createIndex(true, "nt:base", propNames);
     }
 
-    protected IndexDefinitionBuilder createIndex(boolean isPropertyIndex, String... propNames) {
+    protected IndexDefinitionBuilder createIndex(boolean isPropertyIndex, String nodeType, String... propNames) {
         IndexDefinitionBuilder builder = new ElasticIndexDefinitionBuilder();
         if (!useAsyncIndexing()) {
             builder = builder.noAsync();
         }
-        IndexDefinitionBuilder.IndexRule indexRule = builder.indexRule("nt:base");
+        IndexDefinitionBuilder.IndexRule indexRule = builder.indexRule(nodeType);
         if (isPropertyIndex) {
             for (String propName : propNames) {
                 indexRule.property(propName).propertyIndex();
@@ -241,6 +246,11 @@ public abstract class ElasticAbstractQueryTest extends AbstractQueryTest {
                 nodeStore.getRoot().getChildNode(INDEX_DEFINITIONS_NAME).getChildNode(index.getName()),
                 index.getPath(),
                 esConnection.getIndexPrefix());
+    }
+
+    protected void assertOrderedQuery(String sql, List<String> paths) {
+        List<String> result = executeQuery(sql, AbstractQueryTest.SQL2, true, true);
+        assertEquals(paths, result);
     }
 
 }
