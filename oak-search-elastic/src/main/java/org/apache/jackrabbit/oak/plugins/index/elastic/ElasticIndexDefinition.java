@@ -98,6 +98,7 @@ public class ElasticIndexDefinition extends IndexDefinition {
 
     private final Map<String, List<PropertyDefinition>> propertiesByName;
     private final List<PropertyDefinition> dynamicBoostProperties;
+    private final List<PropertyDefinition> similarityProperties;
 
     public ElasticIndexDefinition(NodeState root, NodeState defn, String indexPath, String indexPrefix) {
         super(root, defn, determineIndexFormatVersion(defn), determineUniqueId(defn), indexPath);
@@ -121,6 +122,11 @@ public class ElasticIndexDefinition extends IndexDefinition {
                 .flatMap(IndexingRule::getNamePatternsProperties)
                 .filter(pd -> pd.dynamicBoost)
                 .collect(Collectors.toList());
+
+        this.similarityProperties = getDefinedRules()
+                .stream()
+                .flatMap(rule -> rule.getSimilarityProperties().stream())
+                .collect(Collectors.toList());
     }
 
     /**
@@ -138,6 +144,10 @@ public class ElasticIndexDefinition extends IndexDefinition {
 
     public List<PropertyDefinition> getDynamicBoostProperties() {
         return dynamicBoostProperties;
+    }
+
+    public List<PropertyDefinition> getSimilarityProperties() {
+        return similarityProperties;
     }
 
     /**
@@ -180,6 +190,11 @@ public class ElasticIndexDefinition extends IndexDefinition {
     public boolean indexOriginalTerms() {
         NodeState analyzersTree = definition.getChildNode(ANALYZERS);
         return getOptionalValue(analyzersTree, INDEX_ORIGINAL_TERM, false);
+    }
+
+    @Override
+    protected PropertyDefinition createPropertyDefinition(IndexDefinition.IndexingRule rule, String name, NodeState nodeState) {
+        return new ElasticPropertyDefinition(rule, name, nodeState);
     }
 
     /**

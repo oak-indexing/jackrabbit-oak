@@ -21,6 +21,7 @@ import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
+import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticPropertyDefinition;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.facets.ElasticFacetProvider;
 import org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils;
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
@@ -166,10 +167,7 @@ public class ElasticRequestHandler {
 
         if (propertyRestrictionQuery != null) {
             if (propertyRestrictionQuery.startsWith("mlt?")) {
-                List<PropertyDefinition> sp = new LinkedList<>();
-                for (IndexDefinition.IndexingRule r : elasticIndexDefinition.getDefinedRules()) {
-                    sp.addAll(r.getSimilarityProperties());
-                }
+                List<PropertyDefinition> sp = elasticIndexDefinition.getSimilarityProperties();
                 String mltQueryString = propertyRestrictionQuery.substring("mlt?".length());
                 Map<String, String> mltParams = MoreLikeThisHelperUtil.getParamMapFromMltQuery(mltQueryString);
                 String text = mltParams.get(MoreLikeThisHelperUtil.MLT_STREAM_BODY);
@@ -193,11 +191,11 @@ public class ElasticRequestHandler {
                 } else {
                     boolQuery.must(similarityQuery(text, sp));
                     // add should clause to improve relevance using similarity tags
-                    boolQuery.should(moreLikeThisQuery(
-                            new String[]{ElasticIndexDefinition.SIMILARITY_TAGS}, null,
-                            new Item[]{new Item(null, ElasticIndexUtils.idFromPath(text))})
-                            .minTermFreq(1).minDocFreq(1)
-                    );
+//                    boolQuery.should(moreLikeThisQuery(
+//                            new String[]{ElasticIndexDefinition.SIMILARITY_TAGS}, null,
+//                            new Item[]{new Item(null, ElasticIndexUtils.idFromPath(text))})
+//                            .minTermFreq(1).minDocFreq(1)
+//                    );
                 }
             } else {
                 boolQuery.must(queryStringQuery(propertyRestrictionQuery));
@@ -317,7 +315,8 @@ public class ElasticRequestHandler {
             if (!targetNodeState.exists()) {
                 throw new IllegalArgumentException("Could not find node " + text);
             }
-            for (PropertyDefinition pd : sp) {
+            for (PropertyDefinition propertyDefinition : sp) {
+                ElasticPropertyDefinition pd = (ElasticPropertyDefinition) propertyDefinition;
                 String propertyPath = PathUtils.getParentPath(pd.name);
                 String propertyName = PathUtils.getName(pd.name);
                 NodeState tempState = targetNodeState;
@@ -360,10 +359,10 @@ public class ElasticRequestHandler {
                         }
                         contentBuilder.endObject();
                         //todo read these from index configuration
-                        contentBuilder.field("model", "lsh");
-                        contentBuilder.field("similarity", "l2");
-                        contentBuilder.field("candidates", 50);
-                        contentBuilder.field("probes", 2);
+                        contentBuilder.field("model", pd.getSimilaritySearchParameters().getModel());
+                        contentBuilder.field("similarity", pd.getSimilaritySearchParameters().getSimilarity());
+                        contentBuilder.field("candidates", pd.getSimilaritySearchParameters().getCandidates());
+                        contentBuilder.field("probes", pd.getSimilaritySearchParameters().getProbes());
                     }
                     contentBuilder.endObject();
                     contentBuilder.endObject();
