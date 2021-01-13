@@ -77,6 +77,12 @@ public class ElasticIndexDefinition extends IndexDefinition {
      */
     private static final String INDEX_ORIGINAL_TERM = "indexOriginalTerm";
 
+    private static final String SIMILARITY_TAGS_ENABLED = "similarityTagsEnabled";
+    private static final boolean SIMILARITY_TAGS_ENABLED_DEFAULT = true;
+
+    private static final String SIMILARITY_TAGS_BOOST = "similarityTagsBoost";
+    private static final float SIMILARITY_TAGS_BOOST_DEFAULT = 0.5f;
+
     private static final Function<Integer, Boolean> isAnalyzable;
 
     static {
@@ -93,6 +99,8 @@ public class ElasticIndexDefinition extends IndexDefinition {
     public final int bulkRetries;
     public final long bulkRetriesBackoff;
     private final String remoteAlias;
+    private final boolean similarityTagsEnabled;
+    private final float similarityTagsBoost;
     public final int numberOfShards;
     public final int numberOfReplicas;
 
@@ -110,6 +118,8 @@ public class ElasticIndexDefinition extends IndexDefinition {
         this.bulkRetriesBackoff = getOptionalValue(defn, BULK_RETRIES_BACKOFF, BULK_RETRIES_BACKOFF_DEFAULT);
         this.numberOfShards = getOptionalValue(defn, NUMBER_OF_SHARDS, NUMBER_OF_SHARDS_DEFAULT);
         this.numberOfReplicas = getOptionalValue(defn, NUMBER_OF_REPLICAS, NUMBER_OF_REPLICAS_DEFAULT);
+        this.similarityTagsEnabled = getOptionalValue(defn, SIMILARITY_TAGS_ENABLED, SIMILARITY_TAGS_ENABLED_DEFAULT);
+        this.similarityTagsBoost = getOptionalValue(defn, SIMILARITY_TAGS_BOOST, SIMILARITY_TAGS_BOOST_DEFAULT);
 
         this.propertiesByName = getDefinedRules()
                 .stream()
@@ -148,6 +158,14 @@ public class ElasticIndexDefinition extends IndexDefinition {
 
     public List<PropertyDefinition> getSimilarityProperties() {
         return similarityProperties;
+    }
+
+    public boolean areSimilarityTagsEnabled() {
+        return similarityTagsEnabled;
+    }
+
+    public float getSimilarityTagsBoost() {
+        return similarityTagsBoost;
     }
 
     /**

@@ -79,7 +79,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -170,9 +169,9 @@ public class ElasticRequestHandler {
                 List<PropertyDefinition> sp = elasticIndexDefinition.getSimilarityProperties();
                 String mltQueryString = propertyRestrictionQuery.substring("mlt?".length());
                 Map<String, String> mltParams = MoreLikeThisHelperUtil.getParamMapFromMltQuery(mltQueryString);
-                String text = mltParams.get(MoreLikeThisHelperUtil.MLT_STREAM_BODY);
+                String queryNodePath = mltParams.get(MoreLikeThisHelperUtil.MLT_STREAM_BODY);
 
-                if (text == null) {
+                if (queryNodePath == null) {
                     // TODO : See if we might want to support like Text here (passed as null in above constructors)
                     // IT is not supported in our lucene implementation.
                     throw new IllegalArgumentException("Missing required field stream.body in MLT query: " + mltQueryString);
@@ -189,13 +188,15 @@ public class ElasticRequestHandler {
                             .minTermFreq(1).minDocFreq(1)
                     );
                 } else {
-                    boolQuery.must(similarityQuery(text, sp));
-                    // add should clause to improve relevance using similarity tags
-//                    boolQuery.should(moreLikeThisQuery(
-//                            new String[]{ElasticIndexDefinition.SIMILARITY_TAGS}, null,
-//                            new Item[]{new Item(null, ElasticIndexUtils.idFromPath(text))})
-//                            .minTermFreq(1).minDocFreq(1)
-//                    );
+                    boolQuery.must(similarityQuery(queryNodePath, sp));
+                    if (elasticIndexDefinition.areSimilarityTagsEnabled()) {
+                        // add should clause to improve relevance using similarity tags
+                        boolQuery.should(moreLikeThisQuery(
+                                new String[]{ElasticIndexDefinition.SIMILARITY_TAGS}, null,
+                                new Item[]{new Item(null, ElasticIndexUtils.idFromPath(queryNodePath))})
+                                .minTermFreq(1).minDocFreq(1).boost(elasticIndexDefinition.getSimilarityTagsBoost())
+                        );
+                    }
                 }
             } else {
                 boolQuery.must(queryStringQuery(propertyRestrictionQuery));
