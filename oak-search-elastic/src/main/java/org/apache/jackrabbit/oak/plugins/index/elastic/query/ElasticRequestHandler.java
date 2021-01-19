@@ -360,8 +360,8 @@ public class ElasticRequestHandler {
                         }
                         contentBuilder.endObject();
                         //todo read these from index configuration
-                        contentBuilder.field("model", pd.getSimilaritySearchParameters().getModel());
-                        contentBuilder.field("similarity", pd.getSimilaritySearchParameters().getSimilarity());
+                        contentBuilder.field("model", pd.getSimilaritySearchParameters().getQueryModel());
+                        contentBuilder.field("similarity", pd.getSimilaritySearchParameters().getQueryTimeSimilarityFunction());
                         contentBuilder.field("candidates", pd.getSimilaritySearchParameters().getCandidates());
                         contentBuilder.field("probes", pd.getSimilaritySearchParameters().getProbes());
                     }

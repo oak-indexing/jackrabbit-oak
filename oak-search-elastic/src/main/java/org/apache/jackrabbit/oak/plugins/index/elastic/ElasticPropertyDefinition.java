@@ -26,18 +26,43 @@ public class ElasticPropertyDefinition extends PropertyDefinition {
 
     SimilaritySearchParameters similaritySearchParameters;
 
+    public static final String PROP_QUERY_MODEL = "queryModel";
+    public static final String PROP_NUMBER_OF_HASH_TABLES = "L";
+    public static final String PROP_NUMBER_OF_HASH_FUNCTIONS = "k";
+    public static final String PROP_NUMBER_OF_BUCKETS = "w";
+    public static final String PROP_INDEX_SIMILARITY = "indexSimilarity";
+    public static final String PROP_QUERY_SIMILARITY = "querySimilarity";
+    public static final String PROP_CANDIDATES = "candidates";
+    public static final String PROP_PROBES = "probes";
+
+    private static final int DEFAULT_NUMBER_OF_HASH_TABLES = 20;
+    private static final int DEFAULT_NO_OF_HASH_FUNCTIONS = 15;
+    private static final int DEFAULT_BUCKET_WIDTH = 500;
+    private static final String DEFAULT_SIMILARITY_QUERY_MODEL = "lsh";
+    private static final String DEFAULT_SIMILARITY_INDEX_FUNCTION = "l2";
+    private static final String DEFAULT_SIMILARITY_QUERY_FUNCTION = "l2";
+    private static final int DEFAULT_QUERY_CANDIDATES = 500;
+    private static final int DEFAULT_QUERY_PROBES = 3;
+
+
     public ElasticPropertyDefinition(IndexDefinition.IndexingRule idxDefn, String nodeName, NodeState defn) {
         super(idxDefn, nodeName, defn);
         if (this.useInSimilarity) {
-            similaritySearchParameters = new SimilaritySearchParameters(getOptionalValue(defn, "L", 20),
-                    getOptionalValue(defn, "k", 15), getOptionalValue(defn, "w", 500),
-                    getOptionalValue(defn, "model", "lsh"), getOptionalValue(defn, "similarity", "l2"),
-                    getOptionalValue(defn, "candidates", 500), getOptionalValue(defn, "probes", 3));
+            similaritySearchParameters = new SimilaritySearchParameters(
+                    getOptionalValue(defn, PROP_NUMBER_OF_HASH_TABLES, DEFAULT_NUMBER_OF_HASH_TABLES),
+                    getOptionalValue(defn, PROP_NUMBER_OF_HASH_FUNCTIONS, DEFAULT_NO_OF_HASH_FUNCTIONS),
+                    getOptionalValue(defn, PROP_NUMBER_OF_BUCKETS, DEFAULT_BUCKET_WIDTH),
+                    getOptionalValue(defn, PROP_QUERY_MODEL, DEFAULT_SIMILARITY_QUERY_MODEL),
+                    getOptionalValue(defn, PROP_INDEX_SIMILARITY, DEFAULT_SIMILARITY_INDEX_FUNCTION),
+                    getOptionalValue(defn, PROP_QUERY_SIMILARITY, DEFAULT_SIMILARITY_QUERY_FUNCTION),
+                    getOptionalValue(defn, PROP_CANDIDATES, DEFAULT_QUERY_CANDIDATES),
+                    getOptionalValue(defn, PROP_PROBES, DEFAULT_QUERY_PROBES));
         }
     }
 
     /**
-     * Class for defining parameters for similarity search based on https://elastiknn.com/api
+     * Class for defining parameters for similarity search based on https://elastiknn.com/api.
+     * For all possible models and query combinations, see https://elastiknn.com/api/#model-and-query-compatibility
      */
     public static class SimilaritySearchParameters {
 
@@ -56,11 +81,15 @@ public class ElasticPropertyDefinition extends PropertyDefinition {
         /**
          * Possible values - lsh, exact
          */
-        private final String model;
+        private final String queryModel;
         /**
          * Possible values l2 (with lsh or exact model), l1 (with exact model), A (angular distance - with exact model)
          */
-        private final String similarity;
+        private final String queryTimeSimilarityFunction;
+        /**
+         * Possible values l2 (with lsh or exact model), l1 (with exact model), A (angular distance - with exact model)
+         */
+        private final String indexTimeSimilarityFunction;
         /**
          * Take the top vectors with the most matching hashes and compute their exact similarity to the query vector. The candidates parameter
          * controls the number of exact similarity computations. Specifically, we compute exact similarity for the top candidates candidate vectors
@@ -76,12 +105,14 @@ public class ElasticPropertyDefinition extends PropertyDefinition {
          */
         private final int probes;
 
-        public SimilaritySearchParameters(int l, int k, int w, String model, String similarity, int candidates, int probes) {
+        public SimilaritySearchParameters(int l, int k, int w, String queryModel, String indexTimeSimilarityFunction,
+                                          String queryTimeSimilarityFunction, int candidates, int probes) {
             L = l;
             this.k = k;
             this.w = w;
-            this.model = model;
-            this.similarity = similarity;
+            this.queryModel = queryModel;
+            this.indexTimeSimilarityFunction = indexTimeSimilarityFunction;
+            this.queryTimeSimilarityFunction = queryTimeSimilarityFunction;
             this.candidates = candidates;
             this.probes = probes;
         }
@@ -98,12 +129,16 @@ public class ElasticPropertyDefinition extends PropertyDefinition {
             return w;
         }
 
-        public String getModel() {
-            return model;
+        public String getQueryModel() {
+            return queryModel;
         }
 
-        public String getSimilarity() {
-            return similarity;
+        public String getQueryTimeSimilarityFunction() {
+            return queryTimeSimilarityFunction;
+        }
+
+        public String getIndexTimeSimilarityFunction() {
+            return indexTimeSimilarityFunction;
         }
 
         public int getCandidates() {

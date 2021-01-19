@@ -259,7 +259,7 @@ class ElasticIndexHelper {
                     //todo read these from index configuration
                     mappingBuilder.field(ES_DENSE_VECTOR_DIM_PROP, denseVectorSize);
                     mappingBuilder.field("model", "lsh");
-                    mappingBuilder.field("similarity", "l2");
+                    mappingBuilder.field("similarity", pd.getSimilaritySearchParameters().getIndexTimeSimilarityFunction());
                     mappingBuilder.field("L", pd.getSimilaritySearchParameters().getL());
                     mappingBuilder.field("k", pd.getSimilaritySearchParameters().getK());
                     mappingBuilder.field("w", pd.getSimilaritySearchParameters().getW());

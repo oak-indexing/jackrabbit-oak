@@ -224,35 +224,34 @@ public class ElasticSimilarQueryTest extends ElasticAbstractQueryTest {
     }
 
     @Test
-    public void vectorSimilarityCustomVectorSize() throws Exception {
+    public void vectorSimilarityElastiknnIndexConfiguration() throws Exception {
         final String indexName = "test1";
         final String fieldName1 = "fv1";
-        final String fieldName2 = "fv2";
         final String similarityFieldName1 = FieldNames.createSimilarityFieldName(fieldName1);
-        final String similarityFieldName2 = FieldNames.createSimilarityFieldName(fieldName2);
-        IndexDefinitionBuilder builder = createIndex(fieldName1, fieldName2);
-        builder.indexRule("nt:base").property(fieldName1).useInSimilarity(true).nodeScopeIndex()
-                .similaritySearchDenseVectorSize(10);
-        builder.indexRule("nt:base").property(fieldName2).useInSimilarity(true).nodeScopeIndex()
-                .similaritySearchDenseVectorSize(20);
+        IndexDefinitionBuilder builder = createIndex(fieldName1);
+        Tree tree = builder.indexRule("nt:base").property(fieldName1).useInSimilarity(true).nodeScopeIndex()
+                .similaritySearchDenseVectorSize(2048).getBuilderTree();
+        tree.setProperty(ElasticPropertyDefinition.PROP_INDEX_SIMILARITY, "angular");
+        tree.setProperty(ElasticPropertyDefinition.PROP_NUMBER_OF_HASH_TABLES, 10);
+        tree.setProperty(ElasticPropertyDefinition.PROP_NUMBER_OF_HASH_FUNCTIONS, 12);
+
         setIndex(indexName, builder);
         root.commit();
         String alias =  ElasticIndexNameHelper.getIndexAlias(esConnection.getIndexPrefix(), "/oak:index/" + indexName);
         GetFieldMappingsRequest fieldMappingsRequest = new GetFieldMappingsRequest();
-        fieldMappingsRequest.indices(alias).fields(similarityFieldName1, similarityFieldName2);
+        fieldMappingsRequest.indices(alias).fields(similarityFieldName1);
         GetFieldMappingsResponse mappingsResponse = esConnection.getClient().indices().
                 getFieldMapping(fieldMappingsRequest, RequestOptions.DEFAULT);
         final Map<String, Map<String, GetFieldMappingsResponse.FieldMappingMetadata>> mappings =
                 mappingsResponse.mappings();
         assertEquals("More than one index found", 1, mappings.keySet().size());
         @SuppressWarnings("unchecked")
-        Map<String, Integer> map1 = (Map<String, Integer>)mappings.entrySet().iterator().next().getValue().
-                get(similarityFieldName1).sourceAsMap().get(similarityFieldName1);
-        assertEquals("Dense vector size doesn't match", 10, map1.get("dims").intValue());
-        @SuppressWarnings("unchecked")
-        Map<String, Integer> map2 = (Map<String, Integer>)mappings.entrySet().iterator().next().getValue().
-                get(similarityFieldName2).sourceAsMap().get(similarityFieldName2);
-        assertEquals("Dense vector size doesn't match", 20, map2.get("dims").intValue());
+        Map<String, Object> map1 = (Map<String, Object>)(((Map<String, Object>)mappings.entrySet().iterator().next().getValue().
+                get(similarityFieldName1).sourceAsMap().get(similarityFieldName1)).get("elastiknn"));
+        assertEquals("Dense vector size doesn't match", 2048, (int)map1.get("dims"));
+        assertEquals("Similarity doesn't match", "angular", map1.get("similarity"));
+        assertEquals("Similarity doesn't match", 10, map1.get("L"));
+        assertEquals("Similarity doesn't match", 12, map1.get("k"));
     }
 
 

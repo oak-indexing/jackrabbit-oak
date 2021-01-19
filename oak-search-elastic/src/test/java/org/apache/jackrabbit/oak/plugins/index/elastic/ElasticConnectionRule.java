@@ -27,10 +27,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.elasticsearch.ElasticsearchContainer;
+import org.testcontainers.utility.MountableFile;
 
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.time.Duration;
 
 import static org.junit.Assume.assumeNotNull;
 
@@ -68,10 +70,14 @@ public class ElasticConnectionRule extends ExternalResource {
     public Statement apply(Statement base, Description description) {
         Statement s = super.apply(base, description);
         // see if docker is to be used or not... initialize docker rule only if that's the case.
-
+        final String pluginZip = "elastiknn-7.10.0.0.zip";
         if (elasticConnectionString == null || getElasticConnectionFromString() == null) {
             checkIfDockerClientAvailable();
-            elastic = new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:" + Version.CURRENT);
+            elastic = new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:" + Version.CURRENT)
+                .withCopyFileToContainer(MountableFile.forClasspathResource(pluginZip), "/tmp/plugins/" + pluginZip)
+                    .withCopyFileToContainer(MountableFile.forClasspathResource("elasticstartscript.sh"), "/tmp/elasticstartscript.sh")
+                    .withStartupTimeout(Duration.ofSeconds(60))
+                .withCommand("bash /tmp/elasticstartscript.sh");
             s = elastic.apply(s, description);
             setUseDocker(true);
         }
