@@ -43,7 +43,6 @@ import java.net.URISyntaxException;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.Duration;
 
 import static org.junit.Assume.assumeNotNull;
 
