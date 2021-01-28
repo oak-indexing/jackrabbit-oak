@@ -33,13 +33,18 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.net.URI;
 import java.nio.charset.Charset;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Scanner;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -299,6 +304,101 @@ public class ElasticSimilarQueryTest extends ElasticAbstractQueryTest {
             baseline.clear();
             baseline.addAll(current);
         }
+    }
+
+    private void createNodeWithFV(String imageName, String fv, Tree test) throws Exception {
+        String[] split = fv.split(",");
+        List<Double> values = Arrays.stream(split).map(Double::parseDouble).collect(Collectors.toList());
+        byte[] bytes = toByteArray(values);
+        List<Double> actual = toDoubles(bytes);
+        assertEquals(values, actual);
+        Blob blob = root.createBlob(new ByteArrayInputStream(bytes));
+        Tree child = test.addChild(imageName);
+        child.setProperty("fv", blob, Type.BINARY);
+    }
+
+    private void indexEntry(Scanner scanner, Tree test, Map<String, List<String>> expectedResults, int similarResultCount) throws Exception {
+        String lineRead = "";
+        List<String> similarities = new ArrayList<>();
+        //skip empty lines at the beginning
+        while (scanner.hasNextLine()) {
+            lineRead = scanner.nextLine();
+            if (!"".equals(lineRead)) {
+                break;
+            }
+        }
+        if ("".equals(lineRead)) {
+            // complete file read
+            return;
+        }
+        String imageName = lineRead;
+        expectedResults.put(lineRead, similarities);
+        String fv = scanner.nextLine();
+        createNodeWithFV(imageName, fv, test);
+        int resultCount = 0;
+        while (scanner.hasNextLine() && resultCount < similarResultCount) {
+            imageName = scanner.nextLine();
+            if ("".equals(imageName)) {
+                continue;
+            }
+            resultCount++;
+            fv = scanner.nextLine();
+            createNodeWithFV(imageName, fv, test);
+            similarities.add(imageName);
+        }
+    }
+
+    private void verifyLSHResults(Map<String, List<String>> expectedResults) {
+        for (String similarPath : expectedResults.keySet()) {
+            String query = "select [jcr:path] from [nt:base] where similar(., '" + "/test/" + similarPath + "')";
+            assertEventually(() -> {
+                Iterator<String> result = executeQuery(query, "JCR-SQL2", false, true).iterator();
+                List<String> expectedList = expectedResults.get(similarPath.substring(similarPath.lastIndexOf("/") + 1));
+                Set<String> found = new HashSet<>();
+                int resultNum = 0;
+                // Verify that the expected results are present in the top 10 results
+                while (resultNum < expectedList.size()) {
+                    String next = result.next();
+                    next = next.substring(next.lastIndexOf("/") + 1);
+                    found.add(next);
+                    resultNum++;
+                }
+                double per = (expectedList.stream().filter(found::contains).count() * 100.0)/expectedList.size();
+                assertEquals(100.0, per, 0.0);
+            });
+        }
+    }
+
+    @Test
+    public void vectorSimilarityLargeData() throws Exception {
+        final int similarImageCount = 10;
+        IndexDefinitionBuilder builder = createIndex("fv");
+        builder.indexRule("nt:base").property("fv").useInSimilarity(true).nodeScopeIndex();
+        setIndex("test1", builder);
+        root.commit();
+        Tree test = root.getTree("/").addChild("test");
+        /*
+        Image names and their feature vectors are written in this file with the image name first and its feature vector
+        in the line below.
+        This file contains test data in form of blocks and each block has following format -
+         Line 1: Query_Image_Name
+         Line 2: Feature Vector of Query_Image
+         Line 3: EMPTY_LINE
+         Lines 4-23: 10 Result images and their feature vectors
+         Line 24: EMPTY_LINE
+        Then this pattern repeats again with next Query Image name in line 25.
+         */
+        URI uri = getClass().getResource("/org/apache/jackrabbit/oak/query/imagedata.txt").toURI();
+        File inputFile = new File(uri);
+        Map<String, List<String>> expectedResults = new HashMap<>();
+
+        Scanner scanner = new Scanner(inputFile);
+        while (scanner.hasNextLine()) {
+            indexEntry(scanner, test, expectedResults, similarImageCount);
+        }
+        root.commit();
+
+        verifyLSHResults(expectedResults);
     }
 
     private void createIndex(boolean nativeQuery) throws Exception {
