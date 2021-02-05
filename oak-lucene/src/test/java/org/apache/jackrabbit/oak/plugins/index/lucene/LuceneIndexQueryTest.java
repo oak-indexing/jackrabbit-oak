@@ -22,9 +22,7 @@ import static org.apache.jackrabbit.JcrConstants.JCR_PRIMARYTYPE;
 import static org.apache.jackrabbit.JcrConstants.NT_UNSTRUCTURED;
 import static org.apache.jackrabbit.oak.api.Type.STRING;
 import static org.apache.jackrabbit.oak.api.Type.STRINGS;
-import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.REINDEX_PROPERTY_NAME;
 import static org.apache.jackrabbit.oak.plugins.index.lucene.TestUtil.useV2;
-import static org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants.PROP_VALUE_REGEX;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -46,7 +44,6 @@ import org.apache.jackrabbit.oak.spi.commit.Observer;
 import org.apache.jackrabbit.oak.spi.query.QueryIndexProvider;
 import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
 import org.junit.Assert;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import com.google.common.collect.ImmutableList;
@@ -110,52 +107,6 @@ public class LuceneIndexQueryTest extends AbstractQueryTest {
     }
 
     @Test
-    public void testValueRegex() throws Exception {
-        Tree test = root.getTree("/").addChild("test");
-        Tree a = test.addChild("a");
-        Tree b = test.addChild("b");
-        a.setProperty("name", "hello");
-        b.setProperty("name", "hello pattern");
-        root.commit();
-
-        final String query = "select [jcr:path] from [nt:base] where isdescendantnode('/test') and contains(*, 'hello')";
-
-        Iterator<String> result = executeQuery(query,"JCR-SQL2").iterator();
-        List<String> paths = new ArrayList<>();
-        result.forEachRemaining(paths::add);
-        assertEquals(2, paths.size());
-        assertEquals(paths.get(0), a.getPath());
-        assertEquals(paths.get(1), b.getPath());
-
-        indexDefn.setProperty(PROP_VALUE_REGEX, "pat*");
-        indexDefn.setProperty(REINDEX_PROPERTY_NAME, true);
-        root.commit();
-
-        result = executeQuery(query,"JCR-SQL2").iterator();
-        paths.clear();
-        result.forEachRemaining(paths::add);
-        assertEquals(1, paths.size());
-        assertEquals(paths.get(0), b.getPath());
-
-    }
-
-    @Test
-    public void descendantTest() throws Exception {
-        Tree test = root.getTree("/").addChild("test");
-        test.addChild("a");
-        test.addChild("b");
-        root.commit();
-
-        Iterator<String> result = executeQuery(
-            "select [jcr:path] from [nt:base] where isdescendantnode('/test')",
-            "JCR-SQL2").iterator();
-        assertTrue(result.hasNext());
-        assertEquals("/test/a", result.next());
-        assertEquals("/test/b", result.next());
-        assertFalse(result.hasNext());
-    }
-
-    @Test
     public void descendantTest2() throws Exception {
         Tree test = root.getTree("/").addChild("test");
         test.addChild("a").setProperty("name", asList("Hello", "World"), STRINGS);
@@ -193,31 +144,6 @@ public class LuceneIndexQueryTest extends AbstractQueryTest {
         assertEquals("/, /oak:index", result.next());
         assertEquals("/, /parents", result.next());
         assertFalse(result.hasNext());
-    }
-
-    @Test
-    public void contains() throws Exception {
-        String h = "Hello" + System.currentTimeMillis();
-        String w = "World" + System.currentTimeMillis();
-
-        Tree test = root.getTree("/").addChild("test");
-        test.addChild("a").setProperty("name", asList(h, w), STRINGS);
-        test.addChild("b").setProperty("name", h);
-        root.commit();
-
-        // query 'hello'
-        StringBuffer stmt = new StringBuffer();
-        stmt.append("/jcr:root//*[jcr:contains(., '").append(h);
-        stmt.append("')]");
-        assertQuery(stmt.toString(), "xpath",
-            ImmutableList.of("/test/a", "/test/b"));
-
-        // query 'world'
-        stmt = new StringBuffer();
-        stmt.append("/jcr:root//*[jcr:contains(., '").append(w);
-        stmt.append("')]");
-        assertQuery(stmt.toString(), "xpath", ImmutableList.of("/test/a"));
-
     }
 
     @Test
@@ -272,92 +198,6 @@ public class LuceneIndexQueryTest extends AbstractQueryTest {
         }
         Assert.assertEquals(expectedPlan, plan);
     }
-    @Ignore("OAK-2424")
-    @Test
-    public void containsDash() throws Exception {
-        Tree test = root.getTree("/").addChild("test");
-        test.addChild("a").setProperty("name", "hello-wor");
-        test.addChild("b").setProperty("name", "hello-world");
-        test.addChild("c").setProperty("name", "hello");
-        root.commit();
-
-        assertQuery("/jcr:root//*[jcr:contains(., 'hello-wor*')]", "xpath",
-            ImmutableList.of("/test/a", "/test/b"));
-        assertQuery("/jcr:root//*[jcr:contains(., '*hello-wor*')]", "xpath",
-            ImmutableList.of("/test/a", "/test/b"));
-
-    }
-
-    @Ignore("OAK-2424")
-    @Test
-    public void multiPhraseQuery() throws Exception {
-        Tree test = root.getTree("/").addChild("test");
-        test.addChild("a").setProperty("dc:format", "type:application/pdf");
-        test.addChild("b").setProperty("dc:format", "progress");
-        root.commit();
-
-        assertQuery(
-            "/jcr:root//*[jcr:contains(@dc:format, 'pro*')]",
-            "xpath", ImmutableList.of("/test/b"));
-
-
-        assertQuery(
-            "/jcr:root//*[jcr:contains(@dc:format, 'type:appli*')]",
-            "xpath", ImmutableList.of("/test/a"));
-
-    }
-
-    @Test
-    public void containsPath() throws Exception {
-
-        Tree test = root.getTree("/").addChild("test");
-        test.addChild("a").setProperty("name", "/parent/child/node");
-        root.commit();
-
-        StringBuffer stmt = new StringBuffer();
-        stmt.append("//*[jcr:contains(., '/parent/child')]");
-        assertQuery(stmt.toString(), "xpath", ImmutableList.of("/test/a"));
-
-    }
-
-    @Test
-    public void containsPathNum() throws Exception {
-        Tree test = root.getTree("/").addChild("test");
-        Tree a = test.addChild("a");
-        a.setProperty("name", "/segment1/segment2/segment3");
-        root.commit();
-
-        StringBuffer stmt = new StringBuffer();
-        stmt.append("//*[jcr:contains(., '/segment1/segment2')]");
-        assertQuery(stmt.toString(), "xpath", ImmutableList.of("/test/a"));
-
-    }
-
-    @Test
-    public void containsPathStrict() throws Exception {
-        root.getTree("/").addChild("matchOnPath");
-        root.getTree("/").addChild("match_on_path");
-        root.commit();
-
-        StringBuffer stmt = new StringBuffer();
-        stmt.append("//*[jcr:contains(., 'match')]");
-        assertQuery(stmt.toString(), "xpath",
-            ImmutableList.of("/match_on_path"));
-
-    }
-
-    @Test
-    public void containsPathStrictNum() throws Exception {
-        root.getTree("/").addChild("matchOnPath1234");
-        root.getTree("/").addChild("match_on_path1234");
-        root.commit();
-
-        StringBuffer stmt = new StringBuffer();
-        stmt.append("//*[jcr:contains(., 'match')]");
-        assertQuery(stmt.toString(), "xpath",
-            ImmutableList.of("/match_on_path1234"));
-
-    }
 
     /**
      * OAK-1208 property existence constraints break queries
@@ -383,20 +223,6 @@ public class LuceneIndexQueryTest extends AbstractQueryTest {
         stmt.append("//*[jcr:contains(., 'media') and (@p = 'dam/smartcollection' or @p = 'dam/collection') ]");
         assertQuery(stmt.toString(), "xpath",
             ImmutableList.of(one.getPath(), two.getPath()));
-    }
-
-    @Test
-    public void testNativeLuceneQuery() throws Exception {
-        String nativeQueryString = "select [jcr:path] from [nt:base] where native('lucene', 'title:foo -title:bar')";
-        Tree test = root.getTree("/").addChild("test");
-        test.addChild("a").setProperty("title", "foo");
-        test.addChild("b").setProperty("title", "bar");
-        root.commit();
-
-        Iterator<String> result = executeQuery(nativeQueryString, "JCR-SQL2").iterator();
-        assertTrue(result.hasNext());
-        assertEquals("/test/a", result.next());
-        assertFalse(result.hasNext());
     }
 
     @Test
@@ -455,16 +281,6 @@ public class LuceneIndexQueryTest extends AbstractQueryTest {
         assertEquals("/test/a", result.next());
         assertTrue(result.hasNext());
         assertEquals("/test/b", result.next());
-    }
-
-    @Test
-    public void testTokenizeCN() throws Exception {
-        Tree t = root.getTree("/").addChild("containsCN");
-        Tree one = t.addChild("one");
-        one.setProperty("t", "美女衬衫");
-        root.commit();
-        assertQuery("//*[jcr:contains(., '美女')]", "xpath",
-            ImmutableList.of(one.getPath()));
     }
 
     @Test

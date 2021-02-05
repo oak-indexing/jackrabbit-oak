@@ -113,9 +113,13 @@ public class ElasticDocumentMaker extends FulltextDocumentMaker<ElasticDocument>
         doc.addFulltext(value);
     }
 
+    /**
+     * We store the value in :fulltext only when the {@link PropertyDefinition} has a regular expression (that means we
+     * were not able to create a ft property at mapping time) or the property is not analyzed.
+     */
     @Override
     protected boolean isFulltextValuePersistedAtNode(PropertyDefinition pd) {
-        return !pd.analyzed;
+        return pd.isRegexp || !pd.analyzed;
     }
 
     @Override

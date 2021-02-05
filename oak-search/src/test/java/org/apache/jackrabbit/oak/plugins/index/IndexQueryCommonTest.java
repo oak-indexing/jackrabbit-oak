@@ -94,7 +94,6 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         test("sql2-fulltext.txt");
     }
 
-    @Ignore
     @Test
     public void testValueRegex() throws Exception {
         Tree test = root.getTree("/").addChild("test");
@@ -196,7 +195,6 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         });
     }
 
-    @Ignore
     @Test
     public void contains() throws Exception {
         String h = "Hello" + System.currentTimeMillis();
@@ -209,17 +207,14 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
 
         // query 'hello'
         final StringBuffer stmt = new StringBuffer();
-        stmt.append("/jcr:root//*[jcr:contains(., '").append(h);
-        stmt.append("')]");
+        stmt.append("/jcr:root//*[jcr:contains(., '").append(h).append("')]");
         assertEventually(() -> {
-            assertQuery(stmt.toString(), "xpath",
-                    ImmutableList.of("/test/a", "/test/b"));
+            assertQuery(stmt.toString(), "xpath", ImmutableList.of("/test/a", "/test/b"));
         });
 
         // query 'world'
         final StringBuffer stmt1 = new StringBuffer();
-        stmt1.append("/jcr:root//*[jcr:contains(., '").append(w);
-        stmt1.append("')]");
+        stmt1.append("/jcr:root//*[jcr:contains(., '").append(w).append("')]");
         assertEventually(() -> {
             assertQuery(stmt1.toString(), "xpath", ImmutableList.of("/test/a"));
         });
@@ -316,37 +311,29 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
 
     }
 
-    @Ignore
     @Test
     public void containsPath() throws Exception {
-
         Tree test = root.getTree("/").addChild("test");
         test.addChild("a").setProperty("name", "/parent/child/node");
         root.commit();
 
-        StringBuffer stmt = new StringBuffer();
-        stmt.append("//*[jcr:contains(., '/parent/child')]");
+        String stmt = "//*[jcr:contains(., '/parent/child')]";
         assertEventually(() -> {
-            assertQuery(stmt.toString(), "xpath", ImmutableList.of("/test/a"));
+            assertQuery(stmt, "xpath", ImmutableList.of("/test/a"));
         });
-
     }
 
-    @Ignore
     @Test
     public void containsPathNum() throws Exception {
-
         Tree test = root.getTree("/").addChild("test");
         Tree a = test.addChild("a");
         a.setProperty("name", "/segment1/segment2/segment3");
         root.commit();
 
-        StringBuffer stmt = new StringBuffer();
-        stmt.append("//*[jcr:contains(., '/segment1/segment2')]");
+        String stmt = "//*[jcr:contains(., '/segment1/segment2')]";
         assertEventually(() -> {
-            assertQuery(stmt.toString(), "xpath", ImmutableList.of("/test/a"));
+            assertQuery(stmt, "xpath", ImmutableList.of("/test/a"));
         });
-
     }
 
     @Test
@@ -355,11 +342,9 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         root.getTree("/").addChild("match_on_path");
         root.commit();
 
-        StringBuffer stmt = new StringBuffer();
-        stmt.append("//*[jcr:contains(., 'match')]");
+        String stmt = "//*[jcr:contains(., 'match')]";
         assertEventually(() -> {
-            assertQuery(stmt.toString(), "xpath",
-                    ImmutableList.of("/match_on_path"));
+            assertQuery(stmt, "xpath", ImmutableList.of("/match_on_path"));
         });
 
     }
@@ -370,11 +355,9 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         root.getTree("/").addChild("match_on_path1234");
         root.commit();
 
-        StringBuffer stmt = new StringBuffer();
-        stmt.append("//*[jcr:contains(., 'match')]");
+        String stmt = "//*[jcr:contains(., 'match')]";
         assertEventually(() -> {
-            assertQuery(stmt.toString(), "xpath",
-                    ImmutableList.of("/match_on_path1234"));
+            assertQuery(stmt, "xpath", ImmutableList.of("/match_on_path1234"));
         });
 
     }
@@ -495,7 +478,6 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         });
     }
 
-    @Ignore
     @Test
     public void testTokenizeCN() throws Exception {
         Tree t = root.getTree("/").addChild("containsCN");
