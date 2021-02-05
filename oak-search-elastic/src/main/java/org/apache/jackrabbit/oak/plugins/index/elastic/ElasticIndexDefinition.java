@@ -31,6 +31,7 @@ import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 import static org.apache.jackrabbit.oak.plugins.index.search.util.ConfigUtil.getOptionalValue;
+import static org.apache.jackrabbit.oak.plugins.index.search.util.ConfigUtil.getOptionalValues;
 
 public class ElasticIndexDefinition extends IndexDefinition {
 
@@ -56,6 +57,9 @@ public class ElasticIndexDefinition extends IndexDefinition {
 
     public static final String NUMBER_OF_REPLICAS = "numberOfReplicas";
     public static final int NUMBER_OF_REPLICAS_DEFAULT = 1;
+
+    public static final String QUERY_FETCH_SIZES = "queryFetchSizes";
+    public static final Long[] QUERY_FETCH_SIZES_DEFAULT = new Long[]{100L, 1000L};
 
     /**
      * Hidden property for storing a seed value to be used as suffix in remote index name.
@@ -103,6 +107,7 @@ public class ElasticIndexDefinition extends IndexDefinition {
     private final float similarityTagsBoost;
     public final int numberOfShards;
     public final int numberOfReplicas;
+    public final int[] queryFetchSizes;
 
     private final Map<String, List<PropertyDefinition>> propertiesByName;
     private final List<PropertyDefinition> dynamicBoostProperties;
@@ -120,6 +125,8 @@ public class ElasticIndexDefinition extends IndexDefinition {
         this.numberOfReplicas = getOptionalValue(defn, NUMBER_OF_REPLICAS, NUMBER_OF_REPLICAS_DEFAULT);
         this.similarityTagsEnabled = getOptionalValue(defn, SIMILARITY_TAGS_ENABLED, SIMILARITY_TAGS_ENABLED_DEFAULT);
         this.similarityTagsBoost = getOptionalValue(defn, SIMILARITY_TAGS_BOOST, SIMILARITY_TAGS_BOOST_DEFAULT);
+        this.queryFetchSizes = Arrays.stream(getOptionalValues(defn, QUERY_FETCH_SIZES, Type.LONGS, Long.class, QUERY_FETCH_SIZES_DEFAULT))
+                .mapToInt(Long::intValue).toArray();
 
         this.propertiesByName = getDefinedRules()
                 .stream()
