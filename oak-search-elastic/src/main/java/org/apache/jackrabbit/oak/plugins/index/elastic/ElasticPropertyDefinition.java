@@ -94,7 +94,7 @@ public class ElasticPropertyDefinition extends PropertyDefinition {
          * Take the top vectors with the most matching hashes and compute their exact similarity to the query vector. The candidates parameter
          * controls the number of exact similarity computations. Specifically, we compute exact similarity for the top candidates candidate vectors
          * in each segment. As a reminder, each Elasticsearch index has >= 1 shards, and each shard has >= 1 segments. That means if you set
-         * "candiates": 200 for an index with 2 shards, each with 3 segments, then you’ll compute the exact similarity for 2 * 3 * 200 = 1200 vectors.
+         * "candidates": 200 for an index with 2 shards, each with 3 segments, then you’ll compute the exact similarity for 2 * 3 * 200 = 1200 vectors.
          * candidates must be set to a number greater or equal to the number of Elasticsearch results you want to get. Higher values generally mean
          * higher recall and higher latency.
          */
