@@ -55,7 +55,7 @@ public class ElasticConnectionRule extends ExternalResource {
     private ElasticConnection elasticConnection;
     private final String elasticConnectionString;
     private static final String INDEX_PREFIX = "ElasticTest_";
-    private static final String PLUGIN_DIGEST = "3f5dcc268ebf84536a5c9db12c2118e08ab436d75dda4bc7d4a87676fafa569b";
+    private static final String PLUGIN_DIGEST = "c4451aa794641dd3c9b0fdc64b553b71ca2f9a44689a7784b51669b5e557046d";
     private static boolean useDocker = false;
 
     public ElasticConnectionRule(String elasticConnectionString) {
@@ -81,9 +81,10 @@ public class ElasticConnectionRule extends ExternalResource {
     public Statement apply(Statement base, Description description) {
         Statement s = super.apply(base, description);
         // see if docker is to be used or not... initialize docker rule only if that's the case.
-        final String pluginFileName = "elastiknn-7.10.0.0.zip";
+        final String pluginVersion = "7.10.1.0";
+        final String pluginFileName = "elastiknn-" + pluginVersion + ".zip";
         final String localPluginPath = "target/" + pluginFileName;
-        downloadSimilaritySearchPluginIfNotExists(localPluginPath);
+        downloadSimilaritySearchPluginIfNotExists(localPluginPath, pluginVersion);
         if (elasticConnectionString == null || getElasticConnectionFromString() == null) {
             checkIfDockerClientAvailable();
             elastic = new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:" + Version.CURRENT)
@@ -101,12 +102,13 @@ public class ElasticConnectionRule extends ExternalResource {
         //TODO: See if something needs to be cleaned up at test class level ??
     }
 
-    private void downloadSimilaritySearchPluginIfNotExists(String localPluginPath) {
+    private void downloadSimilaritySearchPluginIfNotExists(String localPluginPath, String pluginVersion) {
         File pluginFile = new File(localPluginPath);
         if (!pluginFile.exists()) {
             LOG.info("Plugin file {} doesn't exist. Trying to download.", localPluginPath);
             try (CloseableHttpClient client = HttpClients.createDefault()) {
-                HttpGet get = new HttpGet("https://github.com/alexklibisz/elastiknn/releases/download/7.10.0.0/elastiknn-7.10.0.0.zip");
+                HttpGet get = new HttpGet("https://github.com/alexklibisz/elastiknn/releases/download/" + pluginVersion
+                        +"/elastiknn-" + pluginVersion +".zip");
                 CloseableHttpResponse response = client.execute(get);
                 InputStream inputStream = response.getEntity().getContent();
                 MessageDigest messageDigest = MessageDigest.getInstance("SHA-256");
@@ -120,7 +122,11 @@ public class ElasticConnectionRule extends ExternalResource {
                     result.append(String.format("%02x", b));
                 }
                 if (!PLUGIN_DIGEST.equals(result.toString())) {
-                    throw new RuntimeException("Plugin digest unequal. Found " + result.toString() + ". Expected " + PLUGIN_DIGEST);
+                    String deleteString = "Downloaded plugin file deleted.";
+                    if (!pluginFile.delete()) {
+                        deleteString = "Could not delete downloaded plugin file.";
+                    }
+                    throw new RuntimeException("Plugin digest unequal. Found " + result.toString() + ". Expected " + PLUGIN_DIGEST + ". " + deleteString);
                 }
             } catch (IOException|NoSuchAlgorithmException e) {
                 throw new RuntimeException("Could not download similarity search plugin", e);
