@@ -34,8 +34,7 @@ import java.util.stream.Collectors;
  * Provides utility functions around Elasticsearch indexing
  */
 class ElasticIndexHelper {
-
-    private static final String ES_DENSE_VECTOR_TYPE = "dense_vector";
+    
     private static final String ES_DENSE_VECTOR_DIM_PROP = "dims";
 
     public static CreateIndexRequest createIndexRequest(String remoteIndexName, ElasticIndexDefinition indexDefinition) throws IOException {
