@@ -255,7 +255,6 @@ class ElasticIndexHelper {
                 mappingBuilder.field("type", "elastiknn_dense_float_vector");
                 mappingBuilder.startObject("elastiknn");
                 {
-                    //todo read these from index configuration
                     mappingBuilder.field(ES_DENSE_VECTOR_DIM_PROP, denseVectorSize);
                     mappingBuilder.field("model", "lsh");
                     mappingBuilder.field("similarity", pd.getSimilaritySearchParameters().getIndexTimeSimilarityFunction());
