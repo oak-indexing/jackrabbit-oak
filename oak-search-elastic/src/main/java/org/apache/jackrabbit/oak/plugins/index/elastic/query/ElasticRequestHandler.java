@@ -58,6 +58,7 @@ import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.InnerHitBuilder;
 import org.elasticsearch.index.query.MatchBoolPrefixQueryBuilder;
 import org.elasticsearch.index.query.MatchPhraseQueryBuilder;
+import org.elasticsearch.index.query.MatchQueryBuilder;
 import org.elasticsearch.index.query.MoreLikeThisQueryBuilder;
 import org.elasticsearch.index.query.MultiMatchQueryBuilder;
 import org.elasticsearch.index.query.NestedQueryBuilder;
@@ -332,13 +333,6 @@ public class ElasticRequestHandler {
                 .map(pr -> FulltextIndex.parseFacetField(pr.first.getValue(Type.STRING)));
     }
 
-    public Stream<String> spellCheckFields() {
-        return StreamSupport
-                .stream(planResult.indexingRule.getProperties().spliterator(), false)
-                .filter(pd -> pd.useInSpellcheck)
-                .map(pd -> pd.name);
-    }
-
     private QueryBuilder similarityQuery(@NotNull String text, List<PropertyDefinition> sp) {
         BoolQueryBuilder query = boolQuery();
         if (!sp.isEmpty()) {
@@ -481,36 +475,31 @@ public class ElasticRequestHandler {
         return mlt;
     }
 
-    public PhraseSuggestionBuilder suggestQuery(String field, String spellCheckQuery) {
+    public PhraseSuggestionBuilder suggestQuery(String spellCheckQuery) {
         BoolQueryBuilder query = boolQuery()
-                .must(new MatchPhraseQueryBuilder(field, "{{suggestion}}"));
+                .must(new MatchPhraseQueryBuilder(FieldNames.SPELLCHECK, "{{suggestion}}"));
 
         nonFullTextConstraints(indexPlan, planResult).forEach(query::must);
 
         PhraseSuggestionBuilder.CandidateGenerator candidateGeneratorBuilder =
-                new DirectCandidateGeneratorBuilder(getTrigramField(field)).suggestMode("missing");
+                new DirectCandidateGeneratorBuilder(FieldNames.SPELLCHECK).suggestMode("missing");
         return SuggestBuilders
-                .phraseSuggestion(getTrigramField(field))
+                .phraseSuggestion(FieldNames.SPELLCHECK)
                 .size(10)
                 .addCandidateGenerator(candidateGeneratorBuilder)
                 .text(spellCheckQuery)
                 .collateQuery(query.toString());
     }
 
-    public BoolQueryBuilder suggestMatchQuery(String suggestion, String[] fields) {
+    public BoolQueryBuilder suggestMatchQuery(String suggestion) {
         BoolQueryBuilder query = boolQuery()
-                .must(new MultiMatchQueryBuilder(suggestion, fields)
+                .must(new MatchQueryBuilder(FieldNames.SPELLCHECK, suggestion)
                         .operator(Operator.AND).fuzzyTranspositions(false)
-                        .autoGenerateSynonymsPhraseQuery(false)
-                        .type(MatchQuery.Type.PHRASE));
+                        .autoGenerateSynonymsPhraseQuery(false));
 
         nonFullTextConstraints(indexPlan, planResult).forEach(query::must);
 
         return query;
-    }
-
-    private String getTrigramField(String field) {
-        return field + ES_TRIGRAM_SUFFIX;
     }
 
     private QueryBuilder fullTextQuery(FullTextExpression ft, final PlanResult pr) {

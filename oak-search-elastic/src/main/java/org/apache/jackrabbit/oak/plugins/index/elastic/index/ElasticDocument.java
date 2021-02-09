@@ -43,6 +43,7 @@ public class ElasticDocument {
     private final String path;
     private final Set<String> fulltext;
     private final Set<String> suggest;
+    private final Set<String> spellcheck;
     private final List<String> notNullProps;
     private final List<String> nullProps;
     private final Map<String, Object> properties;
@@ -54,6 +55,7 @@ public class ElasticDocument {
         this.path = path;
         this.fulltext = new LinkedHashSet<>();
         this.suggest = new LinkedHashSet<>();
+        this.spellcheck = new LinkedHashSet<>();
         this.notNullProps = new ArrayList<>();
         this.nullProps = new ArrayList<>();
         this.properties = new HashMap<>();
@@ -72,6 +74,10 @@ public class ElasticDocument {
 
     void addSuggest(String value) {
         suggest.add(value);
+    }
+
+    void addSpellcheck(String value) {
+        spellcheck.add(value);
     }
 
     void notNullProp(String propName) {
@@ -128,6 +134,9 @@ public class ElasticDocument {
                         builder.startObject().field("value", val).endObject();
                     }
                     builder.endArray();
+                }
+                if (spellcheck.size() > 0) {
+                    builder.field(FieldNames.SPELLCHECK, spellcheck);
                 }
                 if (notNullProps.size() > 0) {
                     builder.field(FieldNames.NOT_NULL_PROPS, notNullProps);

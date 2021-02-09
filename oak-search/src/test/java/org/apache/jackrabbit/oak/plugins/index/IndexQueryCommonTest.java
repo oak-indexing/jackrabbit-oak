@@ -22,7 +22,6 @@ import org.apache.jackrabbit.oak.api.Tree;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants;
 import org.apache.jackrabbit.oak.query.AbstractQueryTest;
-import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 
@@ -121,12 +120,10 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         assertEventually(() -> {
             Iterator<String> result = executeQuery(query, "JCR-SQL2").iterator();
             List<String> paths = new ArrayList<>();
-            ;
             result.forEachRemaining(paths::add);
             assertEquals(1, paths.size());
             assertEquals(paths.get(0), b.getPath());
         });
-
     }
 
     @Test
@@ -224,7 +221,7 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
     //TODO ES failing
     @Ignore
     @Test
-    public void containsNot() throws Exception {
+    public void containsNot() {
 
         // see also OAK-3371
         // "if we have only NOT CLAUSES we have to add a match all docs (*.*) for the
@@ -273,7 +270,7 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         if (newline >= 0) {
             plan = plan.substring(0, newline);
         }
-        Assert.assertEquals(expectedPlan, plan);
+        assertEquals(expectedPlan, plan);
     }
 
     @Ignore("OAK-2424")
@@ -289,7 +286,6 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
                 ImmutableList.of("/test/a", "/test/b"));
         assertQuery("/jcr:root//*[jcr:contains(., '*hello-wor*')]", "xpath",
                 ImmutableList.of("/test/a", "/test/b"));
-
     }
 
     @Ignore("OAK-2424")
@@ -304,11 +300,9 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
                 "/jcr:root//*[jcr:contains(@dc:format, 'pro*')]",
                 "xpath", ImmutableList.of("/test/b"));
 
-
         assertQuery(
                 "/jcr:root//*[jcr:contains(@dc:format, 'type:appli*')]",
                 "xpath", ImmutableList.of("/test/a"));
-
     }
 
     @Test
@@ -346,7 +340,6 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         assertEventually(() -> {
             assertQuery(stmt, "xpath", ImmutableList.of("/match_on_path"));
         });
-
     }
 
     @Test
@@ -359,7 +352,6 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         assertEventually(() -> {
             assertQuery(stmt, "xpath", ImmutableList.of("/match_on_path1234"));
         });
-
     }
 
     /**
@@ -384,11 +376,9 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
 
         root.commit();
 
-        StringBuffer stmt = new StringBuffer();
-        stmt.append("//*[jcr:contains(., 'media') and (@p = 'dam/smartcollection' or @p = 'dam/collection') ]");
+        String stmt = "//*[jcr:contains(., 'media') and (@p = 'dam/smartcollection' or @p = 'dam/collection') ]";
         assertEventually(() -> {
-            assertQuery(stmt.toString(), "xpath",
-                    ImmutableList.of(one.getPath(), two.getPath()));
+            assertQuery(stmt, "xpath", ImmutableList.of(one.getPath(), two.getPath()));
         });
     }
 
@@ -504,7 +494,7 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
                     "/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]",
                     "xpath", of("/test/" + child));
         });
-        test.getChild(child).setProperty(mulValuedProp, new ArrayList<String>(), Type.STRINGS);
+        test.getChild(child).setProperty(mulValuedProp, new ArrayList<>(), Type.STRINGS);
         root.commit();
         assertEventually(() -> {
             assertQuery("/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]", "xpath", new ArrayList<String>());
@@ -514,14 +504,14 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         assertEventually(() -> {
             assertQuery(
                     "/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]",
-                    "xpath", new ArrayList<String>());
+                    "xpath", new ArrayList<>());
         });
         test.getChild(child).removeProperty(mulValuedProp);
         root.commit();
         assertEventually(() -> {
             assertQuery(
                     "/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]",
-                    "xpath", new ArrayList<String>());
+                    "xpath", new ArrayList<>());
         });
     }
 

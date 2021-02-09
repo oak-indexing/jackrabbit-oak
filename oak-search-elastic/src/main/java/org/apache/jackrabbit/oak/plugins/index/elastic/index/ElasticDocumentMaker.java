@@ -99,18 +99,23 @@ public class ElasticDocumentMaker extends FulltextDocumentMaker<ElasticDocument>
 
     @Override
     protected void indexSuggestValue(ElasticDocument doc, String value) {
-        doc.addSuggest(value);
+        if (value != null && value.length() > 0) {
+            doc.addSuggest(value);
+        }
     }
 
     @Override
     protected void indexSpellcheckValue(ElasticDocument doc, String value) {
-        // TODO: Figure out how to do spellcheck with ES (interwebs seems to say that it should be simple
-        // and don't need anything extra in indexed document
+        if (value != null && value.length() > 0) {
+            doc.addSpellcheck(value);
+        }
     }
 
     @Override
     protected void indexFulltextValue(ElasticDocument doc, String value) {
-        doc.addFulltext(value);
+        if (value != null && value.length() > 0) {
+            doc.addFulltext(value);
+        }
     }
 
     /**
