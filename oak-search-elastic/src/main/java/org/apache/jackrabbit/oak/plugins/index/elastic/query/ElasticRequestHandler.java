@@ -67,7 +67,6 @@ import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.index.query.WrapperQueryBuilder;
 import org.elasticsearch.index.query.functionscore.ScoreFunctionBuilders;
-import org.elasticsearch.index.search.MatchQuery;
 import org.elasticsearch.search.aggregations.AggregationBuilders;
 import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
@@ -136,7 +135,6 @@ public class ElasticRequestHandler {
     private static final Logger LOG = LoggerFactory.getLogger(ElasticRequestHandler.class);
     private final static String SPELLCHECK_PREFIX = "spellcheck?term=";
     protected final static String SUGGEST_PREFIX = "suggest?term=";
-    private static final String ES_TRIGRAM_SUFFIX = ".trigram";
     private static final List<FieldSortBuilder> DEFAULT_SORTS = Arrays.asList(
             SortBuilders.fieldSort("_score").order(SortOrder.DESC),
             SortBuilders.fieldSort(FieldNames.PATH).order(SortOrder.ASC) // tie-breaker
