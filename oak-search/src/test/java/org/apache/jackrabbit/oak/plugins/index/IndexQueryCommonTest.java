@@ -16,7 +16,6 @@
  */
 package org.apache.jackrabbit.oak.plugins.index;
 
-import com.google.common.collect.ImmutableList;
 import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.api.Tree;
 import org.apache.jackrabbit.oak.api.Type;
@@ -29,7 +28,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
-import static com.google.common.collect.ImmutableList.of;
+import static java.util.Collections.singletonList;
 import static java.util.Arrays.asList;
 import static org.apache.jackrabbit.JcrConstants.JCR_PRIMARYTYPE;
 import static org.apache.jackrabbit.JcrConstants.NT_UNSTRUCTURED;
@@ -206,14 +205,14 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         final StringBuffer stmt = new StringBuffer();
         stmt.append("/jcr:root//*[jcr:contains(., '").append(h).append("')]");
         assertEventually(() -> {
-            assertQuery(stmt.toString(), "xpath", ImmutableList.of("/test/a", "/test/b"));
+            assertQuery(stmt.toString(), "xpath", asList("/test/a", "/test/b"));
         });
 
         // query 'world'
         final StringBuffer stmt1 = new StringBuffer();
         stmt1.append("/jcr:root//*[jcr:contains(., '").append(w).append("')]");
         assertEventually(() -> {
-            assertQuery(stmt1.toString(), "xpath", ImmutableList.of("/test/a"));
+            assertQuery(stmt1.toString(), "xpath", singletonList("/test/a"));
         });
 
     }
@@ -282,10 +281,8 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         test.addChild("c").setProperty("name", "hello");
         root.commit();
 
-        assertQuery("/jcr:root//*[jcr:contains(., 'hello-wor*')]", "xpath",
-                ImmutableList.of("/test/a", "/test/b"));
-        assertQuery("/jcr:root//*[jcr:contains(., '*hello-wor*')]", "xpath",
-                ImmutableList.of("/test/a", "/test/b"));
+        assertQuery("/jcr:root//*[jcr:contains(., 'hello-wor*')]", "xpath", asList("/test/a", "/test/b"));
+        assertQuery("/jcr:root//*[jcr:contains(., '*hello-wor*')]", "xpath", asList("/test/a", "/test/b"));
     }
 
     @Ignore("OAK-2424")
@@ -296,13 +293,8 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         test.addChild("b").setProperty("dc:format", "progress");
         root.commit();
 
-        assertQuery(
-                "/jcr:root//*[jcr:contains(@dc:format, 'pro*')]",
-                "xpath", ImmutableList.of("/test/b"));
-
-        assertQuery(
-                "/jcr:root//*[jcr:contains(@dc:format, 'type:appli*')]",
-                "xpath", ImmutableList.of("/test/a"));
+        assertQuery("/jcr:root//*[jcr:contains(@dc:format, 'pro*')]", "xpath", singletonList("/test/b"));
+        assertQuery("/jcr:root//*[jcr:contains(@dc:format, 'type:appli*')]", "xpath", singletonList("/test/a"));
     }
 
     @Test
@@ -312,9 +304,7 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         root.commit();
 
         String stmt = "//*[jcr:contains(., '/parent/child')]";
-        assertEventually(() -> {
-            assertQuery(stmt, "xpath", ImmutableList.of("/test/a"));
-        });
+        assertEventually(() -> assertQuery(stmt, "xpath", singletonList("/test/a")));
     }
 
     @Test
@@ -325,9 +315,7 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         root.commit();
 
         String stmt = "//*[jcr:contains(., '/segment1/segment2')]";
-        assertEventually(() -> {
-            assertQuery(stmt, "xpath", ImmutableList.of("/test/a"));
-        });
+        assertEventually(() -> assertQuery(stmt, "xpath", singletonList("/test/a")));
     }
 
     @Test
@@ -337,9 +325,7 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         root.commit();
 
         String stmt = "//*[jcr:contains(., 'match')]";
-        assertEventually(() -> {
-            assertQuery(stmt, "xpath", ImmutableList.of("/match_on_path"));
-        });
+        assertEventually(() -> assertQuery(stmt, "xpath", singletonList("/match_on_path")));
     }
 
     @Test
@@ -349,9 +335,7 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         root.commit();
 
         String stmt = "//*[jcr:contains(., 'match')]";
-        assertEventually(() -> {
-            assertQuery(stmt, "xpath", ImmutableList.of("/match_on_path1234"));
-        });
+        assertEventually(() -> assertQuery(stmt, "xpath", singletonList("/match_on_path1234")));
     }
 
     /**
@@ -377,9 +361,7 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         root.commit();
 
         String stmt = "//*[jcr:contains(., 'media') and (@p = 'dam/smartcollection' or @p = 'dam/collection') ]";
-        assertEventually(() -> {
-            assertQuery(stmt, "xpath", ImmutableList.of(one.getPath(), two.getPath()));
-        });
+        assertEventually(() -> assertQuery(stmt, "xpath", asList(one.getPath(), two.getPath())));
     }
 
     @Test
@@ -474,10 +456,7 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         Tree one = t.addChild("one");
         one.setProperty("t", "美女衬衫");
         root.commit();
-        assertEventually(() -> {
-            assertQuery("//*[jcr:contains(., '美女')]", "xpath",
-                    ImmutableList.of(one.getPath()));
-        });
+        assertEventually(() -> assertQuery("//*[jcr:contains(., '美女')]", "xpath", singletonList(one.getPath())));
     }
 
     //TODO ES Failing
@@ -487,19 +466,17 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         Tree test = root.getTree("/").addChild("test");
         String child = "child";
         String mulValuedProp = "prop";
-        test.addChild(child).setProperty(mulValuedProp, of("foo", "bar"), Type.STRINGS);
+        test.addChild(child).setProperty(mulValuedProp, asList("foo", "bar"), Type.STRINGS);
         root.commit();
-        assertEventually(() -> {
-            assertQuery(
-                    "/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]",
-                    "xpath", of("/test/" + child));
-        });
+        assertEventually(() -> assertQuery(
+                "/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]",
+                "xpath", singletonList("/test/" + child)));
         test.getChild(child).setProperty(mulValuedProp, new ArrayList<>(), Type.STRINGS);
         root.commit();
         assertEventually(() -> {
-            assertQuery("/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]", "xpath", new ArrayList<String>());
+            assertQuery("/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]", "xpath", new ArrayList<>());
         });
-        test.getChild(child).setProperty(mulValuedProp, of("bar"), Type.STRINGS);
+        test.getChild(child).setProperty(mulValuedProp, singletonList("bar"), Type.STRINGS);
         root.commit();
         assertEventually(() -> {
             assertQuery(
@@ -554,19 +531,19 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         assertEventually(() -> {
             assertQuery(
                     "SELECT * FROM [nt:unstructured] WHERE ISDESCENDANTNODE('/test') AND CONTAINS(foo, 'bar')",
-                    of("/test/a", "/test/d"));
+                    asList("/test/a", "/test/d"));
 
             assertQuery(
                     "SELECT * FROM [nt:unstructured] WHERE ISDESCENDANTNODE('/test') AND NOT CONTAINS(foo, 'bar')",
-                    of("/test/b", "/test/c"));
+                    asList("/test/b", "/test/c"));
 
             assertQuery(
                     "SELECT * FROM [nt:unstructured] WHERE ISDESCENDANTNODE('/test') AND CONTAINS(foo, 'bar cat')",
-                    of("/test/d"));
+                    singletonList("/test/d"));
 
             assertQuery(
                     "SELECT * FROM [nt:unstructured] WHERE ISDESCENDANTNODE('/test') AND NOT CONTAINS(foo, 'bar cat')",
-                    of("/test/c"));
+                    singletonList("/test/c"));
         });
         setTraversalEnabled(true);
     }
