@@ -143,8 +143,6 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         });
     }
 
-    //TODO ES failing
-    @Ignore
     @Test
     public void descendantTest2() throws Exception {
         Tree test = root.getTree("/").addChild("test");
@@ -202,19 +200,14 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         root.commit();
 
         // query 'hello'
-        final StringBuffer stmt = new StringBuffer();
-        stmt.append("/jcr:root//*[jcr:contains(., '").append(h).append("')]");
-        assertEventually(() -> {
-            assertQuery(stmt.toString(), "xpath", asList("/test/a", "/test/b"));
-        });
+        assertEventually(() ->
+                assertQuery("/jcr:root//*[jcr:contains(., '" + h + "')]", "xpath", asList("/test/a", "/test/b"))
+        );
 
         // query 'world'
-        final StringBuffer stmt1 = new StringBuffer();
-        stmt1.append("/jcr:root//*[jcr:contains(., '").append(w).append("')]");
-        assertEventually(() -> {
-            assertQuery(stmt1.toString(), "xpath", singletonList("/test/a"));
-        });
-
+        assertEventually(() ->
+                assertQuery("/jcr:root//*[jcr:contains(., '" + w + "')]", "xpath", singletonList("/test/a"))
+        );
     }
 
     //TODO ES failing
@@ -341,8 +334,6 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
     /**
      * OAK-1208 property existence constraints break queries
      */
-    //TODO ES failing
-    @Ignore
     @Test
     public void testOAK1208() throws Exception {
         Tree t = root.getTree("/").addChild("containsWithMultipleOr");
@@ -460,36 +451,30 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
     }
 
     //TODO ES Failing
-    @Ignore
+    //@Ignore
     @Test
     public void testMultiValuedPropUpdate() throws Exception {
         Tree test = root.getTree("/").addChild("test");
         String child = "child";
         String mulValuedProp = "prop";
-        test.addChild(child).setProperty(mulValuedProp, asList("foo", "bar"), Type.STRINGS);
+        test.addChild(child).setProperty(mulValuedProp, asList("foo", "bar"), STRINGS);
         root.commit();
         assertEventually(() -> assertQuery(
                 "/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]",
                 "xpath", singletonList("/test/" + child)));
-        test.getChild(child).setProperty(mulValuedProp, new ArrayList<>(), Type.STRINGS);
+        test.getChild(child).setProperty(mulValuedProp, new ArrayList<>(), STRINGS);
         root.commit();
-        assertEventually(() -> {
-            assertQuery("/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]", "xpath", new ArrayList<>());
-        });
-        test.getChild(child).setProperty(mulValuedProp, singletonList("bar"), Type.STRINGS);
+        assertEventually(() -> assertQuery("/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]", "xpath", new ArrayList<>()));
+        test.getChild(child).setProperty(mulValuedProp, singletonList("bar"), STRINGS);
         root.commit();
-        assertEventually(() -> {
-            assertQuery(
-                    "/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]",
-                    "xpath", new ArrayList<>());
-        });
+        assertEventually(() -> assertQuery(
+                "/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]",
+                "xpath", new ArrayList<>()));
         test.getChild(child).removeProperty(mulValuedProp);
         root.commit();
-        assertEventually(() -> {
-            assertQuery(
-                    "/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]",
-                    "xpath", new ArrayList<>());
-        });
+        assertEventually(() -> assertQuery(
+                "/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]",
+                "xpath", new ArrayList<>()));
     }
 
     @SuppressWarnings("unused")

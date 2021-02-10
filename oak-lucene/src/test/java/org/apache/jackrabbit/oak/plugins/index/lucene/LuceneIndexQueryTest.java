@@ -17,11 +17,9 @@
 package org.apache.jackrabbit.oak.plugins.index.lucene;
 
 import static com.google.common.collect.ImmutableList.of;
-import static java.util.Arrays.asList;
 import static org.apache.jackrabbit.JcrConstants.JCR_PRIMARYTYPE;
 import static org.apache.jackrabbit.JcrConstants.NT_UNSTRUCTURED;
 import static org.apache.jackrabbit.oak.api.Type.STRING;
-import static org.apache.jackrabbit.oak.api.Type.STRINGS;
 import static org.apache.jackrabbit.oak.plugins.index.lucene.TestUtil.useV2;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -45,8 +43,6 @@ import org.apache.jackrabbit.oak.spi.query.QueryIndexProvider;
 import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
 import org.junit.Assert;
 import org.junit.Test;
-
-import com.google.common.collect.ImmutableList;
 
 /**
  * Tests the query engine using the default index implementation: the
@@ -104,21 +100,6 @@ public class LuceneIndexQueryTest extends AbstractQueryTest {
     @Test
     public void sql2FullText() throws Exception {
         test("sql2-fulltext.txt");
-    }
-
-    @Test
-    public void descendantTest2() throws Exception {
-        Tree test = root.getTree("/").addChild("test");
-        test.addChild("a").setProperty("name", asList("Hello", "World"), STRINGS);
-        test.addChild("b").setProperty("name", "Hello");
-        root.commit();
-
-        Iterator<String> result = executeQuery(
-            "select [jcr:path] from [nt:base] where isdescendantnode('/test') and name='World'",
-            "JCR-SQL2").iterator();
-        assertTrue(result.hasNext());
-        assertEquals("/test/a", result.next());
-        assertFalse(result.hasNext());
     }
 
     @Test
@@ -197,32 +178,6 @@ public class LuceneIndexQueryTest extends AbstractQueryTest {
             plan = plan.substring(0, newline);
         }
         Assert.assertEquals(expectedPlan, plan);
-    }
-
-    /**
-     * OAK-1208 property existence constraints break queries
-     */
-    @Test
-    public void testOAK1208() throws Exception {
-        Tree t = root.getTree("/").addChild("containsWithMultipleOr");
-        Tree one = t.addChild("one");
-        one.setProperty("p", "dam/smartcollection");
-        one.setProperty("t", "media");
-
-        Tree two = t.addChild("two");
-        two.setProperty("p", "dam/collection");
-        two.setProperty("t", "media");
-
-        Tree three = t.addChild("three");
-        three.setProperty("p", "dam/hits");
-        three.setProperty("t", "media");
-
-        root.commit();
-
-        StringBuffer stmt = new StringBuffer();
-        stmt.append("//*[jcr:contains(., 'media') and (@p = 'dam/smartcollection' or @p = 'dam/collection') ]");
-        assertQuery(stmt.toString(), "xpath",
-            ImmutableList.of(one.getPath(), two.getPath()));
     }
 
     @Test
