@@ -25,7 +25,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
@@ -236,33 +235,6 @@ public class LuceneIndexQueryTest extends AbstractQueryTest {
         assertEquals("/test/a", result.next());
         assertTrue(result.hasNext());
         assertEquals("/test/b", result.next());
-    }
-
-    @Test
-    public void testMultiValuedPropUpdate() throws Exception {
-        Tree test = root.getTree("/").addChild("test");
-        String child = "child";
-        String mulValuedProp = "prop";
-        test.addChild(child).setProperty(mulValuedProp, of("foo","bar"), Type.STRINGS);
-        root.commit();
-        assertQuery(
-            "/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]",
-            "xpath", of("/test/" + child));
-        test.getChild(child).setProperty(mulValuedProp, new ArrayList<String>(), Type.STRINGS);
-        root.commit();
-        assertQuery("/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]", "xpath", new ArrayList<String>());
-
-        test.getChild(child).setProperty(mulValuedProp, of("bar"), Type.STRINGS);
-        root.commit();
-        assertQuery(
-            "/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]",
-            "xpath", new ArrayList<String>());
-
-        test.getChild(child).removeProperty(mulValuedProp);
-        root.commit();
-        assertQuery(
-            "/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]",
-            "xpath", new ArrayList<String>());
     }
 
     @SuppressWarnings("unused")

@@ -450,8 +450,6 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         assertEventually(() -> assertQuery("//*[jcr:contains(., '美女')]", "xpath", singletonList(one.getPath())));
     }
 
-    //TODO ES Failing
-    @Ignore
     @Test
     public void testMultiValuedPropUpdate() throws Exception {
         Tree test = root.getTree("/").addChild("test");
@@ -459,22 +457,19 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         String mulValuedProp = "prop";
         test.addChild(child).setProperty(mulValuedProp, asList("foo", "bar"), STRINGS);
         root.commit();
-        assertEventually(() -> assertQuery(
-                "/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]",
-                "xpath", singletonList("/test/" + child)));
+        assertEventually(() -> assertQuery("/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]", "xpath", singletonList("/test/" + child)));
+
         test.getChild(child).setProperty(mulValuedProp, new ArrayList<>(), STRINGS);
         root.commit();
         assertEventually(() -> assertQuery("/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]", "xpath", new ArrayList<>()));
+
         test.getChild(child).setProperty(mulValuedProp, singletonList("bar"), STRINGS);
         root.commit();
-        assertEventually(() -> assertQuery(
-                "/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]",
-                "xpath", new ArrayList<>()));
+        assertEventually(() -> assertQuery("/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]", "xpath", new ArrayList<>()));
+
         test.getChild(child).removeProperty(mulValuedProp);
         root.commit();
-        assertEventually(() -> assertQuery(
-                "/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]",
-                "xpath", new ArrayList<>()));
+        assertEventually(() -> assertQuery("/jcr:root//*[jcr:contains(@" + mulValuedProp + ", 'foo')]", "xpath", new ArrayList<>()));
     }
 
     @SuppressWarnings("unused")
