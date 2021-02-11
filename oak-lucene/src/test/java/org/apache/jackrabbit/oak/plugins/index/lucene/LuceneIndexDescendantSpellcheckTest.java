@@ -173,14 +173,6 @@ public class LuceneIndexDescendantSpellcheckTest {
 
     //OAK-3994
     @Test
-    public void rootIndexWithDescendantConstraint() throws Exception {
-        validateSpellchecks(
-            createSpellcheckQuery(NT_OAK_UNSTRUCTURED, "taste", "/content1"),
-            newHashSet("test2", "test3"));
-    }
-
-    //OAK-3994
-    @Test
     public void descendantSuggestionRequirePathRestrictionIndex() throws Exception {
         Node rootIndexDef = root.getNode("oak:index/spellcheck-idx");
         rootIndexDef.getProperty(EVALUATE_PATH_RESTRICTION).remove();
@@ -193,19 +185,4 @@ public class LuceneIndexDescendantSpellcheckTest {
             newHashSet("test1", "test2", "test3", "test4", "test5", "test6"));
     }
 
-    //OAK-3994
-    @Test
-    public void unambiguousSubtreeIndexWithDescendantConstraint() throws Exception {
-        validateSpellchecks(
-            createSpellcheckQuery(NT_BASE, "taste", "/content3"),
-            newHashSet("test5", "test6"));
-    }
-
-    //OAK-3994
-    @Test
-    public void unambiguousSubtreeIndexWithSubDescendantConstraint() throws Exception {
-        validateSpellchecks(
-            createSpellcheckQuery(NT_BASE, "taste", "/content3/sC"),
-            newHashSet("test6"));
-    }
 }

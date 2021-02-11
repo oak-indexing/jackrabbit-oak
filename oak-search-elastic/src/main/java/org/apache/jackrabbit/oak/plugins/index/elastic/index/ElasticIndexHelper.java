@@ -111,7 +111,7 @@ class ElasticIndexHelper {
                     settingsBuilder.startObject("trigram")
                             .field("type", "custom")
                             .field("tokenizer", "standard")
-                            .array("filter", "lowercase", "oak_word_delimiter_graph_filter", "shingle")
+                            .array("filter", "lowercase", "shingle")
                             .endObject();
                 }
                 settingsBuilder.endObject();

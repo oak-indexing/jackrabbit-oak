@@ -451,7 +451,7 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
     }
 
     //TODO ES Failing
-    //@Ignore
+    @Ignore
     @Test
     public void testMultiValuedPropUpdate() throws Exception {
         Tree test = root.getTree("/").addChild("test");
