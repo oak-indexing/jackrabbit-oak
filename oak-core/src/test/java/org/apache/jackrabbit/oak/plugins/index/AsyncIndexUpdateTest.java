@@ -441,6 +441,9 @@ public class AsyncIndexUpdateTest {
         }
         // the test timeout was hit
         assertTrue(async.isFailing());
+
+        // but now should not have seen a complete reindex
+        assertEquals("reindex happened", 0, reindexingCount.get());
     }
 
     // OAK-1749
