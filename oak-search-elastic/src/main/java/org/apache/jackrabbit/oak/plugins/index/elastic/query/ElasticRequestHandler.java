@@ -442,6 +442,8 @@ public class ElasticRequestHandler {
             String[] fieldsArray = fields.split(",");
             mlt = moreLikeThisQuery(fieldsArray, null, new Item[]{new Item(null, text)});
         }
+        // include the input doc to align the Lucene behaviour TODO: add configuration parameter
+        mlt.include(true);
 
         if (!shallowMltParams.isEmpty()) {
             BiConsumer<String, Consumer<String>> mltParamSetter = (key, setter) -> {

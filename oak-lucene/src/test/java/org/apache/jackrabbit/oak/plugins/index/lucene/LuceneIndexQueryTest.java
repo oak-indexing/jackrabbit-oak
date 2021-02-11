@@ -179,64 +179,6 @@ public class LuceneIndexQueryTest extends AbstractQueryTest {
         Assert.assertEquals(expectedPlan, plan);
     }
 
-    @Test
-    public void testRepSimilarAsNativeQuery() throws Exception {
-        String nativeQueryString = "select [jcr:path] from [nt:base] where " +
-            "native('lucene', 'mlt?stream.body=/test/a&mlt.fl=:path&mlt.mindf=0&mlt.mintf=0')";
-        Tree test = root.getTree("/").addChild("test");
-        test.addChild("a").setProperty("text", "Hello World");
-        test.addChild("b").setProperty("text", "He said Hello and then the world said Hello as well.");
-        test.addChild("c").setProperty("text", "He said Hi.");
-        root.commit();
-        Iterator<String> result = executeQuery(nativeQueryString, "JCR-SQL2").iterator();
-        assertTrue(result.hasNext());
-        assertEquals("/test/a", result.next());
-        assertTrue(result.hasNext());
-        assertEquals("/test/b", result.next());
-        assertFalse(result.hasNext());
-    }
-
-    @Test
-    public void testRepSimilarQuery() throws Exception {
-        String query = "select [jcr:path] from [nt:base] where similar(., '/test/a')";
-        Tree test = root.getTree("/").addChild("test");
-        test.addChild("a").setProperty("text", "Hello World Hello World");
-        test.addChild("b").setProperty("text", "Hello World");
-        test.addChild("c").setProperty("text", "World");
-        test.addChild("d").setProperty("text", "Hello");
-        test.addChild("e").setProperty("text", "World");
-        test.addChild("f").setProperty("text", "Hello");
-        test.addChild("g").setProperty("text", "World");
-        test.addChild("h").setProperty("text", "Hello");
-        root.commit();
-        Iterator<String> result = executeQuery(query, "JCR-SQL2").iterator();
-        assertTrue(result.hasNext());
-        assertEquals("/test/a", result.next());
-        assertTrue(result.hasNext());
-        assertEquals("/test/b", result.next());
-        assertTrue(result.hasNext());
-    }
-
-    @Test
-    public void testRepSimilarXPathQuery() throws Exception {
-        String query = "//element(*, nt:base)[rep:similar(., '/test/a')]";
-        Tree test = root.getTree("/").addChild("test");
-        test.addChild("a").setProperty("text", "Hello World Hello World");
-        test.addChild("b").setProperty("text", "Hello World");
-        test.addChild("c").setProperty("text", "World");
-        test.addChild("d").setProperty("text", "Hello");
-        test.addChild("e").setProperty("text", "World");
-        test.addChild("f").setProperty("text", "Hello");
-        test.addChild("g").setProperty("text", "World");
-        test.addChild("h").setProperty("text", "Hello");
-        root.commit();
-        Iterator<String> result = executeQuery(query, "xpath").iterator();
-        assertTrue(result.hasNext());
-        assertEquals("/test/a", result.next());
-        assertTrue(result.hasNext());
-        assertEquals("/test/b", result.next());
-    }
-
     @SuppressWarnings("unused")
     private static void walktree(final Tree t) {
         System.out.println("+ " + t.getPath());

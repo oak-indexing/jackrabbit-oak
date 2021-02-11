@@ -371,8 +371,6 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         });
     }
 
-    //TODO ES Failing
-    @Ignore
     @Test
     public void testRepSimilarAsNativeQuery() throws Exception {
         String nativeQueryString = "select [jcr:path] from [nt:base] where " +
@@ -392,8 +390,6 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         });
     }
 
-    //TODO ES Failing
-    @Ignore
     @Test
     public void testRepSimilarQuery() throws Exception {
         String query = "select [jcr:path] from [nt:base] where similar(., '/test/a')";
@@ -418,7 +414,7 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
     }
 
     //TODO ES failing
-    @Ignore
+    //@Ignore
     @Test
     public void testRepSimilarXPathQuery() throws Exception {
         String query = "//element(*, nt:base)[rep:similar(., '/test/a')]";
