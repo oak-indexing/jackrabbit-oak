@@ -16,10 +16,6 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.lucene;
 
-import static com.google.common.collect.ImmutableList.of;
-import static org.apache.jackrabbit.JcrConstants.JCR_PRIMARYTYPE;
-import static org.apache.jackrabbit.JcrConstants.NT_UNSTRUCTURED;
-import static org.apache.jackrabbit.oak.api.Type.STRING;
 import static org.apache.jackrabbit.oak.plugins.index.lucene.TestUtil.useV2;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -30,9 +26,7 @@ import java.util.List;
 
 import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.api.ContentRepository;
-import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.api.Tree;
-import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
 import org.apache.jackrabbit.oak.InitialContentHelper;
@@ -127,7 +121,7 @@ public class LuceneIndexQueryTest extends AbstractQueryTest {
     }
 
     @Test
-    public void containsNot() throws Exception {
+    public void containsNot() {
 
         // see also OAK-3371
         // "if we have only NOT CLAUSES we have to add a match all docs (*.*) for the
@@ -177,58 +171,5 @@ public class LuceneIndexQueryTest extends AbstractQueryTest {
             plan = plan.substring(0, newline);
         }
         Assert.assertEquals(expectedPlan, plan);
-    }
-
-    @SuppressWarnings("unused")
-    private static void walktree(final Tree t) {
-        System.out.println("+ " + t.getPath());
-        for (PropertyState p : t.getProperties()) {
-            System.out.println("  -" + p.getName() + "=" + p.getValue(STRING));
-        }
-        for (Tree t1 : t.getChildren()) {
-            walktree(t1);
-        }
-    }
-
-    private static Tree child(Tree t, String n, String type) {
-        Tree t1 = t.addChild(n);
-        t1.setProperty(JCR_PRIMARYTYPE, type, Type.NAME);
-        return t1;
-    }
-
-    @Test
-    public void oak3371() throws Exception {
-        setTraversalEnabled(false);
-        Tree t, t1;
-
-        t = root.getTree("/");
-        t = child(t, "test", NT_UNSTRUCTURED);
-        t1 = child(t, "a", NT_UNSTRUCTURED);
-        t1.setProperty("foo", "bar");
-        t1 = child(t, "b", NT_UNSTRUCTURED);
-        t1.setProperty("foo", "cat");
-        t1 = child(t, "c", NT_UNSTRUCTURED);
-        t1 = child(t, "d", NT_UNSTRUCTURED);
-        t1.setProperty("foo", "bar cat");
-
-        root.commit();
-
-        assertQuery(
-            "SELECT * FROM [nt:unstructured] WHERE ISDESCENDANTNODE('/test') AND CONTAINS(foo, 'bar')",
-            of("/test/a", "/test/d"));
-
-        assertQuery(
-            "SELECT * FROM [nt:unstructured] WHERE ISDESCENDANTNODE('/test') AND NOT CONTAINS(foo, 'bar')",
-            of("/test/b", "/test/c"));
-
-        assertQuery(
-            "SELECT * FROM [nt:unstructured] WHERE ISDESCENDANTNODE('/test') AND CONTAINS(foo, 'bar cat')",
-            of("/test/d"));
-
-        assertQuery(
-            "SELECT * FROM [nt:unstructured] WHERE ISDESCENDANTNODE('/test') AND NOT CONTAINS(foo, 'bar cat')",
-            of("/test/c"));
-
-        setTraversalEnabled(true);
     }
 }

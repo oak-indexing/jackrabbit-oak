@@ -124,6 +124,7 @@ import static org.elasticsearch.index.query.QueryBuilders.moreLikeThisQuery;
 import static org.elasticsearch.index.query.QueryBuilders.multiMatchQuery;
 import static org.elasticsearch.index.query.QueryBuilders.nestedQuery;
 import static org.elasticsearch.index.query.QueryBuilders.queryStringQuery;
+import static org.elasticsearch.index.query.QueryBuilders.simpleQueryStringQuery;
 import static org.elasticsearch.index.query.QueryBuilders.termQuery;
 import static org.elasticsearch.index.query.QueryBuilders.wrapperQuery;
 
@@ -510,7 +511,14 @@ public class ElasticRequestHandler {
 
             @Override
             public boolean visit(FullTextContains contains) {
-                visitTerm(contains.getPropertyName(), contains.getRawText(), null, contains.isNot());
+                // this 'hack' is needed because NotFullTextSearchImpl transforms the raw text prepending a '-'. This causes
+                // a double negation since the contains is already of type NOT. The same does not happen in Lucene because
+                // at this stage the code is parsed with the standard lucene parser.
+                if (contains.getBase() instanceof FullTextTerm) {
+                    visitTerm(contains.getPropertyName(), ((FullTextTerm)contains.getBase()).getText(),null, contains.isNot());
+                } else {
+                    visitTerm(contains.getPropertyName(), contains.getRawText(), null, contains.isNot());
+                }
                 return true;
             }
 
@@ -778,9 +786,8 @@ public class ElasticRequestHandler {
             // and could contain other parts like renditions, node name, etc
             return multiMatchQuery.field(fieldName);
         } else {
-            return matchQuery(fieldName, text).operator(Operator.AND);
+            return simpleQueryStringQuery(text).field(fieldName).defaultOperator(Operator.AND);
         }
-
     }
 
     private QueryBuilder createQuery(String propertyName, Filter.PropertyRestriction pr,

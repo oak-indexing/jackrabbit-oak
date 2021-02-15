@@ -210,61 +210,6 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         );
     }
 
-    //TODO ES failing
-    @Ignore
-    @Test
-    public void containsNot() {
-
-        // see also OAK-3371
-        // "if we have only NOT CLAUSES we have to add a match all docs (*.*) for the
-        // query to work"
-
-        executeQuery("/jcr:root//*[jcr:contains(@a,'-test*')]", "xpath", false);
-
-        String planPrefix = "[nt:base] as [a] /* lucene:test-index(/oak:index/test-index) ";
-
-        assertXPathPlan("/jcr:root//*[@a]",
-                planPrefix + "a:[* TO *]");
-
-        assertXPathPlan("/jcr:root//*[jcr:contains(., '*')]",
-                planPrefix + ":fulltext:* ft:(\"*\")");
-
-        assertXPathPlan("/jcr:root//*[jcr:contains(@a,'*')]",
-                planPrefix + "full:a:* ft:(a:\"*\")");
-
-        assertXPathPlan("/jcr:root//*[jcr:contains(@a,'hello -world')]",
-                planPrefix + "+full:a:hello -full:a:world ft:(a:\"hello\" -a:\"world\")");
-
-        assertXPathPlan("/jcr:root//*[jcr:contains(@a,'test*')]",
-                planPrefix + "full:a:test* ft:(a:\"test*\")");
-
-        assertXPathPlan("/jcr:root//*[jcr:contains(@a,'-test')]",
-                planPrefix + "-full:a:test *:* ft:(-a:\"test\")");
-
-        assertXPathPlan("/jcr:root//*[jcr:contains(@a,'-test*')]",
-                planPrefix + "-full:a:test* *:* ft:(-a:\"test*\")");
-
-        assertXPathPlan("/jcr:root//*[jcr:contains(., '-*')]",
-                planPrefix + "-:fulltext:* *:* ft:(-\"*\")");
-
-        assertXPathPlan("/jcr:root//*[jcr:contains(., 'apple - pear')]",
-                planPrefix + "+:fulltext:apple -:fulltext:pear ft:(\"apple\" \"-\" \"pear\")");
-
-        assertXPathPlan("/jcr:root/content//*[jcr:contains(., 'apple - pear')]",
-                planPrefix + "-:fulltext:pear +:fulltext:apple +:ancestors:/content ft:(\"apple\" \"-\" \"pear\")");
-
-    }
-
-    private void assertXPathPlan(String xpathQuery, String expectedPlan) {
-        List<String> result = executeQuery("explain " + xpathQuery, "xpath", false);
-        String plan = result.get(0);
-        int newline = plan.indexOf('\n');
-        if (newline >= 0) {
-            plan = plan.substring(0, newline);
-        }
-        assertEquals(expectedPlan, plan);
-    }
-
     @Ignore("OAK-2424")
     @Test
     public void containsDash() throws Exception {
@@ -413,8 +358,6 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         });
     }
 
-    //TODO ES failing
-    //@Ignore
     @Test
     public void testRepSimilarXPathQuery() throws Exception {
         String query = "//element(*, nt:base)[rep:similar(., '/test/a')]";
@@ -479,14 +422,6 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
         }
     }
 
-    private static Tree child(Tree t, String n, String type) {
-        Tree t1 = t.addChild(n);
-        t1.setProperty(JCR_PRIMARYTYPE, type, Type.NAME);
-        return t1;
-    }
-
-    //TODO ES TEST Failing
-    @Ignore
     @Test
     public void oak3371() throws Exception {
         setTraversalEnabled(false);
@@ -522,6 +457,12 @@ public abstract class IndexQueryCommonTest extends AbstractQueryTest {
                     singletonList("/test/c"));
         });
         setTraversalEnabled(true);
+    }
+
+    private static Tree child(Tree t, String n, String type) {
+        Tree t1 = t.addChild(n);
+        t1.setProperty(JCR_PRIMARYTYPE, type, Type.NAME);
+        return t1;
     }
 
     private static void assertEventually(Runnable r) {
