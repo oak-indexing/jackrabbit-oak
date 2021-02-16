@@ -176,7 +176,7 @@ public abstract class IndexDescendantSpellcheckCommonTest extends AbstractJcrTes
                 newHashSet("test2", "test3"));
     }
 
-    //@Ignore
+    @Ignore
     //TODO ES Failing: if path restriction is not enabled, all suggestions should be returned
     // see #noDescendantSuggestsAll
     //OAK-3994
