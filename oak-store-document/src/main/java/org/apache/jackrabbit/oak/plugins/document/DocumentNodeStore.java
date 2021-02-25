@@ -883,6 +883,27 @@ public final class DocumentNodeStore
 
         Utils.joinQuietly(clusterUpdateThread);
 
+        // attempt diagnostics on lease update thread
+        boolean isLeaseExpired = clusterNodeInfo.isLeaseExpired(clock.getTime());
+        Thread.State leaseUpdateState = leaseUpdateThread.getState();
+        if (leaseUpdateState == Thread.State.TERMINATED) {
+            LOG.error("leaseUpdateThread (" + leaseUpdateThread.getName() + ") is terminated");
+        }
+
+        if (isLeaseExpired || LOG.isDebugEnabled()) {
+            StringBuilder message = new StringBuilder(
+                    "Status of lease update thread (" + leaseUpdateThread.getName() + "): " + leaseUpdateState + "; Stack Trace:");
+            for (StackTraceElement se : leaseUpdateThread.getStackTrace()) {
+                message.append("\n\tat ");
+                message.append(se.toString());
+            }
+            if (isLeaseExpired) {
+                LOG.info(message.toString());
+            } else {
+                LOG.debug(message.toString());
+            }
+        }
+
         // Stop lease update thread once no further document store operations
         // are required
         LOG.debug("Stopping LeaseUpdate thread...");
@@ -2485,6 +2506,7 @@ public final class DocumentNodeStore
         List<UpdateOp> splitOpsPhase2 = new ArrayList<>(initialCapacity);
         List<String> removeCandidates = new ArrayList<>(initialCapacity);
         for (String id : splitCandidates.keySet()) {
+            removeCandidates.add(id);
             NodeDocument doc = store.find(Collection.NODES, id);
             if (doc == null) {
                 continue;
@@ -2508,7 +2530,6 @@ public final class DocumentNodeStore
                     splitOpsPhase2.add(op);
                 }
             }
-            removeCandidates.add(id);
             if (splitOpsPhase1.size() >= getCreateOrUpdateBatchSize()
                     || splitOpsPhase2.size() >= getCreateOrUpdateBatchSize()) {
                 invalidatePaths(pathsToInvalidate);
@@ -2527,8 +2548,8 @@ public final class DocumentNodeStore
             invalidatePaths(pathsToInvalidate);
             batchSplit(splitOpsPhase1);
             batchSplit(splitOpsPhase2);
-            splitCandidates.keySet().removeAll(removeCandidates);
         }
+        splitCandidates.keySet().removeAll(removeCandidates);
     }
 
     private void invalidatePaths(@NotNull Set<Path> pathsToInvalidate) {
