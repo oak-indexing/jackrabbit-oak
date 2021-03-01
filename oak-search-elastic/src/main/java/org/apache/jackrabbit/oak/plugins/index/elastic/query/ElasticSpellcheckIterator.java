@@ -104,16 +104,11 @@ class ElasticSpellcheckIterator implements Iterator<FulltextResultRow> {
                 MultiSearchResponse res = indexNode.getConnection().getClient().msearch(multiSearch, RequestOptions.DEFAULT);
                 ArrayList<FulltextResultRow> results = new ArrayList<>();
                 for (MultiSearchResponse.Item response : res.getResponses()) {
-                    boolean hasResults = false;
                     for (SearchHit doc : response.getResponse().getHits()) {
                         if (responseHandler.isAccessible(responseHandler.getPath(doc))) {
-                            hasResults = true;
+                            results.add(new FulltextResultRow(suggestionTexts.poll()));
                             break;
                         }
-                    }
-                    String suggestion = suggestionTexts.poll();
-                    if (hasResults) {
-                        results.add(new FulltextResultRow(suggestion));
                     }
                 }
                 this.internalIterator = results.iterator();
