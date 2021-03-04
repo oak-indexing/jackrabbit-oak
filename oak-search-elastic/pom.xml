@@ -34,7 +34,7 @@
 
   <properties>
     <elasticsearch.version>7.10.2</elasticsearch.version>
-    <lucene.version>8.7.0</lucene.version>
+    <lucene.version>8.8.1</lucene.version>
   </properties>
 
   <build>
