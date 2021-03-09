@@ -111,8 +111,8 @@ public class ElasticIndexProviderService {
         String localTextExtractionDir();
 
         @AttributeDefinition(name = "Remote index cleanup frequency", description = "Frequency (in seconds) of running remote index deletion scheduled task." +
-                "Set this to -1 to disable the task. Default is 1 minute.")
-        int remoteIndexCleanupFrequency() default 60;
+                "Set this to -1 to disable the task. Default is 1 hour.")
+        int remoteIndexCleanupFrequency() default 60*60;
 
         @AttributeDefinition(name = "Remote index deletion threshold", description = "Time in seconds after which a remote index whose local index is not found gets deleted." +
                 "Default is 1 day.")
