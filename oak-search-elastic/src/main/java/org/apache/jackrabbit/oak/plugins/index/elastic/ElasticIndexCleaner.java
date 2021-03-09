@@ -98,12 +98,12 @@ public class ElasticIndexCleaner implements Runnable {
                 If index type is "elasticsearch" or "disabled", we try to find remote index name. In case of disabled lucene or
                 property indices, the remote index name would be null. So only elasticsearch indices are affected here.
                  */
-                if (typeValue.equals(ElasticIndexDefinition.TYPE_ELASTICSEARCH) || typeValue.equals("disabled")) {
+                if (ElasticIndexDefinition.TYPE_ELASTICSEARCH.equals(typeValue) || "disabled".equals(typeValue)) {
                     String indexPath = "/" + INDEX_DEFINITIONS_NAME + "/" + childNodeEntry.getName();
                     String remoteIndexName = ElasticIndexNameHelper.getRemoteIndexName(indexPrefix, childNodeEntry.getNodeState(), indexPath);
                     if (remoteIndexName != null) {
                         existingIndices.add(remoteIndexName);
-                    } else if (typeValue.equals(ElasticIndexDefinition.TYPE_ELASTICSEARCH)){
+                    } else if (ElasticIndexDefinition.TYPE_ELASTICSEARCH.equals(typeValue)){
                         /*
                             Didn't check for disabled indexes in this "else if" condition because an index could be disabled at three stages
                             and the following should hold -

@@ -110,11 +110,13 @@ public class ElasticIndexProviderService {
                 description = "Local file system path where text extraction cache stores/load entries to recover from timed out operation")
         String localTextExtractionDir();
 
-        @AttributeDefinition(name = "Remote index cleanup frequency", description = "Frequency (in seconds) of running remote index deletion scheduled task. Set this to -1 to disable the task.")
+        @AttributeDefinition(name = "Remote index cleanup frequency", description = "Frequency (in seconds) of running remote index deletion scheduled task." +
+                "Set this to -1 to disable the task. Default is 1 minute.")
         int remoteIndexCleanupFrequency() default 60;
 
-        @AttributeDefinition(name = "Remote index deletion threshold", description = "Time in seconds after which a remote index whose local index is not found gets deleted")
-        int remoteIndexDeletionThreshold() default 86400;
+        @AttributeDefinition(name = "Remote index deletion threshold", description = "Time in seconds after which a remote index whose local index is not found gets deleted." +
+                "Default is 1 day.")
+        int remoteIndexDeletionThreshold() default 24*60*60;
     }
 
 
