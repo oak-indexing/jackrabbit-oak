@@ -120,6 +120,8 @@ public class ElasticIndexCommand implements Command {
         //dumpIndexStats(indexOpts, indexHelper);
         //dumpIndexDefinitions(indexOpts, indexHelper);
         reindexOperation(indexOpts, indexHelper);
+        // This will not work with --doc-traversal mode, since that only works with read only mode and apply index def needs
+        // read write - logic handled in applyIndexDefOperation
         applyIndexDefOperation(indexOpts, indexHelper);
     }
 
@@ -152,7 +154,10 @@ public class ElasticIndexCommand implements Command {
     }
 
     private void applyIndexDefOperation(ElasticIndexOptions indexOpts, IndexHelper indexHelper) throws IOException, CommitFailedException  {
-        if (!indexOpts.isApplyIndexDef()) {
+        // return if index opts don't contain --applyIndexDef option or --read-write is not present
+        if (!indexOpts.isApplyIndexDef() || !opts.getCommonOpts().isReadWrite()) {
+            log.info("Index def not applied to repo. Run index command with --applyIndexDef and --read-write without the --reindex " +
+                    "opts to apply the index def");
             return;
         }
         applyIndexDef(indexOpts, indexHelper);

@@ -19,9 +19,7 @@
 package org.apache.jackrabbit.oak.index;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.jackrabbit.oak.index.indexer.document.DocumentStoreIndexerBase;
-import org.apache.jackrabbit.oak.index.indexer.document.ElasticIndexerProvider;
-import org.apache.jackrabbit.oak.index.indexer.document.NodeStateIndexerProvider;
+import org.apache.jackrabbit.oak.index.indexer.document.*;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticConnection;
 
 import java.io.IOException;
@@ -61,6 +59,20 @@ public class ElasticDocumentStoreIndexer extends DocumentStoreIndexerBase {
 
         providers.forEach(closer::register);
         return providers;
+    }
+    /*
+    Used to provision elastic index before starting indexing
+    Otherwise proper alias naming and mapping will not be applied
+     */
+    @Override
+    protected void preIndexOpertaions(List<NodeStateIndexer> indexers) {
+        // For all the available indexers check if it's an ElasticIndexer
+        // and then provision the index
+        for (NodeStateIndexer indexer : indexers) {
+            if (indexer instanceof ElasticIndexer) {
+                ((ElasticIndexer) indexer).provisionIndex();
+            }
+        }
     }
 
     private NodeStateIndexerProvider createElasticIndexerProvider() {

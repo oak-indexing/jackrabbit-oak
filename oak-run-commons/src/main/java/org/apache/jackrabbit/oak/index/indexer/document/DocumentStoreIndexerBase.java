@@ -121,6 +121,8 @@ public abstract class DocumentStoreIndexerBase implements Closeable{
 
         progressReporter.reindexingTraversalStart("/");
 
+        preIndexOpertaions(indexer.getIndexers());
+
         Stopwatch indexerWatch = Stopwatch.createStarted();
         for (NodeStateEntry entry : flatFileStore) {
             reportDocumentRead(entry.getPath());
@@ -207,6 +209,8 @@ public abstract class DocumentStoreIndexerBase implements Closeable{
     }
 
     protected abstract List<NodeStateIndexerProvider> createProviders() throws IOException;
+
+    protected abstract void preIndexOpertaions(List<NodeStateIndexer> indexers);
 
     //TODO OAK-7098 - Taken from IndexUpdate. Refactor to abstract out common logic like this
     private void removeIndexState(NodeBuilder definition) {

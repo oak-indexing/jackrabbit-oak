@@ -30,4 +30,9 @@ public class DocumentStoreIndexer extends DocumentStoreIndexerBase implements Cl
         providers.forEach(closer::register);
         return providers;
     }
+
+    @Override
+    protected void preIndexOpertaions(List<NodeStateIndexer> indexers) {
+        // NOOP
+    }
 }
