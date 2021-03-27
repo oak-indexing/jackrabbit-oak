@@ -51,6 +51,7 @@ public class ElasticDocumentStoreIndexer extends DocumentStoreIndexerBase {
         this.port = port;
         this.apiKeyId = apiKeyId;
         this.apiSecretId = apiSecretId;
+        setProviders();
     }
 
     protected List<NodeStateIndexerProvider> createProviders() {

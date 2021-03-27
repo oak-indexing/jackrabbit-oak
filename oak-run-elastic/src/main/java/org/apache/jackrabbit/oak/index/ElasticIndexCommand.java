@@ -170,8 +170,6 @@ public class ElasticIndexCommand implements Command {
         } else {
             log.warn("No index definitions file provided");
         }
-
-
     }
 
     private void reindexOperation(ElasticIndexOptions indexOpts, IndexHelper indexHelper) throws IOException, CommitFailedException {

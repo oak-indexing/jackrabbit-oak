@@ -63,7 +63,7 @@ public abstract class DocumentStoreIndexerBase implements Closeable{
     private final Logger traversalLog = LoggerFactory.getLogger(DocumentStoreIndexerBase.class.getName()+".traversal");
     protected final Closer closer = Closer.create();
     protected final IndexHelper indexHelper;
-    protected final List<NodeStateIndexerProvider> indexerProviders;
+    protected List<NodeStateIndexerProvider> indexerProviders;
     protected final IndexerSupport indexerSupport;
     private final IndexingProgressReporter progressReporter =
             new IndexingProgressReporter(IndexUpdateCallback.NOOP, NodeTraversalCallback.NOOP);
@@ -72,6 +72,9 @@ public abstract class DocumentStoreIndexerBase implements Closeable{
     public DocumentStoreIndexerBase(IndexHelper indexHelper, IndexerSupport indexerSupport) throws IOException {
         this.indexHelper = indexHelper;
         this.indexerSupport = indexerSupport;
+    }
+
+    protected void setProviders() throws IOException {
         this.indexerProviders = createProviders();
     }
 

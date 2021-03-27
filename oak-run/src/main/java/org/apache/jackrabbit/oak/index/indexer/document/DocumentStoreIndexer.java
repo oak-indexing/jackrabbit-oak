@@ -11,12 +11,11 @@ import java.util.List;
 public class DocumentStoreIndexer extends DocumentStoreIndexerBase implements Closeable {
 
     private final ExtendedIndexHelper extendedIndexHelper;
-    protected final IndexerSupport indexerSupport;
 
     public DocumentStoreIndexer(ExtendedIndexHelper extendedIndexHelper, IndexerSupport indexerSupport) throws IOException {
         super(extendedIndexHelper, indexerSupport);
         this.extendedIndexHelper = extendedIndexHelper;
-        this.indexerSupport = indexerSupport;
+        setProviders();
     }
 
     private NodeStateIndexerProvider createLuceneIndexProvider() throws IOException {
