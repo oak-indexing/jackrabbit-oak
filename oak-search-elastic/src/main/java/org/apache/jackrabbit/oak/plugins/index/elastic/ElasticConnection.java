@@ -43,15 +43,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class ElasticConnection implements Closeable {
 
-    protected static final String SCHEME_PROP = "elasticsearch.scheme";
     protected static final String DEFAULT_SCHEME = "http";
-    protected static final String HOST_PROP = "elasticsearch.host";
     protected static final String DEFAULT_HOST = "127.0.0.1";
-    protected static final String PORT_PROP = "elasticsearch.port";
     protected static final int DEFAULT_PORT = 9200;
-    protected static final String API_KEY_ID_PROP = "elasticsearch.apiKeyId";
     protected static final String DEFAULT_API_KEY_ID = "";
-    protected static final String API_KEY_SECRET_PROP = "elasticsearch.apiKeySecret";
     protected static final String DEFAULT_API_KEY_SECRET = "";
 
     private final String indexPrefix;
