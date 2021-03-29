@@ -35,13 +35,16 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
 import static org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexProviderService.PROP_ELASTIC_HOST;
 import static org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexProviderService.PROP_ELASTIC_PORT;
 import static org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexProviderService.PROP_INDEX_PREFIX;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 
 public class ElasticIndexProviderServiceTest {
 
@@ -72,7 +75,19 @@ public class ElasticIndexProviderServiceTest {
     }
 
     @Test
-    public void defaultSetup() throws Exception {
+    public void defaultSetup() {
+        MockOsgi.activate(service, context.bundleContext());
+
+        assertNotNull(context.getService(QueryIndexProvider.class));
+        assertNotNull(context.getService(IndexEditorProvider.class));
+
+        assertEquals(1, WhiteboardUtils.getServices(wb, Runnable.class).size());
+
+        MockOsgi.deactivate(service, context.bundleContext());
+    }
+
+    @Test
+    public void withElasticSetup() throws Exception {
         Map<String, Object> props = new HashMap<>();
         props.put("localTextExtractionDir", folder.newFolder("localTextExtractionDir").getAbsolutePath());
         props.put(PROP_INDEX_PREFIX, "elastic");
@@ -83,7 +98,19 @@ public class ElasticIndexProviderServiceTest {
         assertNotNull(context.getService(QueryIndexProvider.class));
         assertNotNull(context.getService(IndexEditorProvider.class));
 
-        assertNotNull(WhiteboardUtils.getServices(wb, Runnable.class));
+        assertEquals(1, WhiteboardUtils.getServices(wb, Runnable.class).size());
+
+        MockOsgi.deactivate(service, context.bundleContext());
+    }
+
+    @Test
+    public void disabled() {
+        MockOsgi.activate(service, context.bundleContext(), Collections.singletonMap("disabled", true));
+
+        assertNull(context.getService(QueryIndexProvider.class));
+        assertNull(context.getService(IndexEditorProvider.class));
+
+        assertEquals(0, WhiteboardUtils.getServices(wb, Runnable.class).size());
 
         MockOsgi.deactivate(service, context.bundleContext());
     }

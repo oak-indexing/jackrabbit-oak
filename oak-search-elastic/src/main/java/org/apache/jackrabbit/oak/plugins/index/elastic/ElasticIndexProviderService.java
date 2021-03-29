@@ -63,6 +63,9 @@ import static org.apache.jackrabbit.oak.spi.whiteboard.WhiteboardUtils.scheduleW
 @Designate(ocd = ElasticIndexProviderService.Config.class)
 public class ElasticIndexProviderService {
 
+    protected static final String OAK_ELASTIC_PREFIX = "oak.elastic";
+    protected static final String OAK_ELASTIC_DISABLED = OAK_ELASTIC_PREFIX + ".disabled";
+
     protected static final String PROP_INDEX_PREFIX = "indexPrefix";
     protected static final String PROP_ELASTIC_SCHEME = ElasticConnection.SCHEME_PROP;
     protected static final String PROP_ELASTIC_HOST = ElasticConnection.HOST_PROP;
@@ -73,6 +76,10 @@ public class ElasticIndexProviderService {
 
     @ObjectClassDefinition(name = "ElasticIndexProviderService", description = "Apache Jackrabbit Oak ElasticIndexProvider")
     public @interface Config {
+        @AttributeDefinition(name = "Disable the OAK Elastic service",
+                description = "If true, does not start the Elastic component")
+        boolean disabled() default false;
+
         @AttributeDefinition(name = "Extracted text cache size (MB)",
                 description = "Cache size in MB for caching extracted text for some time. When set to 0 then " +
                         "cache would be disabled")
@@ -150,6 +157,12 @@ public class ElasticIndexProviderService {
 
     @Activate
     private void activate(BundleContext bundleContext, Config config) throws IOException {
+        boolean disabled = Boolean.parseBoolean(System.getProperty(OAK_ELASTIC_DISABLED, Boolean.toString(config.disabled())));
+        if (disabled) {
+            LOG.info("Component disabled by configuration");
+            return;
+        }
+
         whiteboard = new OsgiWhiteboard(bundleContext);
 
         //initializeTextExtractionDir(bundleContext, config);
@@ -274,8 +287,7 @@ public class ElasticIndexProviderService {
         indexPrefix = System.getProperty(PROP_INDEX_PREFIX, contextConfig.indexPrefix());
         final String scheme = System.getProperty(PROP_ELASTIC_SCHEME, contextConfig.elasticsearch_scheme());
         final String host = System.getProperty(PROP_ELASTIC_HOST, contextConfig.elasticsearch_host());
-        final String portString = System.getProperty(PROP_ELASTIC_PORT, contextConfig.elasticsearch_port());
-        final int port = Integer.getInteger(PROP_ELASTIC_PORT, Integer.parseInt(portString));
+        final int port = Integer.getInteger(System.getProperty(PROP_ELASTIC_PORT, contextConfig.elasticsearch_port()));
 
         // optional params
         final String apiKeyId = System.getProperty(PROP_ELASTIC_API_KEY_ID, contextConfig.elasticsearch_apiKeyId());
