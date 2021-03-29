@@ -49,7 +49,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Dictionary;
 import java.util.Hashtable;
@@ -152,11 +151,9 @@ public class ElasticIndexProviderService {
     private File textExtractionDir;
 
     private ElasticConnection elasticConnection;
-    private ElasticIndexProvider indexProvider;
-    private String indexPrefix;
 
     @Activate
-    private void activate(BundleContext bundleContext, Config config) throws IOException {
+    private void activate(BundleContext bundleContext, Config config) {
         boolean disabled = Boolean.parseBoolean(System.getProperty(OAK_ELASTIC_PREFIX + PROP_DISABLED, Boolean.toString(config.disabled())));
         if (disabled) {
             LOG.info("Component disabled by configuration");
@@ -194,10 +191,10 @@ public class ElasticIndexProviderService {
         }
     }
 
-    private void registerIndexCleaner(Config contextConfig) throws IOException {
-        boolean reachable = elasticConnection.isAvailable();
-        if (!reachable) {
-            throw new IllegalArgumentException("Elastic server is not available - " + elasticConnection.toString());
+    private void registerIndexCleaner(Config contextConfig) {
+        if (!elasticConnection.isAvailable()) {
+            LOG.warn("The Elastic cluster at {} is not reachable. The index cleaner job has not been enabled", elasticConnection);
+            return;
         }
         if (contextConfig.remoteIndexCleanupFrequency() == -1) {
             return;
@@ -207,7 +204,7 @@ public class ElasticIndexProviderService {
     }
 
     private void registerIndexProvider(BundleContext bundleContext) {
-        indexProvider = new ElasticIndexProvider(elasticConnection, new ElasticMetricHandler(statisticsProvider));
+        ElasticIndexProvider indexProvider = new ElasticIndexProvider(elasticConnection, new ElasticMetricHandler(statisticsProvider));
 
         // register observer needed for index tracking
         regs.add(bundleContext.registerService(Observer.class.getName(), indexProvider, null));
@@ -284,7 +281,7 @@ public class ElasticIndexProviderService {
 
     private ElasticConnection getElasticConnection(Config contextConfig) {
         // system properties have priority, get mandatory params first
-        indexPrefix = System.getProperty(PROP_INDEX_PREFIX, contextConfig.indexPrefix());
+        String indexPrefix = System.getProperty(PROP_INDEX_PREFIX, contextConfig.indexPrefix());
         final String scheme = System.getProperty(PROP_ELASTIC_SCHEME, contextConfig.elasticsearch_scheme());
         final String host = System.getProperty(PROP_ELASTIC_HOST, contextConfig.elasticsearch_host());
         final String portString = System.getProperty(PROP_ELASTIC_PORT, contextConfig.elasticsearch_port());

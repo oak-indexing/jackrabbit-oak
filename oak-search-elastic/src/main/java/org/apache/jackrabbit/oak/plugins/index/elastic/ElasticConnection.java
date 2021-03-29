@@ -118,10 +118,13 @@ public class ElasticConnection implements Closeable {
     /**
      * Checks if elastic server is available for connection.
      * @return true if available, false otherwise.
-     * @throws IOException if some connection exception occurs.
      */
-    public boolean isAvailable() throws IOException {
-        return this.getClient().ping(RequestOptions.DEFAULT);
+    public boolean isAvailable() {
+        try {
+            return this.getClient().ping(RequestOptions.DEFAULT);
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     @Override
