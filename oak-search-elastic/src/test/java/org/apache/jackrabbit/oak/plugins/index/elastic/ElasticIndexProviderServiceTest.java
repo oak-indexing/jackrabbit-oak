@@ -83,7 +83,9 @@ public class ElasticIndexProviderServiceTest {
         assertNotNull(context.getService(QueryIndexProvider.class));
         assertNotNull(context.getService(IndexEditorProvider.class));
 
-        assertEquals(1, WhiteboardUtils.getServices(wb, Runnable.class).size());
+        // With the default setup and no elastic cluster available at localhost:9200 the index cleaner will not be registered.
+        // This check can potentially fail if a local cluster is up and running.
+        assertEquals(0, WhiteboardUtils.getServices(wb, Runnable.class).size());
 
         MockOsgi.deactivate(service, context.bundleContext());
     }
