@@ -24,6 +24,8 @@ import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
 import org.elasticsearch.client.RestHighLevelClient;
 import org.jetbrains.annotations.NotNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -42,6 +44,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Once close() is invoked this instance cannot be used anymore.
  */
 public class ElasticConnection implements Closeable {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ElasticConnection.class);
 
     protected static final String DEFAULT_SCHEME = "http";
     protected static final String DEFAULT_HOST = "127.0.0.1";
@@ -123,6 +127,7 @@ public class ElasticConnection implements Closeable {
         try {
             return this.getClient().ping(RequestOptions.DEFAULT);
         } catch (IOException e) {
+            LOG.debug("Error checking connection for " + this, e);
             return false;
         }
     }
