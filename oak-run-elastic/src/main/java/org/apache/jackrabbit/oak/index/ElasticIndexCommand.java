@@ -120,8 +120,8 @@ public class ElasticIndexCommand implements Command {
         //dumpIndexStats(indexOpts, indexHelper);
         //dumpIndexDefinitions(indexOpts, indexHelper);
         reindexOperation(indexOpts, indexHelper);
-        // This will not work with --doc-traversal mode, since that only works with read only mode and apply index def needs
-        // read write - logic handled in applyIndexDefOperation
+        // This will not work with --doc-traversal mode, since that only works with read only mode and apply index def needs read write mode
+        // read write requirement - logic handled in applyIndexDefOperation
         applyIndexDefOperation(indexOpts, indexHelper);
     }
 
