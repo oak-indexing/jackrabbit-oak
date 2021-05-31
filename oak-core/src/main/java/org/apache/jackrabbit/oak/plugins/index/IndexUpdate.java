@@ -250,7 +250,7 @@ public class IndexUpdate implements Editor, PathSource {
         // the reindex flag, in case OutOfBand Indexing has been performed, warning can be ignored.
         // Also, in case the new elastic node has been added with reindex = true , this method would have already returned true
         if (result && TYPE_ELASTICSEARCH.equals((type.getValue(Type.STRING)))) {
-            log.warn("Found a new elastic index node [{}]. Please set the reindex falg = true to initiate reindexing." +
+            log.warn("Found a new elastic index node [{}]. Please set the reindex flag = true to initiate reindexing." +
                             "Please ignore if OutOfBand Reindexing has already been performed.",
                     name);
             return false;
