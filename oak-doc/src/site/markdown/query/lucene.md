@@ -414,8 +414,7 @@ nodeScopeIndex
   This could result in large index size in case of indexRules on broader nodeTypes such as nt:base.
 
   So it's advisable to use nodeScopeIndex for broader nodeTypes only if it's absolutely
-  needed to support
-  queries like _jcr:contains(., 'foo')_
+  needed to support queries like _jcr:contains(., 'foo')_
 
 analyzed
 : Set this to true if the property is used as part of `contains`. Example
