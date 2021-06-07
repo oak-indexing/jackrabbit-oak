@@ -409,11 +409,11 @@ nodeScopeIndex
   `nodeScopeIndex` is set to true.
 
   Note : If an index definition consists of any property with nodeScopeIndex set to
-  true, then it will index the node name property for all the nodes (with nodeType
+  true, then it will index the node name for all the nodes (with node type
   matching to or a child type of the one defined in the indexRule).
-  This could result in large index size in case of indexRules on broader nodeTypes such as nt:base.
+  This could result in large index size in case of indexRules on broader node types such as nt:base.
 
-  So it's advisable to use nodeScopeIndex for broader nodeTypes only if it's absolutely
+  So it's advisable to use nodeScopeIndex for broader node types only if it's absolutely
   needed to support queries like _jcr:contains(., 'foo')_
 
 analyzed
