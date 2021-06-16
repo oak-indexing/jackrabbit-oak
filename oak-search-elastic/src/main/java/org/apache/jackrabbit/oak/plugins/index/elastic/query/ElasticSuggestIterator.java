@@ -29,7 +29,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.PriorityQueue;
 
 /**
@@ -85,11 +87,16 @@ class ElasticSuggestIterator implements Iterator<FulltextResultRow> {
         SearchRequest searchRequest = new SearchRequest(indexNode.getDefinition().getRemoteIndexAlias())
                 .source(searchSourceBuilder);
         SearchResponse res = indexNode.getConnection().getClient().search(searchRequest, RequestOptions.DEFAULT);
+        List<String> suggestionList = new ArrayList<>();
         PriorityQueue<ElasticSuggestion> suggestionPriorityQueue = new PriorityQueue<>((a, b) -> Double.compare(b.score, a.score));
         for (SearchHit doc : res.getHits()) {
             if (responseHandler.isAccessible(responseHandler.getPath(doc))) {
                 for (SearchHit suggestion : doc.getInnerHits().get(FieldNames.SUGGEST).getHits()) {
-                    suggestionPriorityQueue.add(new ElasticSuggestion((String) suggestion.getSourceAsMap().get("value"), suggestion.getScore()));
+                    String suggestValue = (String) suggestion.getSourceAsMap().get("value");
+                    if (!suggestionList.contains(suggestValue)) {
+                        suggestionPriorityQueue.add(new ElasticSuggestion((String) suggestion.getSourceAsMap().get("value"), suggestion.getScore()));
+                        suggestionList.add(suggestValue);
+                    }
                 }
             }
         }
