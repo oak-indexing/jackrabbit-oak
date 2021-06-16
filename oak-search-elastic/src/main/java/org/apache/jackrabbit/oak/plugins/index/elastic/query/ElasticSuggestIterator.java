@@ -17,6 +17,7 @@
 package org.apache.jackrabbit.oak.plugins.index.elastic.query;
 
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
+import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndex.FulltextResultRow;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
@@ -32,6 +33,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Objects;
 import java.util.PriorityQueue;
 
 /**
@@ -87,26 +89,34 @@ class ElasticSuggestIterator implements Iterator<FulltextResultRow> {
         SearchRequest searchRequest = new SearchRequest(indexNode.getDefinition().getRemoteIndexAlias())
                 .source(searchSourceBuilder);
         SearchResponse res = indexNode.getConnection().getClient().search(searchRequest, RequestOptions.DEFAULT);
-        List<String> suggestionList = new ArrayList<>();
         PriorityQueue<ElasticSuggestion> suggestionPriorityQueue = new PriorityQueue<>((a, b) -> Double.compare(b.score, a.score));
         for (SearchHit doc : res.getHits()) {
             if (responseHandler.isAccessible(responseHandler.getPath(doc))) {
                 for (SearchHit suggestion : doc.getInnerHits().get(FieldNames.SUGGEST).getHits()) {
-                    String suggestValue = (String) suggestion.getSourceAsMap().get("value");
-                    // Avoid adding duplicate suggest results
-                    if (!suggestionList.contains(suggestValue)) {
-                        suggestionPriorityQueue.add(new ElasticSuggestion((String) suggestion.getSourceAsMap().get("value"), suggestion.getScore()));
-                        suggestionList.add(suggestValue);
-                    }
+                    suggestionPriorityQueue.add(new ElasticSuggestion((String) suggestion.getSourceAsMap().get("value"), suggestion.getScore()));
                 }
             }
         }
-        this.internalIterator = suggestionPriorityQueue.iterator();
+        this.internalIterator = suggestionPriorityQueue.stream().distinct().iterator();
     }
 
-    private final static class ElasticSuggestion extends FulltextResultRow{
+    private final static class ElasticSuggestion extends FulltextResultRow {
         private ElasticSuggestion(String suggestion, double score) {
             super(suggestion, score);
         }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            FulltextResultRow fulltextResultRow = (FulltextResultRow) o;
+            return Objects.equals(this.suggestion, fulltextResultRow.suggestion);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(this.suggestion);
+        }
+
     }
 }

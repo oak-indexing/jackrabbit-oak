@@ -465,7 +465,7 @@ public abstract class IndexSuggestionCommonTest extends AbstractJcrTest {
         assertEventually(() -> {
             try {
                 List<String> resultSet = getAllResults(queryManager, suggQuery);
-                assertEquals("There should not be any duplicate suggestions, Expected - 2, Actual - " + resultSet.size(),
+                assertEquals("There should not be any duplicate suggestions.",
                         2, resultSet.size());
             } catch (RepositoryException e) {
                 throw new RuntimeException(e);
