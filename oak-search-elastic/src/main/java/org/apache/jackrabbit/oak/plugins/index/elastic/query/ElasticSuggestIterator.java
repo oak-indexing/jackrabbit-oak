@@ -93,6 +93,7 @@ class ElasticSuggestIterator implements Iterator<FulltextResultRow> {
             if (responseHandler.isAccessible(responseHandler.getPath(doc))) {
                 for (SearchHit suggestion : doc.getInnerHits().get(FieldNames.SUGGEST).getHits()) {
                     String suggestValue = (String) suggestion.getSourceAsMap().get("value");
+                    // Avoid adding duplicate suggest results
                     if (!suggestionList.contains(suggestValue)) {
                         suggestionPriorityQueue.add(new ElasticSuggestion((String) suggestion.getSourceAsMap().get("value"), suggestion.getScore()));
                         suggestionList.add(suggestValue);
