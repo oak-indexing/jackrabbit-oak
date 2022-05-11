@@ -28,6 +28,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.jackrabbit.oak.api.CommitFailedException;
 import org.apache.jackrabbit.oak.api.PropertyState;
+import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.plugins.index.IndexEditor;
 import org.apache.jackrabbit.oak.plugins.index.search.Aggregate;
@@ -134,6 +135,10 @@ public class FulltextIndexEditor<D> implements IndexEditor, Aggregate.AggregateR
   @Override
   public void leave(NodeState before, NodeState after)
       throws CommitFailedException {
+    if ( after.getProperty("foo") != null && after.getProperty("foo").getValue(Type.STRING).equals("bar")){
+      System.out.println("started");
+      System.out.println("started");
+    }
     if (propertiesChanged || !before.exists()) {
       String path = getPath();
       if (addOrUpdate(path, after, before.exists())) {

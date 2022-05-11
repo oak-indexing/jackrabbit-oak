@@ -209,6 +209,7 @@ public class LuceneDocumentMaker extends FulltextDocumentMaker<Document> {
         doc.add(field);
     }
 
+    // doc que to use .... que doc which is to be consumed
     @Override
     protected Document initDoc() {
         Document doc = new Document();

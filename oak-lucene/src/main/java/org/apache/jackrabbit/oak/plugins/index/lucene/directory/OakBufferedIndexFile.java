@@ -174,7 +174,12 @@ class OakBufferedIndexFile implements OakIndexFile {
         }
     }
 
+    static volatile int count = 0;
     private void flushBlob() throws IOException {
+        if (count % 23 == 0){
+            System.out.println("during asyncindex running");
+        }
+        System.out.println(++count);
         if (blobModified) {
             int n = (int) Math.min(blobSize, length - (long)index * blobSize);
             InputStream in = new ByteArrayInputStream(blob, 0, n);

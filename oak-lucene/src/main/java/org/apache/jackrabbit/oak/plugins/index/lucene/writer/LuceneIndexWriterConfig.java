@@ -25,7 +25,8 @@ public class LuceneIndexWriterConfig {
     private final double ramBufferSizeMB;
 
     public LuceneIndexWriterConfig() {
-        this(IndexWriterConfig.DEFAULT_RAM_BUFFER_SIZE_MB);
+//        this(IndexWriterConfig.DEFAULT_RAM_BUFFER_SIZE_MB);
+        this(2.0);
     }
 
     public LuceneIndexWriterConfig(double ramBufferSizeMB) {
