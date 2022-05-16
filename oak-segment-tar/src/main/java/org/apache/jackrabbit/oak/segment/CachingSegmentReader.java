@@ -40,7 +40,7 @@ import org.slf4j.LoggerFactory;
  * strings and templates. It can also optionally rely on a {@link BlobStore} for resolving blobs.
  */
 public class CachingSegmentReader implements SegmentReader {
-    public static final int DEFAULT_STRING_CACHE_MB = 256;
+    public static final int DEFAULT_STRING_CACHE_MB = 64;
     public static final int DEFAULT_TEMPLATE_CACHE_MB = 64;
 
     private static final Logger LOG = LoggerFactory.getLogger(LoggingHook.class.getName() + ".reader");

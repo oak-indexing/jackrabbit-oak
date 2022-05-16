@@ -51,7 +51,7 @@ public abstract class SegmentCache {
     /**
      * Default maximum weight of this cache in MB
      */
-    public static final int DEFAULT_SEGMENT_CACHE_MB = 256;
+    public static final int DEFAULT_SEGMENT_CACHE_MB = 64;
 
     private static final String NAME = "Segment Cache";
 

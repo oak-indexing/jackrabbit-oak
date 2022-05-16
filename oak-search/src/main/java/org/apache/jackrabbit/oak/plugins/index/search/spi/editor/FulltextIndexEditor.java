@@ -253,6 +253,7 @@ public class FulltextIndexEditor<D> implements IndexEditor, Aggregate.AggregateR
   private boolean addOrUpdate(String path, NodeState state, boolean isUpdate)
       throws CommitFailedException {
     try {
+
       D d = makeDocument(path, state, isUpdate);
       if (d != null) {
         if (log.isTraceEnabled()) {

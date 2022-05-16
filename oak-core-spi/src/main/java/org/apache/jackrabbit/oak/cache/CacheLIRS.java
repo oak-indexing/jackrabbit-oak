@@ -1538,7 +1538,7 @@ public class CacheLIRS<K, V> implements LoadingCache<K, V> {
         private Weigher<K, V> weigher;
         private long maxWeight;
         private int averageWeight = 100;
-        private int segmentCount = 16;
+        private int segmentCount = 2;
         private int stackMoveDistance = 16;
         private EvictionCallback<K, V> evicted;
 

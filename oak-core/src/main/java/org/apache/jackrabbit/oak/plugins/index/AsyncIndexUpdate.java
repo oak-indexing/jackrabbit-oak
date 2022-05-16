@@ -486,6 +486,8 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         closed = true;
     }
 
+    public static volatile int asyncindexCount=0;
+
     private void runWhenPermitted() {
         if (indexStats.isPaused()) {
             if (indexStats.forcedLeaseRelease){
@@ -587,25 +589,31 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         AtomicReference<String> checkpointToReleaseRef = new AtomicReference<>(afterCheckpoint);
         boolean updatePostRunStatus = false;
         try {
-            String newThreadName = "async-index-update-" + name;
-            log.trace("Switching thread name to {}", newThreadName);
-            threadNameChanged = true;
-            Thread.currentThread().setName(newThreadName);
-            updatePostRunStatus = updateIndex(before, beforeCheckpoint, after,
-                    afterCheckpoint, afterTime, callback, checkpointToReleaseRef);
-
-            // the update succeeded, i.e. it no longer fails
-            if (indexStats.didLastIndexingCycleFailed()) {
-                indexStats.fixed();
+            asyncindexCount++;
+            if (asyncindexCount == -1){
+                System.out.println("asyncindexCount:" + asyncindexCount);
             }
+            else {
+                String newThreadName = "async-index-update-" + name;
+                log.trace("Switching thread name to {}", newThreadName);
+                threadNameChanged = true;
+                Thread.currentThread().setName(newThreadName);
+                updatePostRunStatus = updateIndex(before, beforeCheckpoint, after,
+                        afterCheckpoint, afterTime, callback, checkpointToReleaseRef);
 
-            // the update succeeded, so we are sure we can release the earlier checkpoint -
-            // otherwise the new checkpoint associated with the failed update
-            // may still get released in the finally block (depending on where the index update failed)
-            checkpointToReleaseRef.set(beforeCheckpoint);
-            indexStats.setReferenceCheckpoint(afterCheckpoint);
-            indexStats.setProcessedCheckpoint("");
-            indexStats.releaseTempCheckpoint(afterCheckpoint);
+                // the update succeeded, i.e. it no longer fails
+                if (indexStats.didLastIndexingCycleFailed()) {
+                    indexStats.fixed();
+                }
+
+                // the update succeeded, so we are sure we can release the earlier checkpoint -
+                // otherwise the new checkpoint associated with the failed update
+                // may still get released in the finally block (depending on where the index update failed)
+                checkpointToReleaseRef.set(beforeCheckpoint);
+                indexStats.setReferenceCheckpoint(afterCheckpoint);
+                indexStats.setProcessedCheckpoint("");
+                indexStats.releaseTempCheckpoint(afterCheckpoint);
+            }
 
         } catch (Exception e) {
             indexStats.failed(e);

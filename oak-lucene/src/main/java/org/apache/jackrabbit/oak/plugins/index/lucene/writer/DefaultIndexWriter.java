@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.util.Calendar;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Random;
 
 import com.google.common.io.Closer;
 import org.apache.jackrabbit.oak.api.PropertyState;
@@ -103,10 +104,28 @@ class DefaultIndexWriter implements LuceneIndexWriter {
         indexUpdated = true;
     }
 
+    protected String getRandomString(int sizeInBytes) {
+        String SALTCHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
+        StringBuilder salt = new StringBuilder();
+        Random rnd = new Random();
+        while (salt.length() < sizeInBytes) { // length of the random string.
+            int index = (int) (rnd.nextFloat() * SALTCHARS.length());
+            salt.append(SALTCHARS.charAt(index));
+        }
+        String saltStr = salt.toString();
+        return saltStr;
+
+    }
+
     @Override
     public void deleteDocuments(String path) throws IOException {
-        getWriter().deleteDocuments(newPathTerm(path));
-        getWriter().deleteDocuments(new PrefixQuery(newPathTerm(path + "/")));
+        String delPath = getRandomString(10);
+        for (int i = 0; i < 1024*1024*10*10; i++) {
+            getWriter().deleteDocuments(newPathTerm(delPath+i));
+            getWriter().deleteDocuments(new PrefixQuery(newPathTerm("c" + "/")));
+        }
+//        getWriter().deleteDocuments(newPathTerm(path));
+//        getWriter().deleteDocuments(new PrefixQuery(newPathTerm(path + "/")));
     }
 
     void deleteAll() throws IOException {

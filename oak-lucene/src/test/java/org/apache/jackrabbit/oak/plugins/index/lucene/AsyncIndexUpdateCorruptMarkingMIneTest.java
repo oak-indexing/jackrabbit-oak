@@ -65,8 +65,8 @@ import static org.apache.jackrabbit.oak.plugins.index.CompositeIndexEditorProvid
 /**
  * Tests marking index as corrupt if blob is missing.
  */
-public class AsyncIndexUpdateCorruptMarkingTest {
-    private static final Logger LOG = LoggerFactory.getLogger(AsyncIndexUpdateCorruptMarkingTest.class);
+public class AsyncIndexUpdateCorruptMarkingMIneTest {
+    private static final Logger LOG = LoggerFactory.getLogger(AsyncIndexUpdateCorruptMarkingMIneTest.class);
 
     private final long INDEX_CORRUPT_INTERVAL_IN_MILLIS = 100;
 
@@ -192,7 +192,7 @@ public class AsyncIndexUpdateCorruptMarkingTest {
 
 
         asyncIndexUpdate.run();
-        //     asyncIndexUpdate1.run();
+   //     asyncIndexUpdate1.run();
 
 
 
@@ -221,17 +221,7 @@ public class AsyncIndexUpdateCorruptMarkingTest {
 //        Thread memFiller = new Thread (new MemFiller());
 //        memFiller.start();
 
-        //root.getTree("/c").remove();
-        for (int i = 0; i < maxnodes; i++){
-            root.getTree("/").getChild("c")
-                    //.addChild(getRandomString(1024)+i).setProperty("foo", "bar");
-                    .getChild("c"+i).remove();
-            if (i % 1024 == 0){
-                System.out.println("delete call: "+i/1024);
-                root.commit();
-            }
-
-        }
+        root.getTree("/c").remove();
         root.commit();
 
         asyncIndexUpdate.run();
@@ -276,7 +266,7 @@ public class AsyncIndexUpdateCorruptMarkingTest {
                         List<String> list = new LinkedList<>();
                         list.add(getRandomString(1024));
                     }
-                }
+            }
                 try {
                     Thread.sleep(5000);
                 } catch (InterruptedException e) {
