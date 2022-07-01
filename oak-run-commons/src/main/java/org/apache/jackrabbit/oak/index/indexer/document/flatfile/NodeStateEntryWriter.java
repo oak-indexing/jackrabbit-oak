@@ -20,6 +20,8 @@
 package org.apache.jackrabbit.oak.index.indexer.document.flatfile;
 
 import org.apache.jackrabbit.guava.common.base.Joiner;
+import java.util.LinkedList;
+import java.util.List;
 import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.commons.json.JsopBuilder;
 import org.apache.jackrabbit.oak.index.indexer.document.NodeStateEntry;
@@ -30,7 +32,6 @@ import org.apache.jackrabbit.oak.spi.state.NodeState;
 
 import java.io.IOException;
 import java.io.Writer;
-import java.util.List;
 
 import static org.apache.jackrabbit.guava.common.base.Preconditions.checkState;
 
@@ -101,13 +102,40 @@ public class NodeStateEntryWriter {
     }
 
     public static String[] getParts(String line) {
-        int pos = getDelimiterPosition(line);
-        return new String[]{line.substring(0, pos), line.substring(pos + 1)};
+        List<Integer> positions = getDelimiterPositions(line, 0);
+
+        String[] parts = new String[positions.size() +1];
+        int marker = 0;
+
+        for(int i=0; i < positions.size() ; i++) {
+            parts[i] = line.substring(marker, positions.get(i));
+            marker = positions.get(i) + 1;
+        }
+
+        parts[positions.size()] = line.substring(marker);
+
+        return parts;
     }
 
     private static int getDelimiterPosition(String entryLine) {
         int indexOfPipe = entryLine.indexOf(NodeStateEntryWriter.DELIMITER);
         checkState(indexOfPipe > 0, "Invalid path entry [%s]", entryLine);
         return indexOfPipe;
+    }
+
+    private static List<Integer> getDelimiterPositions(String entryLine, int index) {
+        List<Integer> indexPositions = new LinkedList<>();
+        int indexOfPipe;
+        while (true) {
+            indexOfPipe = entryLine.indexOf(NodeStateEntryWriter.DELIMITER, index);
+            if (indexOfPipe > 0) {
+                indexPositions.add(indexOfPipe);
+                index = indexOfPipe + 1;
+            } else {
+                break;
+            }
+        }
+        checkState(indexPositions.size() > 0, "Invalid path entry [%s]", entryLine);
+        return indexPositions;
     }
 }

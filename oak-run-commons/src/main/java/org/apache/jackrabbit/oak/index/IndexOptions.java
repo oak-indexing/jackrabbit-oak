@@ -65,6 +65,9 @@ public class IndexOptions implements OptionsBean {
     private final OptionSpec<String> asyncIndexLanes;
     private final Set<String> operationNames;
     private final OptionSpec<File> existingDataDumpDirOpt;
+    private final OptionSpec<Void> buildIncrementalFFS;
+    private final OptionSpec<String> initialCheckpoint;
+    private final OptionSpec<String> finalCheckpoint;
 
 
 
@@ -112,6 +115,15 @@ public class IndexOptions implements OptionsBean {
                 "DocumentNodeStore setups. This may provide better performance in some cases (experimental)");
         enableCowCor = parser.accepts("enable-cow-cor", "Enables COW/COR during async indexing using oak-run");
         buildFlatFileStoreSeparately = parser.accepts("build-flatfilestore-separately", "Builds FlatFileStore as a separate step and then uses it as part of the doc-traversal-mode for reindexing");
+
+        buildIncrementalFFS = parser.accepts("build-incremental-ffs", "Builds an incremental FFS based on intial and final checkpoints");
+        initialCheckpoint = parser.accepts("initialCheckpoint", "Checkpoint for initial state for incremental FFS")
+                .requiredIf(buildIncrementalFFS)
+                .withRequiredArg().ofType(String.class);
+
+        finalCheckpoint = parser.accepts("finalCheckpoint", "Checkpoint for final state for incremental FFS")
+                .requiredIf(buildIncrementalFFS)
+                .withRequiredArg().ofType(String.class);
 
         indexImportDir = parser.accepts("index-import-dir", "Directory containing index files. This " +
                 "is required when --index-import operation is selected")
@@ -233,8 +245,20 @@ public class IndexOptions implements OptionsBean {
         return options.has(buildFlatFileStoreSeparately);
     }
 
+    public boolean buildIncrementalFFS() {
+        return options.has(buildIncrementalFFS);
+    }
+
     public String getCheckpoint(){
         return checkpoint.value(options);
+    }
+
+    public String getInitialCheckpoint() {
+        return initialCheckpoint.value(options);
+    }
+
+    public String getFinalCheckpoint() {
+        return finalCheckpoint.value(options);
     }
 
     public List<String> getIndexPaths(){

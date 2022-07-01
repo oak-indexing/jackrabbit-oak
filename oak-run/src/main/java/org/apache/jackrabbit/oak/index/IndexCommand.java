@@ -244,11 +244,12 @@ public class IndexCommand implements Command {
             log.info("Using Document order traversal to perform reindexing");
             try (DocumentStoreIndexer indexer = new DocumentStoreIndexer(extendedIndexHelper, indexerSupport)) {
                 if (idxOpts.buildFlatFileStoreSeparately()) {
-                    FlatFileStore ffs = indexer.buildFlatFileStore();
+                    FlatFileStore ffs = idxOpts.buildIncrementalFFS() ? indexer.buildFlatFileStore(true, idxOpts.getInitialCheckpoint(), idxOpts.getFinalCheckpoint()) :
+                            indexer.buildFlatFileStore();
                     String pathToFFS = ffs.getFlatFileStorePath();
                     System.setProperty(OAK_INDEXER_SORTED_FILE_PATH, pathToFFS);
                 }
-                indexer.reindex();
+                //indexer.reindex();
             }
         } else {
             try (OutOfBandIndexer indexer = new OutOfBandIndexer(extendedIndexHelper, indexerSupport)) {

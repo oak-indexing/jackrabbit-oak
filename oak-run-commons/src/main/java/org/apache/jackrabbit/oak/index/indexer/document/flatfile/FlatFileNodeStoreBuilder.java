@@ -49,6 +49,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Predicate;
+import static org.apache.jackrabbit.oak.index.indexer.document.flatfile.FlatFileStoreUtils.getSortedStoreFileName;
 
 import static java.util.Collections.unmodifiableSet;
 
@@ -125,6 +126,9 @@ public class FlatFileNodeStoreBuilder {
     private final MemoryManager memoryManager;
     private long dumpThreshold = Integer.getInteger(OAK_INDEXER_DUMP_THRESHOLD_IN_MB, OAK_INDEXER_DUMP_THRESHOLD_IN_MB_DEFAULT) * FileUtils.ONE_MB;
     private Predicate<String> pathPredicate = path -> true;
+    private final IndexHelper indexHelper;
+    private static String initialCheckpoint;
+    private static String finalCheckpoint;
 
     private final boolean compressionEnabled = Boolean.parseBoolean(System.getProperty(OAK_INDEXER_USE_ZIP, "true"));
     private final boolean useLZ4 = Boolean.parseBoolean(System.getProperty(OAK_INDEXER_USE_LZ4, "false"));
@@ -132,7 +136,7 @@ public class FlatFileNodeStoreBuilder {
         Compression.NONE;
     private final boolean useTraverseWithSort = Boolean.parseBoolean(System.getProperty(OAK_INDEXER_TRAVERSE_WITH_SORT, "true"));
     private final String sortStrategyTypeString = System.getProperty(OAK_INDEXER_SORT_STRATEGY_TYPE);
-    private final SortStrategyType sortStrategyType = sortStrategyTypeString != null ? SortStrategyType.valueOf(sortStrategyTypeString) :
+    private SortStrategyType sortStrategyType = sortStrategyTypeString != null ? SortStrategyType.valueOf(sortStrategyTypeString) :
             (useTraverseWithSort ? SortStrategyType.TRAVERSE_WITH_SORT : SortStrategyType.STORE_AND_SORT);
     private RevisionVector rootRevision = null;
     private DocumentNodeStore nodeStore = null;
@@ -151,24 +155,59 @@ public class FlatFileNodeStoreBuilder {
          * System property {@link #OAK_INDEXER_SORT_STRATEGY_TYPE} if set to this value would result in {@link MultithreadedTraverseWithSortStrategy} being used.
          */
         MULTITHREADED_TRAVERSE_WITH_SORT,
+
         /**
          * System property {@link #OAK_INDEXER_SORT_STRATEGY_TYPE} if set to this value would result in {@link PipelinedStrategy} being used.
          */
-        PIPELINED
+        PIPELINED,
+
+        /**
+         *
+         */
+
+        INCREMENTAL_STORE
+    }
+
+    public FlatFileNodeStoreBuilder(File workDir, MemoryManager memoryManager, IndexHelper indexHelper) {
+        this.workDir = workDir;
+        this.memoryManager = memoryManager;
+        this.indexHelper = indexHelper;
     }
 
     public FlatFileNodeStoreBuilder(File workDir, MemoryManager memoryManager) {
         this.workDir = workDir;
         this.memoryManager = memoryManager;
+        this.indexHelper = null;
     }
 
     public FlatFileNodeStoreBuilder(File workDir) {
         this.workDir = workDir;
         this.memoryManager = new DefaultMemoryManager();
+        this.indexHelper = null;
     }
 
     public FlatFileNodeStoreBuilder withLastModifiedBreakPoints(List<Long> lastModifiedBreakPoints) {
         this.lastModifiedBreakPoints = lastModifiedBreakPoints;
+        return this;
+    }
+
+    /**
+     * Using this will override the sort strategy type set by System property oak.indexer.sortStrategyType
+     * @param sortStrategyType
+     * @return FlatFileNodeStoreBuilder
+     */
+    public FlatFileNodeStoreBuilder withSortStrategyType(SortStrategyType sortStrategyType) {
+        this.sortStrategyType = sortStrategyType;
+        return this;
+    }
+
+    public FlatFileNodeStoreBuilder withInitialCheckpoint(String checkpoint) {
+        this.initialCheckpoint = checkpoint;
+        return this;
+    }
+
+    public FlatFileNodeStoreBuilder withFinalCheckpoint(String checkpoint) {
+        this.finalCheckpoint = checkpoint;
         return this;
     }
 
@@ -325,6 +364,8 @@ public class FlatFileNodeStoreBuilder {
                 log.info("Using PipelinedStrategy");
                 return new PipelinedStrategy(mongoDocumentStore, nodeStore, rootRevision,
                         preferredPathElements, blobStore, dir, algorithm, pathPredicate);
+            case INCREMENTAL_STORE:
+                return new IncrementalStore(indexHelper.getNodeStore().retrieve(initialCheckpoint), indexHelper.getNodeStore().retrieve(finalCheckpoint), dir, comparator, algorithm, pathPredicate, entryWriter);
         }
         throw new IllegalStateException("Not a valid sort strategy value " + sortStrategyType);
     }

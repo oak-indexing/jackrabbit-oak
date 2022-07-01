@@ -159,7 +159,7 @@ public abstract class DocumentStoreIndexerBase implements Closeable {
         MemoryManager memoryManager = new DefaultMemoryManager();
         while (storeList.isEmpty() && executionCount <= MAX_DOWNLOAD_ATTEMPTS) {
             try {
-                builder = new FlatFileNodeStoreBuilder(indexHelper.getWorkDir(), memoryManager)
+                builder = new FlatFileNodeStoreBuilder(indexHelper.getWorkDir(), memoryManager, indexHelper)
                         .withLastModifiedBreakPoints(lastModifiedBreakPoints)
                         .withBlobStore(indexHelper.getGCBlobStore())
                         .withPreferredPathElements((preferredPathElements != null) ? preferredPathElements : indexer.getRelativeIndexedNodeNames())
@@ -206,13 +206,40 @@ public abstract class DocumentStoreIndexerBase implements Closeable {
         return storeList;
     }
 
+    private FlatFileStore buildIncrementalFFS(String initialCheckpoint, String finalCheckpoint, Predicate<String> pathPredicate, Set<String> preferredPathElements) throws IOException {
+        FlatFileNodeStoreBuilder builder = null;
+        FlatFileStore flatFileStore = null;
+        Stopwatch flatFileStoreWatch = Stopwatch.createStarted();
+        MemoryManager memoryManager = new DefaultMemoryManager();
+        try {
+            builder = new FlatFileNodeStoreBuilder(indexHelper.getWorkDir(), memoryManager, indexHelper)
+                    .withBlobStore(indexHelper.getGCBlobStore())
+                    .withPreferredPathElements(preferredPathElements)
+                    .addExistingDataDumpDir(indexerSupport.getExistingDataDumpDir())
+                    .withPathPredicate(pathPredicate)
+                    .withInitialCheckpoint(initialCheckpoint)
+                    .withFinalCheckpoint(finalCheckpoint)
+                    .withSortStrategyType(FlatFileNodeStoreBuilder.SortStrategyType.INCREMENTAL_STORE);
+            flatFileStore = builder.build();
+            closer.register(flatFileStore);
+        } catch (Exception e) {
+            throw new IOException("Could not build flat file store", e);
+        }
+        log.info("Completed the flat file store build in {}", flatFileStoreWatch);
+        return flatFileStore;
+    }
+
+    public FlatFileStore buildFlatFileStore() throws IOException, CommitFailedException {
+        return buildFlatFileStore(false, null, null);
+    }
+
     /**
      *
      * @return an Instance of FlatFileStore, whose getFlatFileStorePath() method can be used to get the absolute path to this store.
      * @throws IOException
      * @throws CommitFailedException
      */
-    public FlatFileStore buildFlatFileStore() throws IOException, CommitFailedException {
+    public FlatFileStore buildFlatFileStore(boolean incremental, String initialCheckpoint, String finalCheckpoint) throws IOException, CommitFailedException {
         NodeState checkpointedState = indexerSupport.retrieveNodeStateForCheckpoint();
         Set<String> preferredPathElements = new HashSet<>();
         Set<IndexDefinition> indexDefinitions = getIndexDefinitions();
@@ -220,7 +247,9 @@ public abstract class DocumentStoreIndexerBase implements Closeable {
             preferredPathElements.addAll(indexDf.getRelativeNodeNames());
         }
         Predicate<String> predicate = s -> indexDefinitions.stream().anyMatch(indexDef -> indexDef.getPathFilter().filter(s) != PathFilter.Result.EXCLUDE);
-        FlatFileStore flatFileStore = buildFlatFileStoreList(checkpointedState, null, predicate,
+        FlatFileStore flatFileStore = incremental ?
+                buildIncrementalFFS(initialCheckpoint, finalCheckpoint, predicate, preferredPathElements)
+                 : buildFlatFileStoreList(checkpointedState, null, predicate,
             preferredPathElements, IndexerConfiguration.parallelIndexEnabled(), indexDefinitions).get(0);
         log.info("FlatFileStore built at {}. To use this flatFileStore in a reindex step, set System Property-{} with value {}",
                 flatFileStore.getFlatFileStorePath(), OAK_INDEXER_SORTED_FILE_PATH, flatFileStore.getFlatFileStorePath());

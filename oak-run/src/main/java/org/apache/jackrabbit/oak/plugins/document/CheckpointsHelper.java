@@ -42,6 +42,16 @@ public abstract class CheckpointsHelper {
         return map;
     }
 
+    public static SortedMap<Revision, Map<String, String>> getCheckpointsWithInfo(
+            DocumentNodeStore store) {
+        SortedMap<Revision, Info> checkpoints = store.getCheckpoints().getCheckpoints();
+        SortedMap<Revision, Map<String, String>> map = Maps.newTreeMap(checkpoints.comparator());
+        for (Revision rev : checkpoints.keySet()) {
+            map.put(rev, checkpoints.get(rev).get());
+        }
+        return map;
+    }
+
     public static long removeAll(DocumentNodeStore store) {
         long cnt = 0;
         for (Revision r : getCheckpoints(store).keySet()) {
