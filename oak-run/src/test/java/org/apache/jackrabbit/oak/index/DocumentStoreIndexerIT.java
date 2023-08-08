@@ -113,10 +113,10 @@ public class DocumentStoreIndexerIT extends LuceneAbstractIndexCommandTest {
     @Rule
     public final TestRule restoreSystemProperties = new RestoreSystemProperties();
 
-    @BeforeClass
-    public static void checkMongoDbAvailable() {
-        Assume.assumeTrue(MongoUtils.isAvailable());
-    }
+//    @BeforeClass
+//    public static void checkMongoDbAvailable() {
+//        Assume.assumeTrue(MongoUtils.isAvailable());
+//    }
 
     DocumentNodeStore dns;
 
@@ -124,6 +124,8 @@ public class DocumentStoreIndexerIT extends LuceneAbstractIndexCommandTest {
     public void setup() throws IOException {
         try {
             System.setProperty("java.io.tmpdir", temporaryFolder.newFolder("systemp").getAbsolutePath());
+            System.setProperty("mongo.url", "mongodb://127.0.0.1:27017/aem-author?connectTimeoutMS=3000&serverSelectionTimeoutMS=3000");
+            System.setProperty("mongo.db", "aem-author");
         } catch (IOException e) {
             throw e;
         }
@@ -140,7 +142,7 @@ public class DocumentStoreIndexerIT extends LuceneAbstractIndexCommandTest {
     public void indexMongoRepo() throws Exception{
         dns = getNodeStore();
         fixture = new LuceneRepositoryFixture(temporaryFolder.getRoot(), dns);
-        createTestData(false);
+        //createTestData(false);
         String checkpoint = fixture.getNodeStore().checkpoint(TimeUnit.HOURS.toMillis(24));
         fixture.close();
         dns.dispose();
@@ -151,12 +153,15 @@ public class DocumentStoreIndexerIT extends LuceneAbstractIndexCommandTest {
         String[] args = {
                 "--index-temp-dir=" + temporaryFolder.newFolder().getAbsolutePath(),
                 "--index-out-dir="  + outDir.getAbsolutePath(),
-                "--index-paths=/oak:index/fooIndex",
+                "--build-flatfilestore-separately",
+//                "--index-paths=/oak:index/damAssetLucene-7",
+                "--index-paths=/oak:index/testLucene",
                 "--doc-traversal-mode",
                 "--checkpoint="+checkpoint,
                 "--reindex",
                 "--", // -- indicates that options have ended and rest needs to be treated as non option
                 MongoUtils.URL
+
         };
 
         command.execute(args);
@@ -404,7 +409,7 @@ public class DocumentStoreIndexerIT extends LuceneAbstractIndexCommandTest {
     private MongoConnection getConnection(){
         MongoConnection conn = connectionFactory.getConnection();
         assumeNotNull(conn);
-        MongoUtils.dropCollections(conn.getDatabase());
+        //MongoUtils.dropCollections(conn.getDatabase());
         return conn;
     }
 
