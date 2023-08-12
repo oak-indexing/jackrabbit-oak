@@ -49,6 +49,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.Arrays;
+import java.util.Properties;
 import java.util.Set;
 import java.util.function.Predicate;
 
@@ -73,6 +74,7 @@ public class PipelinedIT {
 
     @Before
     public void setup() throws IOException {
+        System.setProperty(PipelinedMongoDownloadTask.OAK_INDEXER_PIPELINED_RETRY_ON_CONNECTION_ERRORS, "false");
     }
 
     @After
@@ -88,7 +90,9 @@ public class PipelinedIT {
 
         ImmutablePair<MongoDocumentStore, DocumentNodeStore> roStore = createNodeStore(true);
         Predicate<String> pathPredicate = s -> s.startsWith("/content/dam");
-        PipelinedStrategy pipelinedStrategy = createStrategy(roStore, pathPredicate);
+//        Predicate<String> pathPredicate = s -> s.startsWith("/");
+//        PipelinedStrategy pipelinedStrategy = createStrategy(roStore, pathPredicate);
+        BaseFfsPipelinedStrategy pipelinedStrategy = createBaseFfsStrategy(roStore, pathPredicate);
 
         File file = pipelinedStrategy.createSortedStoreFile();
         assertTrue(file.exists());
@@ -185,6 +189,25 @@ public class PipelinedIT {
                 sortFolder.getRoot(),
                 Compression.NONE,
                 pathPredicate
+        );
+    }
+
+    private BaseFfsPipelinedStrategy createBaseFfsStrategy(ImmutablePair<MongoDocumentStore, DocumentNodeStore> roStore, Predicate<String> pathPredicate) {
+        DocumentNodeStore readOnlyNodeStore = roStore.right;
+        MongoDocumentStore readOnlyMongoDocStore = roStore.left;
+
+        Set<String> preferredPathElements = Set.of();
+        RevisionVector rootRevision = readOnlyNodeStore.getRoot().getRootRevision();
+        return new BaseFfsPipelinedStrategy(
+                readOnlyMongoDocStore,
+                readOnlyNodeStore,
+                rootRevision,
+                preferredPathElements,
+                new MemoryBlobStore(),
+                sortFolder.getRoot(),
+                Compression.NONE,
+                pathPredicate
+                , "/Users/mokatari/myarti/firefighter/baseffs.json"
         );
     }
 

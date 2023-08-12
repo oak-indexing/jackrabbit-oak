@@ -1,0 +1,16 @@
+{
+  "/oak:index/testLucene": {
+    "compatVersion": 2,
+    "reindexCount": 4,
+    "reindex": false,
+    "type": "lucene",
+    "async": [
+      "async"
+    ],
+    "includedPaths": [
+      "/tmp/dam"
+    ],
+    "jcr:primaryType": "oak:QueryIndexDefinition",
+    "evaluatePathRestrictions": true
+  }
+}

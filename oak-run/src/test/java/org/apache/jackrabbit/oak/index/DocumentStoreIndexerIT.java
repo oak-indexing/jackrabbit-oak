@@ -156,9 +156,12 @@ public class DocumentStoreIndexerIT extends LuceneAbstractIndexCommandTest {
                 "--build-flatfilestore-separately",
 //                "--index-paths=/oak:index/damAssetLucene-7",
                 "--index-paths=/oak:index/testLucene",
+
                 "--doc-traversal-mode",
                 "--checkpoint="+checkpoint,
                 "--reindex",
+                "--ignore-missing-tika-dep",
+                "--index-definitions-file=/Users/mokatari/adobe/repo/jackrabbit-oak/oak-run-commons/src/test/resources/dummy-index.json",
                 "--", // -- indicates that options have ended and rest needs to be treated as non option
                 MongoUtils.URL
 
