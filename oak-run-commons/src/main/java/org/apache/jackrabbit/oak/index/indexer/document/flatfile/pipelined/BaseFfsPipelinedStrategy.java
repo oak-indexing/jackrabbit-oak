@@ -25,6 +25,7 @@ import org.apache.jackrabbit.guava.common.base.Preconditions;
 import org.apache.jackrabbit.guava.common.base.Stopwatch;
 import org.apache.jackrabbit.guava.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.jackrabbit.oak.commons.Compression;
+import org.apache.jackrabbit.oak.index.indexer.document.flatfile.FlatFileStoreUtils;
 import org.apache.jackrabbit.oak.index.indexer.document.flatfile.NodeStateEntryWriter;
 import org.apache.jackrabbit.oak.index.indexer.document.flatfile.SortStrategy;
 import org.apache.jackrabbit.oak.plugins.document.Collection;
@@ -121,6 +122,8 @@ public class BaseFfsPipelinedStrategy implements SortStrategy {
     // 0 means autodetect
     public static final int DEFAULT_OAK_INDEXER_PIPELINED_WORKING_MEMORY_MB = 0;
 
+    public static final String OAK_INDEXER_PIPELINED_BASE_FFS_PATH = "oak.indexer.pipelined.baseFfsPath";
+
     static final String[] SENTINEL_MONGO_DOCUMENT = new String[0];
     static final NodeStateEntryBatch SENTINEL_NSE_BUFFER = new NodeStateEntryBatch(ByteBuffer.allocate(0), 0);
     static final File SENTINEL_SORTED_FILES_QUEUE = new File("SENTINEL");
@@ -204,13 +207,14 @@ public class BaseFfsPipelinedStrategy implements SortStrategy {
                                     BlobStore blobStore,
                                     File storeDir,
                                     Compression algorithm,
-                                    Predicate<String> pathPredicate,
-                                    String baseFfsPath) {
+                                    Predicate<String> pathPredicate
+//                                    String baseFfsPath
+    ) {
         this.docStore = documentStore;
         this.documentNodeStore = documentNodeStore;
         this.rootRevision = rootRevision;
         this.blobStore = blobStore;
-        this.baseFfsPath= baseFfsPath;
+        this.baseFfsPath= System.getProperty(OAK_INDEXER_PIPELINED_BASE_FFS_PATH, storeDir.getAbsolutePath()+"/"+FlatFileStoreUtils.getSortedStoreFileName(algorithm));
         this.storeDir = storeDir;
         this.pathComparator = new PathElementComparator(preferredPathElements);
         this.pathPredicate = pathPredicate;
@@ -315,7 +319,7 @@ public class BaseFfsPipelinedStrategy implements SortStrategy {
             }
 
             Stopwatch start = Stopwatch.createStarted();
-            BaseFfsPipelinedIterateTask downloadTask = new BaseFfsPipelinedIterateTask( this.baseFfsPath, mongoBatchSize, mongoDocQueue);
+            BaseFfsPipelinedIterateTask downloadTask = new BaseFfsPipelinedIterateTask( this.baseFfsPath, mongoBatchSize, mongoDocQueue, algorithm);
             ecs.submit(downloadTask);
 
             File flatFileStore = null;

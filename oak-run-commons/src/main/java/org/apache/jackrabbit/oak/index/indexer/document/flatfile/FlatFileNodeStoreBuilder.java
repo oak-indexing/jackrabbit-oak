@@ -27,6 +27,7 @@ import org.apache.jackrabbit.oak.index.IndexHelper;
 import org.apache.jackrabbit.oak.index.IndexerSupport;
 import org.apache.jackrabbit.oak.index.indexer.document.CompositeException;
 import org.apache.jackrabbit.oak.index.indexer.document.NodeStateEntryTraverserFactory;
+import org.apache.jackrabbit.oak.index.indexer.document.flatfile.pipelined.BaseFfsPipelinedStrategy;
 import org.apache.jackrabbit.oak.index.indexer.document.flatfile.pipelined.PipelinedStrategy;
 import org.apache.jackrabbit.oak.plugins.document.DocumentNodeStore;
 import org.apache.jackrabbit.oak.plugins.document.RevisionVector;
@@ -162,10 +163,15 @@ public class FlatFileNodeStoreBuilder {
         PIPELINED,
 
         /**
-         *
+         * from baseFFS using pipeline approach
          */
 
-        INCREMENTAL_STORE
+        INCREMENTAL_STORE,
+
+        /**
+         * from baseFFS using pipeline approach
+         */
+        PIPELINED_BASE_FFS
     }
 
     public FlatFileNodeStoreBuilder(File workDir, MemoryManager memoryManager, IndexHelper indexHelper) {
@@ -366,6 +372,10 @@ public class FlatFileNodeStoreBuilder {
                         preferredPathElements, blobStore, dir, algorithm, pathPredicate);
             case INCREMENTAL_STORE:
                 return new IncrementalStore(indexHelper.getNodeStore().retrieve(initialCheckpoint), indexHelper.getNodeStore().retrieve(finalCheckpoint), dir, comparator, algorithm, pathPredicate, entryWriter);
+            case PIPELINED_BASE_FFS:
+                log.info("Using Pipelined Base Ffs Strategy");
+                return new BaseFfsPipelinedStrategy(mongoDocumentStore, nodeStore, rootRevision,
+                        preferredPathElements, blobStore, dir, algorithm, pathPredicate);
         }
         throw new IllegalStateException("Not a valid sort strategy value " + sortStrategyType);
     }

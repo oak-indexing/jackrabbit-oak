@@ -21,6 +21,8 @@ package org.apache.jackrabbit.oak.index.indexer.document.flatfile.pipelined;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.jackrabbit.oak.api.CommitFailedException;
 import org.apache.jackrabbit.oak.commons.Compression;
+import org.apache.jackrabbit.oak.index.indexer.document.flatfile.FlatFileNodeStoreBuilder;
+import org.apache.jackrabbit.oak.index.indexer.document.flatfile.LZ4Compression;
 import org.apache.jackrabbit.oak.plugins.document.DocumentMK;
 import org.apache.jackrabbit.oak.plugins.document.DocumentMKBuilderProvider;
 import org.apache.jackrabbit.oak.plugins.document.DocumentNodeStore;
@@ -75,6 +77,8 @@ public class PipelinedIT {
     @Before
     public void setup() throws IOException {
         System.setProperty(PipelinedMongoDownloadTask.OAK_INDEXER_PIPELINED_RETRY_ON_CONNECTION_ERRORS, "false");
+        System.getProperty(FlatFileNodeStoreBuilder.OAK_INDEXER_USE_ZIP, "true");
+        System.setProperty(FlatFileNodeStoreBuilder.OAK_INDEXER_USE_LZ4, "true");
     }
 
     @After
@@ -187,7 +191,7 @@ public class PipelinedIT {
                 preferredPathElements,
                 new MemoryBlobStore(),
                 sortFolder.getRoot(),
-                Compression.NONE,
+                new LZ4Compression(),
                 pathPredicate
         );
     }
@@ -204,10 +208,9 @@ public class PipelinedIT {
                 rootRevision,
                 preferredPathElements,
                 new MemoryBlobStore(),
-                sortFolder.getRoot(),
-                Compression.NONE,
+                new File("/Users/mokatari/myarti/firefighter/incremetalffs"),
+                new LZ4Compression(),
                 pathPredicate
-                , "/Users/mokatari/myarti/firefighter/baseffs.json"
         );
     }
 

@@ -28,6 +28,8 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import org.apache.jackrabbit.guava.common.base.Preconditions;
 import org.apache.jackrabbit.guava.common.base.Stopwatch;
+import org.apache.jackrabbit.oak.commons.Compression;
+import org.apache.jackrabbit.oak.index.indexer.document.flatfile.FlatFileStoreUtils;
 import org.apache.jackrabbit.oak.plugins.document.Document;
 import org.apache.jackrabbit.oak.plugins.document.NodeDocument;
 import org.bson.BsonDocument;
@@ -35,6 +37,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
@@ -100,12 +103,15 @@ public class BaseFfsPipelinedIterateTask implements Callable<BaseFfsPipelinedIte
     private String lastIdDownloaded = null;
     private String baseFfsPath;
 
+    private Compression algorithm;
     public BaseFfsPipelinedIterateTask(String baseFfsPath,
                                        int batchSize,
-                                       BlockingQueue<String[]> queue) {
+                                       BlockingQueue<String[]> queue, Compression algorithm) {
         this.baseFfsPath = baseFfsPath;
+        LOG.info("baseFfspath is :{}", baseFfsPath);
         this.batchSize = batchSize;
         this.mongoDocQueue = queue;
+        this.algorithm = algorithm;
         // Default retries for 5 minutes.
         this.retryDuringSeconds = ConfigHelper.getSystemPropertyAsInt(
                 OAK_INDEXER_PIPELINED_MONGO_CONNECTION_RETRY_SECONDS,
@@ -172,7 +178,7 @@ public class BaseFfsPipelinedIterateTask implements Callable<BaseFfsPipelinedIte
     }
 
     private void download(String baseFfsPath) throws InterruptedException, TimeoutException {
-        try (BufferedReader br = new BufferedReader(new FileReader(baseFfsPath))) {
+        try (BufferedReader br = FlatFileStoreUtils.createReader(new File(baseFfsPath), algorithm)) {
             String[] block = new String[batchSize];
             int nextIndex = 0;
             String line;
@@ -198,9 +204,14 @@ public class BaseFfsPipelinedIterateTask implements Callable<BaseFfsPipelinedIte
             }
 
         } catch (FileNotFoundException e) {
+            LOG.error("Baseffs file not present at:{}", baseFfsPath);
             throw new RuntimeException(e);
         } catch (IOException e) {
+            LOG.error("IO exception for Baseffs file not present at:{}", baseFfsPath);
             throw new RuntimeException(e);
+        } catch (RuntimeException e) {
+            LOG.error("IO exception for Baseffs file not present at:", e);
+            throw  e;
         }
     }
 
