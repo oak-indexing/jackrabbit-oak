@@ -31,13 +31,13 @@ public class ElasticIndexWriterFactory implements FulltextIndexWriterFactory<Ela
     private final ElasticIndexTracker indexTracker;
     private final InferenceConfig inferenceConfig;
 
-    public ElasticIndexWriterFactory(@NotNull ElasticConnection elasticConnection, @NotNull ElasticIndexTracker indexTracker, InferenceConfig inferenceConfig) {
+    public ElasticIndexWriterFactory(@NotNull ElasticConnection elasticConnection, @NotNull ElasticIndexTracker indexTracker,@NotNull InferenceConfig inferenceConfig) {
         this.elasticConnection = elasticConnection;
         this.indexTracker = indexTracker;
         this.inferenceConfig = inferenceConfig;
     }
     public ElasticIndexWriterFactory(@NotNull ElasticConnection elasticConnection, @NotNull ElasticIndexTracker indexTracker) {
-        this(elasticConnection, indexTracker, null);
+        this(elasticConnection, indexTracker, InferenceConfig.NOOP);
     }
 
     @Override

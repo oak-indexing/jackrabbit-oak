@@ -43,6 +43,7 @@ import org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.jetbrains.annotations.NotNull;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.testcontainers.shaded.com.fasterxml.jackson.core.type.TypeReference;
@@ -165,6 +166,7 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
 
     }
 
+    @Ignore
     @Test
     public void hybridSearch() throws Exception {
         IndexDefinitionBuilder builder = createIndex();

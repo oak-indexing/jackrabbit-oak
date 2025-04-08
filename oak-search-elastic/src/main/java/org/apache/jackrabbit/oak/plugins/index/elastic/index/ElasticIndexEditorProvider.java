@@ -51,7 +51,7 @@ public class ElasticIndexEditorProvider implements IndexEditorProvider {
 
     public ElasticIndexEditorProvider(@NotNull ElasticIndexTracker indexTracker,
                                       @NotNull ElasticConnection elasticConnection,
-                                      ExtractedTextCache extractedTextCache, InferenceConfig inferenceConfig) {
+                                      ExtractedTextCache extractedTextCache, @NotNull InferenceConfig inferenceConfig) {
         this.indexTracker = indexTracker;
         this.elasticConnection = elasticConnection;
         this.extractedTextCache = extractedTextCache != null ? extractedTextCache : new ExtractedTextCache(0, 0);
@@ -61,7 +61,7 @@ public class ElasticIndexEditorProvider implements IndexEditorProvider {
     public ElasticIndexEditorProvider(@NotNull ElasticIndexTracker indexTracker,
                                       @NotNull ElasticConnection elasticConnection,
                                       ExtractedTextCache extractedTextCache) {
-        this(indexTracker, elasticConnection, extractedTextCache, null);
+        this(indexTracker, elasticConnection, extractedTextCache, InferenceConfig.NOOP);
     }
 
     @Override

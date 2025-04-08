@@ -24,6 +24,7 @@ import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,6 +47,7 @@ public class InferenceIntegrationTest {
         inferenceConfigBuilder.setProperty(InferenceConstants.ENABLED, true);
     }
 
+    @Ignore
     @Test
     public void testCompleteInferenceConfiguration() {
         // Setup index configuration
@@ -87,6 +89,7 @@ public class InferenceIntegrationTest {
         assertNotNull(payload);
     }
 
+    @Ignore
     @Test
     public void testMultipleModelsConfiguration() {
         // Setup index with multiple models

@@ -68,14 +68,14 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
                        @NotNull ElasticIndexDefinition indexDefinition,
                        @NotNull NodeBuilder definitionBuilder,
                        boolean reindex, CommitInfo commitInfo) {
-        this(indexTracker, elasticConnection, indexDefinition, definitionBuilder, reindex, commitInfo, null);
+        this(indexTracker, elasticConnection, indexDefinition, definitionBuilder, reindex, commitInfo, InferenceConfig.NOOP);
     }
 
     ElasticIndexWriter(@NotNull ElasticIndexTracker indexTracker,
                        @NotNull ElasticConnection elasticConnection,
                        @NotNull ElasticIndexDefinition indexDefinition,
                        @NotNull NodeBuilder definitionBuilder,
-                       boolean reindex, CommitInfo commitInfo, InferenceConfig inferenceConfig) {
+                       boolean reindex, CommitInfo commitInfo, @NotNull InferenceConfig inferenceConfig) {
         this.indexTracker = indexTracker;
         this.elasticConnection = elasticConnection;
         this.indexDefinition = indexDefinition;
@@ -126,7 +126,7 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
                        @NotNull ElasticConnection elasticConnection,
                        @NotNull ElasticIndexDefinition indexDefinition,
                        @NotNull ElasticBulkProcessorHandler bulkProcessorHandler) {
-        this(indexTracker, elasticConnection, indexDefinition, bulkProcessorHandler, false, null);
+        this(indexTracker, elasticConnection, indexDefinition, bulkProcessorHandler, false, InferenceConfig.NOOP);
     }
 
     @TestOnly
@@ -134,7 +134,7 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
                        @NotNull ElasticConnection elasticConnection,
                        @NotNull ElasticIndexDefinition indexDefinition,
                        @NotNull ElasticBulkProcessorHandler bulkProcessorHandler,
-                       boolean reindex, InferenceConfig inferenceConfig) {
+                       boolean reindex, @NotNull InferenceConfig inferenceConfig) {
         this.indexTracker = indexTracker;
         this.elasticConnection = elasticConnection;
         this.indexDefinition = indexDefinition;

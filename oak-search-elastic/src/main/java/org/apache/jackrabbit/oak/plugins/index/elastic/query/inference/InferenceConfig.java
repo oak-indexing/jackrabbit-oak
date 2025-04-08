@@ -32,6 +32,7 @@ import java.util.logging.Logger;
  * Data model class representing the inference configuration stored under /oak:index/:inferenceConfig
  */
 public class InferenceConfig {
+    public static final InferenceConfig NOOP = new InferenceConfig();
     Logger LOG = Logger.getLogger(InferenceConfig.class.getName());
     /**
      * Semantic search is enabled if this flag is true
@@ -50,6 +51,12 @@ public class InferenceConfig {
      * @param nodeState NodeState representing :inferenceConfig node
      * @return InferenceConfiguration instance
      */
+
+    private InferenceConfig(){
+        LOG.warning("InferenceConfig: NOOP Inference config initialized");
+        enabled = false;
+        indexConfigs = Collections.emptyMap();
+    }
 
     public InferenceConfig(NodeStore nodeStore, String inferenceConfigPath) {
         this.nodeStore = nodeStore;
@@ -93,34 +100,20 @@ public class InferenceConfig {
         LOG.info("Loaded inference configuration: " + this.toString());
 
     }
-//    public InferenceConfig(NodeState nodeState) {
-//
-////        // Semantic search enabled or not.
-////        PropertyState enabledProp = nodeState.getProperty(InferenceConstants.ENABLED);
-////        this.enabled = enabledProp != null && enabledProp.getValue(Type.BOOLEAN);
-////        this.indexConfigs = new HashMap<>();
-////
-////        // Read index configurations
-////        for (String indexName : nodeState.getChildNodeNames()) {
-////            if (isValidInferenceIndexConfig(nodeState, indexName)) {
-////                this.indexConfigs.put(indexName, new InferenceIndexConfig(nodeState.getChildNode(indexName)));
-////            }
-////        }
-////        //TODO Check if we we are also logging sensitive info.
-////        LOG.info("Loaded inference configuration: " + this.toString());
-//    }
 
     private static boolean isValidInferenceIndexConfig(NodeState nodeState, String indexName) {
         return nodeState.getChildNode(indexName).hasProperty("type")
                 && InferenceConstants.INFERENCE_INDEX_CONFIG.equals(nodeState.getChildNode(indexName).getProperty(InferenceConstants.INFERENCE_CONFIG_TYPE).getValue(Type.STRING));
     }
 
-
     public boolean isEnabled() {
         return enabled;
     }
 
     public Map<String, InferenceIndexConfig> getIndexConfigs() {
+        if (isEnabled() && indexConfigs != null) {
+            return Collections.unmodifiableMap(indexConfigs);
+        }
         return indexConfigs;
     }
 
