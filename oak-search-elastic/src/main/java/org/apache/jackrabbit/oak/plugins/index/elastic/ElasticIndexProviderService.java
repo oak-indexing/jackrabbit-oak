@@ -232,7 +232,7 @@ public class ElasticIndexProviderService {
     }
 
     private void registerIndexProvider(BundleContext bundleContext) {
-        ElasticIndexProvider indexProvider = new ElasticIndexProvider(indexTracker);
+        ElasticIndexProvider indexProvider = new ElasticIndexProvider(indexTracker, inferenceConfig);
 
         Dictionary<String, Object> props = new Hashtable<>();
         props.put("type", ElasticIndexDefinition.TYPE_ELASTICSEARCH);

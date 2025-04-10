@@ -19,6 +19,7 @@
 package org.apache.jackrabbit.oak.plugins.index.elastic.query;
 
 import org.apache.jackrabbit.JcrConstants;
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceConfig;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexNode;
 import org.apache.jackrabbit.oak.plugins.index.search.PropertyDefinition;
@@ -33,8 +34,15 @@ import java.util.List;
 
 public class ElasticIndexPlanner extends FulltextIndexPlanner {
 
+    private final InferenceConfig inferenceConfig;
+
     public ElasticIndexPlanner(IndexNode indexNode, String indexPath, Filter filter, List<QueryIndex.OrderEntry> sortOrder) {
+        this(indexNode, indexPath, filter, sortOrder, InferenceConfig.NOOP);
+    }
+
+    public ElasticIndexPlanner(IndexNode indexNode, String indexPath, Filter filter, List<QueryIndex.OrderEntry> sortOrder, InferenceConfig inferenceConfig) {
         super(indexNode, indexPath, filter, sortOrder);
+        this.inferenceConfig = inferenceConfig;
     }
 
     /**

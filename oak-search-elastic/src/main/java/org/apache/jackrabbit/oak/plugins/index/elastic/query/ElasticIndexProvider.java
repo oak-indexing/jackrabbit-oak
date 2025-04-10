@@ -17,6 +17,7 @@
 package org.apache.jackrabbit.oak.plugins.index.elastic.query;
 
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexTracker;
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceConfig;
 import org.apache.jackrabbit.oak.spi.query.QueryIndex;
 import org.apache.jackrabbit.oak.spi.query.QueryIndexProvider;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
@@ -28,13 +29,20 @@ import java.util.List;
 public class ElasticIndexProvider implements QueryIndexProvider {
 
     private final ElasticIndexTracker indexTracker;
+    private final InferenceConfig inferenceConfig;
+
+    public ElasticIndexProvider(ElasticIndexTracker indexTracker, InferenceConfig inferenceConfig) {
+        this.indexTracker = indexTracker;
+        this.inferenceConfig = inferenceConfig;
+    }
 
     public ElasticIndexProvider(ElasticIndexTracker indexTracker) {
         this.indexTracker = indexTracker;
+        this.inferenceConfig = InferenceConfig.NOOP;
     }
 
     @Override
     public @NotNull List<? extends QueryIndex> getQueryIndexes(NodeState nodeState) {
-        return Collections.singletonList(new ElasticIndex(indexTracker));
+        return Collections.singletonList(new ElasticIndex(indexTracker, inferenceConfig));
     }
 }

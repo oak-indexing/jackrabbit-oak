@@ -43,6 +43,7 @@ import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticConnection;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticPropertyDefinition;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.facets.ElasticFacetProvider;
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceConfig;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceService;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceServiceManager;
 import org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils;
@@ -139,9 +140,10 @@ public class ElasticRequestHandler {
     private final ElasticIndexDefinition elasticIndexDefinition;
     private final String propertyRestrictionQuery;
     private final NodeState rootState;
+    private final InferenceConfig inferenceConfig;
 
     ElasticRequestHandler(@NotNull IndexPlan indexPlan, @NotNull FulltextIndexPlanner.PlanResult planResult,
-                          NodeState rootState) {
+                          NodeState rootState, InferenceConfig inferenceConfig) {
         this.indexPlan = indexPlan;
         this.filter = indexPlan.getFilter();
         this.planResult = planResult;
@@ -155,6 +157,11 @@ public class ElasticRequestHandler {
 
         this.propertyRestrictionQuery = pr != null ? String.valueOf(pr.first.getValue(pr.first.getType())) : null;
         this.rootState = rootState;
+        this.inferenceConfig = inferenceConfig;
+    }
+
+    public ElasticRequestHandler(IndexPlan plan, PlanResult planResult, NodeState rootState) {
+        this(plan, planResult, rootState, InferenceConfig.NOOP);
     }
 
     public Query baseQuery() {
@@ -572,7 +579,11 @@ public class ElasticRequestHandler {
                     // Experimental support for inference queries
                     if (elasticIndexDefinition.inferenceDefinition != null && elasticIndexDefinition.inferenceDefinition.queries != null) {
                         bqBuilder.must(m -> m.bool(b -> inference(b, propertyName, text, pr, includeDynamicBoostedValues)));
-                    } else {
+                    }
+//                    else if (inferenceConfig.isEnabled()) {
+//
+//                    }
+                    else {
                         QueryStringQuery.Builder qsqBuilder = fullTextQuery(text, getElasticFulltextFieldName(propertyName), pr, includeDynamicBoostedValues);
                         bqBuilder.must(m -> m.queryString(qsqBuilder.build()));
                     }
