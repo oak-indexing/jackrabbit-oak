@@ -20,9 +20,11 @@ package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.commons.json.JsopBuilder;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 
 /**
@@ -85,11 +87,21 @@ public class InferenceIndexConfig {
                 .findFirst()
                 .orElse(null);
     }
+
     @Override
     public String toString() {
-        return INFERENCE_INDEX_CONFIG +"{" +
-                ENRICHER_CONFIG +"='" + enricherConfig + '\'' +
-                ", "+ INFERENCE_MODEL_CONFIG  +"=" + inferenceModels +
-                '}';
+        return asJson();
+    }
+
+    public String asJson() {
+        JsopBuilder builder = new JsopBuilder().object().
+            key(INFERENCE_INDEX_CONFIG).object().
+                key(ENRICHER_CONFIG).value(enricherConfig).
+                key(INFERENCE_MODEL_CONFIG).object();
+        for (Entry<String, InferenceModelConfig> e : inferenceModels.entrySet()) {
+            builder.key(e.getKey()).encodedValue(e.getValue().toString());
+        }
+        builder.endObject();
+        return JsopBuilder.prettyPrint(builder.toString());
     }
 } 

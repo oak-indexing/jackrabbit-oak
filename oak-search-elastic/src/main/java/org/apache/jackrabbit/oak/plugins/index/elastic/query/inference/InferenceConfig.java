@@ -20,12 +20,14 @@ package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 
 import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.commons.json.JsopBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.logging.Logger;
 
 /**
@@ -122,5 +124,17 @@ public class InferenceConfig {
         InferenceConfig refreshedInferenceConfig = new InferenceConfig(this.nodeStore, this.inferenceConfigPath);
         this.enabled = refreshedInferenceConfig.enabled;
         this.indexConfigs = refreshedInferenceConfig.indexConfigs;
+    }
+
+    public String toString() {
+        JsopBuilder builder = new JsopBuilder().object().
+                key("configPath").value(inferenceConfigPath).
+                key("enabled").value(enabled).
+                key("indexConfigs").object();
+        for (Entry<String, InferenceIndexConfig> e : indexConfigs.entrySet()) {
+            builder.key(e.getKey()).encodedValue(e.getValue().toString());
+        }
+        builder.endObject().endObject();
+        return JsopBuilder.prettyPrint(builder.toString());
     }
 } 

@@ -19,6 +19,7 @@
 package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 
 import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.commons.json.JsopBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 
 /**
@@ -96,15 +97,22 @@ public class InferenceModelConfig {
 
     @Override
     public String toString() {
-        return INFERENCE_MODEL_CONFIG +"{" +
-                MODEL +"='" + model + '\'' +
-                ", "+ EMBEDDING_SERVICE_URL +"='" + embeddingServiceUrl + '\'' +
-                ", "+ SIMILARITY_THRESHOLD + similarityThreshold +
-                ", "+ MIN_TERMS +"=" + minTerms +
-                ", "+ IS_DEFAULT +"=" + isDefault +
-                ", "+ ENABLED +"=" + enabled +
-                ", "+ HEADER +"=" + header +
-                ", "+ INFERENCE_PAYLOAD +"=" + payload +
-                '}';
+        return asJson();
+    }
+
+    public String asJson() {
+        return JsopBuilder.prettyPrint(
+            new JsopBuilder().object().
+                key(INFERENCE_MODEL_CONFIG).object().
+                    key(MODEL).value(model).
+                    key(EMBEDDING_SERVICE_URL).value(embeddingServiceUrl).
+                    key(SIMILARITY_THRESHOLD).encodedValue("" + similarityThreshold).
+                    key(MIN_TERMS).value(minTerms).
+                    key(IS_DEFAULT).value(isDefault).
+                    key(ENABLED).value(enabled).
+                    key(HEADER).encodedValue(header.toString()).
+                    key(INFERENCE_PAYLOAD).encodedValue(payload.toString()).
+                endObject().
+            endObject().toString());
     }
 }

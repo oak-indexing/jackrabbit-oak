@@ -19,8 +19,11 @@
 package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 
 import org.apache.jackrabbit.oak.api.PropertyState;
+import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.commons.json.JsopBuilder;
 import org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeBuilder;
+import org.apache.jackrabbit.oak.spi.state.ChildNodeEntry;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 /**
@@ -56,8 +59,35 @@ public class InferenceHeaderPayload {
     }
 
     @Override
-    public String toString(){
-        return inferenceHeaderPayload.toString();
+    public String toString() {
+        return asJson();
+    }
+
+    public static void toJson(NodeState ns, JsopBuilder builder) {
+        for (PropertyState e : ns.getProperties()) {
+            if (e.isArray()) {
+                builder.array();
+                for (int i = 0; i < e.count(); i++) {
+                    builder.value(e.getValue(Type.STRING, i));
+                }
+                builder.endArray();
+            } else {
+                builder.value(e.getValue(Type.STRING));
+            }
+        }
+        builder.object();
+        for (ChildNodeEntry e : ns.getChildNodeEntries()) {
+            builder.key(e.getName());
+            toJson(e.getNodeState(), builder);
+        }
+        builder.endObject();
+    }
+
+    public String asJson() {
+        JsopBuilder builder = new JsopBuilder().object();
+        toJson(inferenceHeaderPayload, builder);
+        builder.endObject();
+        return JsopBuilder.prettyPrint(builder.toString());
     }
 
 } 
