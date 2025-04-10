@@ -20,6 +20,8 @@ package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Configuration class for Inference Model settings.
@@ -34,6 +36,7 @@ public class InferenceModelConfig {
     public static final String IS_DEFAULT = "isDefault";
     public static final String ENABLED = "enabled";
     public static final String HEADER = "header";
+    private static final Logger log = LoggerFactory.getLogger(InferenceModelConfig.class);
 
     private final String model;
     private final String embeddingServiceUrl;
@@ -44,17 +47,26 @@ public class InferenceModelConfig {
     private final String type;
     private final InferenceHeaderPayload header;
     private final InferencePayload payload;
+    private final String inferenceModelName;
 
-    public InferenceModelConfig(NodeState nodeState) {
+    public InferenceModelConfig(String inferenceModelName, NodeState nodeState) {
+        this.inferenceModelName = inferenceModelName;
         this.model = nodeState.getProperty(MODEL).getValue(Type.STRING);
         this.embeddingServiceUrl = nodeState.getProperty(EMBEDDING_SERVICE_URL).getValue(Type.STRING);
         this.similarityThreshold = nodeState.getProperty(SIMILARITY_THRESHOLD).getValue(Type.DOUBLE);
         this.minTerms = nodeState.getProperty(MIN_TERMS).getValue(Type.LONG);
         this.isDefault = nodeState.getProperty(IS_DEFAULT).getValue(Type.BOOLEAN);
-        this.enabled = nodeState.getProperty(ENABLED).getValue(Type.BOOLEAN);
+
         this.header = new InferenceHeaderPayload(nodeState.getChildNode(HEADER));
-        this.payload = new InferencePayload(nodeState.getChildNode(INFERENCE_PAYLOAD));
+        this.payload = new InferencePayload(inferenceModelName, nodeState.getChildNode(INFERENCE_PAYLOAD));
         this.type = INFERENCE_MODEL_CONFIG;
+        if ( payload.isValidInferencePayload() == true) {
+            log.warn("Invalid inference payload for modelConfig {}, force disabling this modelConfig", inferenceModelName);
+            this.enabled = false;
+        }
+        else {
+            this.enabled = nodeState.getProperty(ENABLED).getValue(Type.BOOLEAN);
+        }
     }
 
     // Getters

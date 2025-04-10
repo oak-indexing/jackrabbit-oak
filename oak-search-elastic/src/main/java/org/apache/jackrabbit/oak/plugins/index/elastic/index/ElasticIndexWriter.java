@@ -87,7 +87,8 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
         // old index until the new one gets enabled) during incremental reindexing
         if (this.reindex) {
             try {
-                // refresh inference config on any index reindex
+                // refresh inference config on any index reindex.
+                //TODO We should observe changes under inference config path.
                 inferenceConfig.refreshConfig();
                 long seed = indexDefinition.indexNameSeed == 0L ? UUID.randomUUID().getMostSignificantBits() : indexDefinition.indexNameSeed;
                 // merge gets called on node store later in the indexing flow

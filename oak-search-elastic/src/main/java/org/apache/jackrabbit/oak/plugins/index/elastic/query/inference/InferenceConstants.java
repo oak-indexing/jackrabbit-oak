@@ -24,5 +24,5 @@ public interface InferenceConstants {
     String ENRICHER_CONFIG = "enricherConfig";
     String INFERENCE_MODEL_CONFIG = "inferenceModelConfig";
     String INFERENCE_CONFIG_TYPE = "type";
-    String OAK_INDEX_INFERENCE_CONFIG = "/oak:index/inferenceConfig";
+    String OAK_INDEX_INFERENCE_CONFIG = "/oak:index/:inferenceConfig";
 }

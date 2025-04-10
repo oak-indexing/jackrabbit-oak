@@ -24,19 +24,50 @@ import org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+
 /**
  * Configuration for inference payload
  */
 public class InferencePayload {
-    public static final String TEXT_KEY = "textKey";
+    public static final String DEFAULT_INPUT_KEY = "inputKey";
+    public static final String INPUT_KEY = System.getProperty("org.apache.jackrabbit.oak.search.inference.payload.inputKey", DEFAULT_INPUT_KEY);
+    private static final Logger log = LoggerFactory.getLogger(InferencePayload.class);
     NodeBuilder inferencePayloadBuilder;
     String textKeyValue;
-    public InferencePayload(NodeState nodeState) {
+    boolean isValidInferencePayload = true;
+
+    public InferencePayload(String inferenceModelName, NodeState nodeState) {
         inferencePayloadBuilder = new MemoryNodeBuilder(EmptyNodeState.EMPTY_NODE);
         copyFirstLevelNodeState(nodeState, inferencePayloadBuilder);
-        textKeyValue = inferencePayloadBuilder.getProperty(TEXT_KEY).getValue(Type.STRING);
-        inferencePayloadBuilder.setProperty(textKeyValue, "");
-        inferencePayloadBuilder.removeProperty(TEXT_KEY);
+        if (nodeState.hasProperty(INPUT_KEY)) {
+            if (nodeState.getProperty(INPUT_KEY).getType() == Type.STRING) {
+                textKeyValue = nodeState.getProperty(INPUT_KEY).getValue(Type.STRING);
+            } else if (nodeState.getProperty(INPUT_KEY).getType() == Type.STRINGS) {
+                if (nodeState.getProperty(INPUT_KEY).count() == 1) {
+                    textKeyValue = nodeState.getProperty(INPUT_KEY).getValue(Type.STRINGS).iterator().next();
+                    inferencePayloadBuilder.setProperty(textKeyValue, new ArrayList<>(), Type.STRINGS);
+                } else {
+                    isValidInferencePayload = false;
+                    log.warn("Inference payload textKey property should be of type String, or String[] with only one value" +
+                            " for modelConfig {}", inferenceModelName);
+                }
+            }
+        } else {
+            isValidInferencePayload = false;
+            log.warn("Inference payload input property {} is missing for modelConfig {}", INPUT_KEY, inferenceModelName);
+        }
+        if (!INPUT_KEY.equals(textKeyValue)){
+            inferencePayloadBuilder.removeProperty(INPUT_KEY);
+        }
+
+    }
+
+    public boolean isValidInferencePayload() {
+        return isValidInferencePayload;
     }
 
     private static void copyFirstLevelNodeState(NodeState source, NodeBuilder target) {
@@ -53,6 +84,8 @@ public class InferencePayload {
      * @return
      */
     public String getInferencePayload(String text) {
+        NodeBuilder inferencePayloadBuilder = new MemoryNodeBuilder(EmptyNodeState.EMPTY_NODE);
+        copyFirstLevelNodeState(this.inferencePayloadBuilder.getNodeState(), inferencePayloadBuilder);
         inferencePayloadBuilder.setProperty(textKeyValue, text);
         return inferencePayloadBuilder.getNodeState().toString();
     }

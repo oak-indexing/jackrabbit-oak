@@ -51,7 +51,7 @@ public class InferenceIndexConfig {
         for (String childName : nodeState.getChildNodeNames()) {
             NodeState childNode = nodeState.getChildNode(childName);
             if (isInferenceModelConfig(childNode)) {
-                inferenceModels.put(childName, new InferenceModelConfig(childNode));
+                inferenceModels.put(childName, new InferenceModelConfig(childName, childNode));
             }
         }
     }

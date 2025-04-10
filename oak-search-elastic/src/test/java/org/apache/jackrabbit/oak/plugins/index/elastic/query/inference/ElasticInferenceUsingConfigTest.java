@@ -19,12 +19,9 @@ package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 import co.elastic.clients.elasticsearch._types.mapping.Property;
 import co.elastic.clients.elasticsearch.indices.get_mapping.IndexMappingRecord;
 import co.elastic.clients.json.JsonData;
-import co.elastic.clients.json.JsonpSerializer;
-import co.elastic.clients.json.JsonpUtils;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -36,17 +33,15 @@ import org.apache.commons.io.IOUtils;
 import org.apache.jackrabbit.oak.api.CommitFailedException;
 import org.apache.jackrabbit.oak.api.Tree;
 import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticAbstractQueryTest;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.util.IndexDefinitionBuilder;
-import org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState;
-import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeBuilder;
+import org.apache.jackrabbit.oak.spi.commit.CommitInfo;
+import org.apache.jackrabbit.oak.spi.commit.EmptyHook;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
-import org.jetbrains.annotations.NotNull;
-import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
-import org.testcontainers.shaded.com.fasterxml.jackson.core.type.TypeReference;
 
 import java.io.IOException;
 import java.net.URL;
@@ -66,7 +61,6 @@ import static org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.In
 import static org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceConstants.INFERENCE_INDEX_CONFIG;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
 
 public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
 
@@ -74,23 +68,25 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
     public WireMockRule wireMock = new WireMockRule(WireMockConfiguration.options().dynamicPort());
 
     private String enricherConfig = "{\"cais\":{\"config\":{\"vectorSpaces\":{\"semantic\":{\"pipeline\":{\"steps\":[{\"inputFields\":{\"description\":\"STRING\",\"title\":\"STRING\"},\"chunkingConfig\":{\"enabled\":true},\"name\":\"sentence-embeddings\",\"model\":\"text-embedding-ada-002\",\"optional\":true,\"type\":\"embeddings\"}]},\"default\":false}},\"version\":\"0.0.1\"}}}";
-//    private String enricherConfig = "{\"a\":\"b\",\"c\":{\"d\":\"e\"}}";
     @Test
     public void inferenceConfigStoredInIndexMetadata() throws CommitFailedException, JsonProcessingException {
         String indexName = UUID.randomUUID().toString();
         // check that the inference config
-        @NotNull Tree tree = root.getTree("/oak:index");
-        // Create inference config structure
-        Tree inferenceConfig =  tree.addChild("inferenceConfig");
-        inferenceConfig.setProperty(InferenceConstants.ENABLED, true);
-        inferenceConfig.setProperty(INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_INDEX_CONFIG);
+        NodeBuilder rootBuilder = nodeStore.getRoot().builder();
+        NodeBuilder nodeBuilder = rootBuilder;
+        for (String path : PathUtils.elements(INFERENCE_CONFIG_PATH)) {
+            nodeBuilder = nodeBuilder.child(path);
+        }
+        nodeBuilder.setProperty(INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_INDEX_CONFIG);
+        nodeBuilder.setProperty(InferenceConstants.ENABLED, true);
+        NodeBuilder inferenceConfig = nodeBuilder;
 
         // Add inferenceIndexConfig
-        Tree inferenceIndexConfig = inferenceConfig.addChild(indexName);
+        NodeBuilder inferenceIndexConfig = inferenceConfig.child(indexName);
         inferenceIndexConfig.setProperty(INFERENCE_CONFIG_TYPE, INFERENCE_INDEX_CONFIG);
         inferenceIndexConfig.setProperty(ENRICHER_CONFIG, enricherConfig);
         // Add inference model1 configuration
-        Tree inferenceModelConfig1 = inferenceIndexConfig.addChild("inferenceModel1");
+        NodeBuilder inferenceModelConfig1 = inferenceIndexConfig.child("inferenceModel1");
         inferenceModelConfig1.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
         inferenceModelConfig1.setProperty(INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
         inferenceModelConfig1.setProperty(InferenceModelConfig.MODEL, "test-model1");
@@ -101,18 +97,18 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
         inferenceModelConfig1.setProperty(InferenceModelConfig.ENABLED, true);
 
         // Setup header configuration
-        Tree header1 = inferenceModelConfig1.addChild(InferenceModelConfig.HEADER);
+        NodeBuilder header1 = inferenceModelConfig1.child(InferenceModelConfig.HEADER);
         header1.setProperty("headerKey1_1", "headerValue1_1");
         header1.setProperty("headerKey2_1", "headerValue2_1");
 
         // Setup payload configuration
-        Tree payload1 = inferenceModelConfig1.addChild(InferenceModelConfig.INFERENCE_PAYLOAD);
+        NodeBuilder payload1 = inferenceModelConfig1.child(InferenceModelConfig.INFERENCE_PAYLOAD);
         payload1.setProperty("textKey", "text1");
         payload1.setProperty("dimension", 1536);
         payload1.setProperty("model", "model-name-of-inference-model1");
 
         // Add inference model2 configuration
-        Tree inferenceModelConfig2 = inferenceIndexConfig.addChild("inferenceModel2");
+        NodeBuilder inferenceModelConfig2 = inferenceIndexConfig.child("inferenceModel2");
         inferenceModelConfig2.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
         inferenceModelConfig2.setProperty(INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
         inferenceModelConfig2.setProperty(InferenceModelConfig.MODEL, "test-model2");
@@ -123,17 +119,17 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
         inferenceModelConfig2.setProperty(InferenceModelConfig.ENABLED, true);
 
         // Setup header configuration
-        Tree header2 = inferenceModelConfig1.addChild(InferenceModelConfig.HEADER);
+        NodeBuilder header2 = inferenceModelConfig1.child(InferenceModelConfig.HEADER);
         header2.setProperty("headerKey1_2", "headerValue1_2");
         header2.setProperty("headerKey2_2", "headerValue2_2");
 
         // Setup payload configuration
-        Tree payload2 = inferenceModelConfig2.addChild(InferenceModelConfig.INFERENCE_PAYLOAD);
+        NodeBuilder payload2 = inferenceModelConfig2.child(InferenceModelConfig.INFERENCE_PAYLOAD);
         payload2.setProperty("textKey", "searchString2");
         payload2.setProperty("dimension", 1024);
         payload2.setProperty("model", "model-name-of-inference-model2");
 
-        root.commit();
+        nodeStore.merge(rootBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
 
         IndexDefinitionBuilder builder = createIndex("a").noAsync();
 //        builder.indexRule("nt:base").property("a").analyzed();
@@ -151,8 +147,6 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
         Tree index = setIndex(indexName, builder);
         root.commit();
 
-        ElasticIndexDefinition definition = getElasticIndexDefinition(index);
-
         IndexMappingRecord mapping = getMapping(index);
         Map<String, JsonData> meta = mapping.mappings().meta();
         assertNotNull(meta);
@@ -161,14 +155,60 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
         JsonNode jsonNode2 = objectMapper.readTree(meta.get("cais").toJson().toString());
         assertEquals(jsonNode1, jsonNode2);
 
-        Map<String, Property> mappingProperties = mapping.mappings().properties();
-
-
     }
 
-    @Ignore
+    private void createInferenceConfig(String indexName, boolean isInferenceConfigEnabled,
+                                       String enricherConfig, String inferenceModelConfigName,
+                                       String inferenceModelName, String embeddingServiceUrl,
+                                       Double similarityThreshold, long minTerms, boolean isDefaultInferenceModelConfig,
+                                       boolean isInferenceModelConfigEnabled) throws CommitFailedException {
+        NodeBuilder rootBuilder = nodeStore.getRoot().builder();
+        NodeBuilder nodeBuilder = rootBuilder;
+        for (String path : PathUtils.elements(INFERENCE_CONFIG_PATH)) {
+            nodeBuilder = nodeBuilder.child(path);
+        }
+        nodeBuilder.setProperty(INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_INDEX_CONFIG);
+        nodeBuilder.setProperty(InferenceConstants.ENABLED, isInferenceConfigEnabled);
+        NodeBuilder inferenceConfig = nodeBuilder;
+
+        // Add inferenceIndexConfig
+        NodeBuilder inferenceIndexConfig = inferenceConfig.child(indexName);
+        inferenceIndexConfig.setProperty(INFERENCE_CONFIG_TYPE, INFERENCE_INDEX_CONFIG);
+        inferenceIndexConfig.setProperty(ENRICHER_CONFIG, enricherConfig);
+        // Add inference model1 configuration
+        NodeBuilder inferenceModelConfig1 = inferenceIndexConfig.child(inferenceModelConfigName);
+        inferenceModelConfig1.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
+        inferenceModelConfig1.setProperty(INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
+        inferenceModelConfig1.setProperty(InferenceModelConfig.MODEL, inferenceModelName);
+        inferenceModelConfig1.setProperty(InferenceModelConfig.EMBEDDING_SERVICE_URL, embeddingServiceUrl);
+        inferenceModelConfig1.setProperty(InferenceModelConfig.SIMILARITY_THRESHOLD, similarityThreshold);
+        inferenceModelConfig1.setProperty(InferenceModelConfig.MIN_TERMS, minTerms);
+        inferenceModelConfig1.setProperty(InferenceModelConfig.IS_DEFAULT, isDefaultInferenceModelConfig);
+        inferenceModelConfig1.setProperty(InferenceModelConfig.ENABLED, isInferenceModelConfigEnabled);
+
+        // Setup header configuration
+        NodeBuilder header1 = inferenceModelConfig1.child(InferenceModelConfig.HEADER);
+        header1.setProperty("Content-Type", "application/json");
+//        header1.setProperty("headerKey2_1", "headerValue2_1");
+
+        // Setup payload configuration
+        NodeBuilder payload1 = inferenceModelConfig1.child(InferenceModelConfig.INFERENCE_PAYLOAD);
+        payload1.setProperty(InferencePayload.DEFAULT_INPUT_KEY, List.of("input"), Type.STRINGS);
+//        payload1.setProperty("dimension", 1536);
+        payload1.setProperty("model", "text-embedding-ada-002");
+        nodeStore.merge(rootBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+    }
+
     @Test
     public void hybridSearch() throws Exception {
+        String indexName = UUID.randomUUID().toString();
+
+        // create inference config
+        createInferenceConfig(indexName, true, enricherConfig, "ada-test-model",
+                "text-embedding-ada-002",
+                "http://litellm-content-ai-nexus.corp.ethos14-stage-va7.ethos.adobe.net/v1/embeddings", 0.8, 1L, true, true);
+
+
         IndexDefinitionBuilder builder = createIndex();
         builder.includedPaths("/content")
                 .indexRule("nt:base")
@@ -176,17 +216,16 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
                 .property("description").propertyIndex().analyzed().nodeScopeIndex()
                 .property("updatedBy").propertyIndex();
 
-        Tree inferenceConfig = builder.getBuilderTree().addChild(ElasticIndexDefinition.INFERENCE_CONFIG);
-        Tree embeddings = inferenceConfig.addChild("properties").addChild("embeddings");
+        Tree inferenceConfigInIndex = builder.getBuilderTree().addChild(ElasticIndexDefinition.INFERENCE_CONFIG);
+        Tree embeddings = inferenceConfigInIndex.addChild("properties").addChild("embeddings");
         embeddings.setProperty("fields", List.of("title", "description"), Type.STRINGS);
 
-        Tree queryConfig = inferenceConfig.addChild("queries").addChild("semantic");
+        Tree queryConfig = inferenceConfigInIndex.addChild("queries").addChild("semantic");
         queryConfig.setProperty("serviceUrl", "http://localhost:" + wireMock.port() + "/get_embedding");
         queryConfig.setProperty("prefix", "?");
         queryConfig.setProperty("similarityThreshold", "0.75");
         queryConfig.setProperty("timeout", "1000");
 
-        String indexName = UUID.randomUUID().toString();
         Tree index = setIndex(indexName, builder);
         root.commit();
 
