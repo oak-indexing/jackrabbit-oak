@@ -16,18 +16,6 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.index;
 
-import static org.apache.jackrabbit.oak.plugins.index.elastic.ElasticPropertyDefinition.DEFAULT_SIMILARITY_METRIC;
-
-import co.elastic.clients.json.JsonData;
-import org.apache.jackrabbit.oak.api.Type;
-import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
-import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticPropertyDefinition;
-import org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils;
-import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
-import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition.IndexingRule;
-import org.apache.jackrabbit.oak.plugins.index.search.PropertyDefinition;
-import org.jetbrains.annotations.NotNull;
-
 import co.elastic.clients.elasticsearch._types.Time;
 import co.elastic.clients.elasticsearch._types.mapping.DenseVectorProperty;
 import co.elastic.clients.elasticsearch._types.mapping.DynamicMapping;
@@ -37,12 +25,32 @@ import co.elastic.clients.elasticsearch.indices.CreateIndexRequest;
 import co.elastic.clients.elasticsearch.indices.IndexSettings;
 import co.elastic.clients.elasticsearch.indices.IndexSettingsAnalysis;
 import co.elastic.clients.elasticsearch.indices.PutIndicesSettingsRequest;
+import co.elastic.clients.json.JsonData;
 import co.elastic.clients.util.ObjectBuilder;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.commons.PathUtils;
+import org.apache.jackrabbit.oak.plugins.index.IndexName;
+import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
+import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticPropertyDefinition;
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceConfig;
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceIndexConfig;
+import org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils;
+import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
+import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition.IndexingRule;
+import org.apache.jackrabbit.oak.plugins.index.search.PropertyDefinition;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
+
+import static org.apache.jackrabbit.oak.plugins.index.elastic.ElasticPropertyDefinition.DEFAULT_SIMILARITY_METRIC;
 
 /**
  * Provides utility functions around Elasticsearch indexing
@@ -77,16 +85,26 @@ class ElasticIndexHelper {
      * @return a {@code CreateIndexRequest}
      */
     public static CreateIndexRequest createIndexRequest(@NotNull String remoteIndexName,
+                                                        @NotNull ElasticIndexDefinition indexDefinition, @NotNull InferenceConfig inferenceConfig) {
+        return new CreateIndexRequest.Builder()
+                .index(remoteIndexName)
+                .settings(s -> loadSettings(s, indexDefinition))
+                .mappings(s -> loadMappings(s, indexDefinition, inferenceConfig))
+                .build();
+    }
+
+    public static CreateIndexRequest createIndexRequest(@NotNull String remoteIndexName,
                                                         @NotNull ElasticIndexDefinition indexDefinition) {
         return new CreateIndexRequest.Builder()
                 .index(remoteIndexName)
                 .settings(s -> loadSettings(s, indexDefinition))
-                .mappings(s -> loadMappings(s, indexDefinition))
+                .mappings(s -> loadMappings(s, indexDefinition, InferenceConfig.NOOP))
                 .build();
     }
 
     private static ObjectBuilder<TypeMapping> loadMappings(@NotNull TypeMapping.Builder builder,
-                                                           @NotNull ElasticIndexDefinition indexDefinition) {
+                                                           @NotNull ElasticIndexDefinition indexDefinition,
+                                                           @NotNull InferenceConfig inferenceConfig) {
         builder.dynamic(Arrays
                 .stream(DynamicMapping.values())
                 .filter(dm -> dm.jsonValue().equals(indexDefinition.dynamicMapping))
@@ -97,7 +115,50 @@ class ElasticIndexHelper {
         if (indexDefinition.inferenceDefinition != null) {
             mapInferenceDefinition(builder, indexDefinition.inferenceDefinition);
         }
+        if (inferenceConfig.isEnabled()) {
+            mapInferenceConfig(builder, indexDefinition, inferenceConfig);
+        }
         return builder;
+    }
+
+    private static void mapInferenceConfig(TypeMapping.Builder builder, @NotNull ElasticIndexDefinition indexDefinition, @NotNull InferenceConfig inferenceConfig) {
+        String indexName = PathUtils.getName(indexDefinition.getIndexName());
+        ObjectMapper mapper = new ObjectMapper();
+        InferenceIndexConfig inferenceIndexConfig;
+        try {
+            IndexName indexNameObject = IndexName.parse(indexName);
+            Function<String, InferenceIndexConfig> getInferenceIndexConfig = (iName) -> inferenceConfig.getIndexConfigs().get(iName);
+            if (getInferenceIndexConfig.apply(indexName) != null) {
+                inferenceIndexConfig = getInferenceIndexConfig.apply(indexName);
+            } else if (indexNameObject.isLegal() && getInferenceIndexConfig.apply(indexNameObject.getBaseName()) != null) {
+                inferenceIndexConfig = getInferenceIndexConfig.apply(indexNameObject.getBaseName());
+            } else {
+                return;
+            }
+            Map<String, Object> enricherConfigJson = mapper.readValue(inferenceConfig.getIndexConfigs().get(indexName).getEnricherConfig(),
+                    new TypeReference<Map<String, Object>>() {});
+            enricherConfigJson.forEach((k, v) -> {
+                builder.meta(k, JsonData.of(v));
+            });
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+
+        if (inferenceIndexConfig.getInferenceModels() != null) {
+            builder.properties(":vectorSpaces", b -> b.object(spaces -> {
+                for (var inferenceModelConfig : inferenceIndexConfig.getInferenceModels().entrySet()) {
+                    if (inferenceModelConfig.getValue().isEnabled()) {
+                        spaces.properties(inferenceModelConfig.getKey(), v -> v.nested(vb -> {
+                            vb.properties("id", p -> p.keyword(k -> k));
+                            vb.properties("vector", p -> p.denseVector(dv -> dv));
+                            vb.properties("metadata", p -> p.object(o -> o.enabled(false)));
+                            return vb;
+                        }));
+                    }
+                }
+                return spaces;
+            }));
+        }
     }
 
     private static void mapInternalProperties(@NotNull TypeMapping.Builder builder) {
@@ -304,13 +365,13 @@ class ElasticIndexHelper {
                 int denseVectorSize = pd.getSimilaritySearchDenseVectorSize();
 
                 DenseVectorProperty denseVectorProperty = new DenseVectorProperty.Builder()
-                    .index(true)
-                    .dims(denseVectorSize)
-                    .similarity(DEFAULT_SIMILARITY_METRIC)
-                    .build();
+                        .index(true)
+                        .dims(denseVectorSize)
+                        .similarity(DEFAULT_SIMILARITY_METRIC)
+                        .build();
 
                 builder.properties(FieldNames.createSimilarityFieldName(
-                        ElasticIndexUtils.fieldName(pd.name)),
+                                ElasticIndexUtils.fieldName(pd.name)),
                         b1 -> b1.denseVector(denseVectorProperty));
             }
 

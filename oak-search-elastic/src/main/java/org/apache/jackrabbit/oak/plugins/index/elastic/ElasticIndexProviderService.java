@@ -16,6 +16,7 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic;
 
+import org.apache.jackrabbit.oak.api.jmx.InferenceMBean;
 import org.apache.jackrabbit.oak.commons.IOUtils;
 import org.apache.jackrabbit.oak.osgi.OsgiWhiteboard;
 import org.apache.jackrabbit.oak.plugins.index.AsyncIndexInfoService;
@@ -23,6 +24,9 @@ import org.apache.jackrabbit.oak.plugins.index.IndexEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.IndexInfoProvider;
 import org.apache.jackrabbit.oak.plugins.index.elastic.index.ElasticIndexEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.ElasticIndexProvider;
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceConfig;
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceConstants;
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceMBeanImpl;
 import org.apache.jackrabbit.oak.plugins.index.fulltext.PreExtractedTextProvider;
 import org.apache.jackrabbit.oak.plugins.index.search.ExtractedTextCache;
 import org.apache.jackrabbit.oak.spi.commit.Observer;
@@ -72,6 +76,7 @@ public class ElasticIndexProviderService {
 
     @ObjectClassDefinition(name = "ElasticIndexProviderService", description = "Apache Jackrabbit Oak ElasticIndexProvider")
     public @interface Config {
+
         @AttributeDefinition(name = "Disable the OAK Elastic service",
                 description = "If true, does not start the Elastic component")
         boolean disabled() default false;
@@ -120,6 +125,9 @@ public class ElasticIndexProviderService {
         @AttributeDefinition(name = "Remote index deletion threshold", description = "Time in seconds after which a remote index whose local index is not found gets deleted." +
                 "Default is 1 day.")
         int remoteIndexDeletionThreshold() default 24*60*60;
+
+        @AttributeDefinition(name = "Inference Config Path", description = "Path to the inference configuration")
+        String inferenceConfigPath() default InferenceConstants.OAK_INDEX_INFERENCE_CONFIG;
     }
 
 
@@ -150,6 +158,7 @@ public class ElasticIndexProviderService {
     private ElasticConnection elasticConnection;
     private ElasticMetricHandler metricHandler;
     private ElasticIndexTracker indexTracker;
+    private InferenceConfig inferenceConfig;
 
     @Activate
     private void activate(BundleContext bundleContext, Config config) {
@@ -186,12 +195,20 @@ public class ElasticIndexProviderService {
                 ElasticIndexMBean.TYPE,
                 "Elastic Index statistics"));
 
+        InferenceMBeanImpl inferenceMBean = new InferenceMBeanImpl(this);
+        oakRegs.add(registerMBean(whiteboard,
+                InferenceMBean.class,
+                inferenceMBean,
+                InferenceMBean.TYPE,
+                "Inference"));
+
         LOG.info("Registering Index and Editor providers with connection {}", elasticConnection);
 
         registerIndexProvider(bundleContext);
         registerIndexEditor(bundleContext);
         if (isElasticAvailable) {
             registerIndexCleaner(config);
+            inferenceConfig = new InferenceConfig(nodeStore, config.inferenceConfigPath());
         } else {
             LOG.warn("The Elastic cluster at {} is not reachable. The index cleaner job has not been enabled", elasticConnection);
         }
@@ -232,7 +249,7 @@ public class ElasticIndexProviderService {
     }
 
     private void registerIndexEditor(BundleContext bundleContext) {
-        ElasticIndexEditorProvider editorProvider = new ElasticIndexEditorProvider(indexTracker, elasticConnection, extractedTextCache);
+        ElasticIndexEditorProvider editorProvider = new ElasticIndexEditorProvider(indexTracker, elasticConnection, extractedTextCache, inferenceConfig);
 
         Dictionary<String, Object> props = new Hashtable<>();
         props.put("type", ElasticIndexDefinition.TYPE_ELASTICSEARCH);
@@ -256,5 +273,9 @@ public class ElasticIndexProviderService {
                 .withConnectionParameters(scheme, host, port)
                 .withApiKeys(apiKeyId, apiSecretId)
                 .build();
+    }
+
+    public InferenceConfig getInferenceConfig() {
+        return inferenceConfig;
     }
 }
