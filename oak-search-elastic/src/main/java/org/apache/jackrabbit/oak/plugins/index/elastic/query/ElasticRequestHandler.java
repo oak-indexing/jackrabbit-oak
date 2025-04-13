@@ -580,9 +580,9 @@ public class ElasticRequestHandler {
                     if (elasticIndexDefinition.inferenceDefinition != null && elasticIndexDefinition.inferenceDefinition.queries != null) {
                         bqBuilder.must(m -> m.bool(b -> inference(b, propertyName, text, pr, includeDynamicBoostedValues)));
                     }
-//                    else if (inferenceConfig.isEnabled()) {
-//
-//                    }
+                    else if (isInferenceConfigEnabled()) {
+
+                    }
                     else {
                         QueryStringQuery.Builder qsqBuilder = fullTextQuery(text, getElasticFulltextFieldName(propertyName), pr, includeDynamicBoostedValues);
                         bqBuilder.must(m -> m.queryString(qsqBuilder.build()));
@@ -606,6 +606,16 @@ public class ElasticRequestHandler {
         });
 
         return Query.of(q -> q.bool(result.get()));
+    }
+
+    private boolean isInferenceConfigEnabled(@NotNull InferenceConfig inferenceConfig, @NotNull String indexName, @NotNull String modelConfig) {
+        if (inferenceConfig.isEnabled()) {
+            if (inferenceConfig.getIndexConfigs().get(indexName) != null
+                    && inferenceConfig.getIndexConfigs().get(indexName).) {
+
+            }
+        }
+        return false;
     }
 
     private ObjectBuilder<BoolQuery> inference(BoolQuery.Builder b, String propertyName, String text, PlanResult pr, boolean dbEnabled) {
