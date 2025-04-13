@@ -173,10 +173,11 @@ public class ElasticIndexProviderService {
         metricHandler.markEnabled(isElasticAvailable);
 
         whiteboard = new OsgiWhiteboard(bundleContext);
+        inferenceConfig = new InferenceConfig(nodeStore, config.inferenceConfigPath());
 
         //initializeTextExtractionDir(bundleContext, config);
         //initializeExtractedTextCache(config, statisticsProvider);
-        indexTracker = new ElasticIndexTracker(elasticConnection, metricHandler);
+        indexTracker = new ElasticIndexTracker(elasticConnection, metricHandler, inferenceConfig);
 
         // register observer needed for index tracking
         regs.add(bundleContext.registerService(Observer.class.getName(), indexTracker, null));
@@ -199,7 +200,6 @@ public class ElasticIndexProviderService {
         registerIndexEditor(bundleContext);
         if (isElasticAvailable) {
             registerIndexCleaner(config);
-            inferenceConfig = new InferenceConfig(nodeStore, config.inferenceConfigPath());
         } else {
             LOG.warn("The Elastic cluster at {} is not reachable. The index cleaner job has not been enabled", elasticConnection);
         }
@@ -232,7 +232,7 @@ public class ElasticIndexProviderService {
     }
 
     private void registerIndexProvider(BundleContext bundleContext) {
-        ElasticIndexProvider indexProvider = new ElasticIndexProvider(indexTracker, inferenceConfig);
+        ElasticIndexProvider indexProvider = new ElasticIndexProvider(indexTracker);
 
         Dictionary<String, Object> props = new Hashtable<>();
         props.put("type", ElasticIndexDefinition.TYPE_ELASTICSEARCH);
@@ -240,7 +240,7 @@ public class ElasticIndexProviderService {
     }
 
     private void registerIndexEditor(BundleContext bundleContext) {
-        ElasticIndexEditorProvider editorProvider = new ElasticIndexEditorProvider(indexTracker, elasticConnection, extractedTextCache, inferenceConfig);
+        ElasticIndexEditorProvider editorProvider = new ElasticIndexEditorProvider(indexTracker, elasticConnection, extractedTextCache);
 
         Dictionary<String, Object> props = new Hashtable<>();
         props.put("type", ElasticIndexDefinition.TYPE_ELASTICSEARCH);

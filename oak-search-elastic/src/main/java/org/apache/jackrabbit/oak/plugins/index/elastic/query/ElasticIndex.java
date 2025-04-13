@@ -49,12 +49,7 @@ class ElasticIndex extends FulltextIndex {
 
     ElasticIndex(ElasticIndexTracker elasticIndexTracker) {
         this.elasticIndexTracker = elasticIndexTracker;
-        this.inferenceConfig = InferenceConfig.NOOP;
-    }
-
-    ElasticIndex(ElasticIndexTracker elasticIndexTracker, InferenceConfig inferenceConfig) {
-        this.elasticIndexTracker = elasticIndexTracker;
-        this.inferenceConfig = inferenceConfig;
+        this.inferenceConfig = elasticIndexTracker.getInferenceConfig();
     }
 
     @Override

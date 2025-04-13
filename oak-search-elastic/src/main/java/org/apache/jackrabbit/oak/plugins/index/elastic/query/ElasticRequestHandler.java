@@ -44,6 +44,10 @@ import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticPropertyDefinition;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.facets.ElasticFacetProvider;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceConfig;
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceIndexConfig;
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceModelConfig;
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceQuery;
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceQueryConfig;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceService;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceServiceManager;
 import org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils;
@@ -105,6 +109,7 @@ import java.util.function.BiConsumer;
 import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -576,14 +581,35 @@ public class ElasticRequestHandler {
                     boolean includeDynamicBoostedValues = !elasticIndexDefinition.getDynamicBoostProperties().isEmpty() &&
                             elasticIndexDefinition.getDynamicBoostProperties().stream().anyMatch(ElasticPropertyDefinition::useInFullTextQuery);
 
-                    // Experimental support for inference queries
-                    if (elasticIndexDefinition.inferenceDefinition != null && elasticIndexDefinition.inferenceDefinition.queries != null) {
-                        bqBuilder.must(m -> m.bool(b -> inference(b, propertyName, text, pr, includeDynamicBoostedValues)));
-                    }
-                    else if (isInferenceConfigEnabled()) {
-
-                    }
+                    String indexName = PathUtils.getName(indexPlan.getPlanName());
+//                    InferenceModelConfig inferenceModelConfig = InferenceModelConfig.NOOP;
+                    //InferenceQueryConfig inferenceQueryConfig = InferenceQueryConfig.NOOP;
+                    String inferenceModelConfig = null;
+//                    String queryText;
+//                    if (text.startsWith("?")) {
+//                        InferenceQuery inferenceQuery = new InferenceQuery(text);
+//                        String queryConfig = inferenceQuery.getQueryInferenceConfig();
+//                        queryText = inferenceQuery.getQueryText();
+//                        InferenceQueryConfig inferenceQueryConfig = new InferenceQueryConfig(queryConfig);
+//                        inferenceModelConfig = inferenceQueryConfig.getInferenceModelConfig();
+//                    } else {
+//                        queryText = text;
+//                    }
+//
+//                    if (inferenceConfig.isEnabled()
+//                            && !InferenceModelConfig.NOOP.equals(inferenceConfig.getInferenceModelConfig(indexName, inferenceModelConfig))) {
+//
+//                        bqBuilder.must(m -> m.bool(b -> inferenceConfigQuery(b, propertyName, queryText, pr, includeDynamicBoostedValues)));
+//                    }
+//                    // Experimental support for inference queries
+//                    else
+                        if (elasticIndexDefinition.inferenceDefinition != null && elasticIndexDefinition.inferenceDefinition.queries != null) {
+                            bqBuilder.must(m -> m.bool(b -> inference(b, propertyName, text, pr, includeDynamicBoostedValues)));
+                        }
                     else {
+                        if (inferenceModelConfig != null){
+                            LOG.warn("Inference model config {} is not supported for index {}", inferenceModelConfig, indexName);
+                        }
                         QueryStringQuery.Builder qsqBuilder = fullTextQuery(text, getElasticFulltextFieldName(propertyName), pr, includeDynamicBoostedValues);
                         bqBuilder.must(m -> m.queryString(qsqBuilder.build()));
                     }
@@ -608,14 +634,62 @@ public class ElasticRequestHandler {
         return Query.of(q -> q.bool(result.get()));
     }
 
-    private boolean isInferenceConfigEnabled(@NotNull InferenceConfig inferenceConfig, @NotNull String indexName, @NotNull String modelConfig) {
-        if (inferenceConfig.isEnabled()) {
-            if (inferenceConfig.getIndexConfigs().get(indexName) != null
-                    && inferenceConfig.getIndexConfigs().get(indexName).) {
-
+    private ObjectBuilder<BoolQuery> inferenceConfigQuery(BoolQuery.Builder b, String propertyName, String text, PlanResult pr, boolean dbEnabled) {
+        ElasticIndexDefinition.InferenceDefinition.Query q = null;
+        // select first query eligible for the given text
+        // TODO: evaluate if/how to handle multiple queries
+        String  queryText = text;
+        for (ElasticIndexDefinition.InferenceDefinition.Query query : elasticIndexDefinition.inferenceDefinition.queries) {
+            if (query.isEligibleForInput(queryText)) {
+                queryText = query.rewrite(queryText);
+                if (query.hasMinTerms(queryText)) {
+                    q = query;
+                    break;
+                }
             }
         }
-        return false;
+
+        QueryStringQuery.Builder qsqBuilder = fullTextQuery(queryText, getElasticFulltextFieldName(propertyName), pr, dbEnabled);
+
+        // the query can be null if no inference query is eligible for the given text or the min terms are not met
+        // in this case, we fall back to the default full-text query
+        if (q != null) {
+            LOG.info("Using inference query: {}", q);
+            try {
+                // let's retrieve the fields with the same model as the query
+                final ElasticIndexDefinition.InferenceDefinition.Query query = q;
+                List<ElasticIndexDefinition.InferenceDefinition.Property> properties = elasticIndexDefinition.inferenceDefinition.properties.stream()
+                        .filter(pd -> pd.model.equals(query.model))
+                        .collect(Collectors.toList());
+                if (!properties.isEmpty()) {
+                    InferenceService inferenceService = InferenceServiceManager.getInstance(q.serviceUrl, q.model);
+                    List<Float> embeddings = inferenceService.embeddings(queryText, (int) q.timeout);
+                    if (embeddings != null) {
+                        for (ElasticIndexDefinition.InferenceDefinition.Property p : properties) {
+                            // https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-knn-query.html
+                            KnnQuery.Builder knnQueryBuilder = new KnnQuery.Builder();
+                            knnQueryBuilder.field(p.name + ".value");
+                            knnQueryBuilder.numCandidates(q.numCandidates);
+                            knnQueryBuilder.queryVector(embeddings);
+                            knnQueryBuilder.similarity(q.similarityThreshold);
+                            b.should(s -> s.knn(knnQueryBuilder.build()));
+                        }
+                        int tokens = queryText.split("\\s+").length;
+                        // the more tokens, the less important the full-text query is
+                        // TODO: make it configurable
+                        double qsBoost = (tokens > 1) ? 1.0d / (5 * tokens) : 1.0d;
+                        return b.should(s -> s.queryString(qsqBuilder.boost((float) qsBoost).build()));
+                    } else {
+                        LOG.warn("No embeddings found for text {}", text);
+                    }
+                } else {
+                    LOG.warn("No properties with model {} found", query.model);
+                }
+            } catch (Exception e) {
+                LOG.warn("Error while calling inference service. Query won't use embeddings", e);
+            }
+        }
+        return b.must(mm -> mm.queryString(qsqBuilder.build()));
     }
 
     private ObjectBuilder<BoolQuery> inference(BoolQuery.Builder b, String propertyName, String text, PlanResult pr, boolean dbEnabled) {

@@ -68,19 +68,13 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
                        @NotNull ElasticIndexDefinition indexDefinition,
                        @NotNull NodeBuilder definitionBuilder,
                        boolean reindex, CommitInfo commitInfo) {
-        this(indexTracker, elasticConnection, indexDefinition, definitionBuilder, reindex, commitInfo, InferenceConfig.NOOP);
-    }
-
-    ElasticIndexWriter(@NotNull ElasticIndexTracker indexTracker,
-                       @NotNull ElasticConnection elasticConnection,
-                       @NotNull ElasticIndexDefinition indexDefinition,
-                       @NotNull NodeBuilder definitionBuilder,
-                       boolean reindex, CommitInfo commitInfo, @NotNull InferenceConfig inferenceConfig) {
         this.indexTracker = indexTracker;
         this.elasticConnection = elasticConnection;
         this.indexDefinition = indexDefinition;
         this.reindex = reindex;
-        this.inferenceConfig = inferenceConfig;
+        //TODO Should this be under reindex block?
+        indexTracker.refreshInferenceConfig();
+        this.inferenceConfig = indexTracker.getInferenceConfig();
 
         // We don't use stored index definitions with elastic. Every time a new writer gets created we
         // use the actual index name (based on the current seed) while reindexing, or the alias (pointing to the
@@ -89,7 +83,7 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
             try {
                 // refresh inference config on any index reindex.
                 //TODO We should observe changes under inference config path.
-                inferenceConfig.refreshConfig();
+//                this.inferenceConfig.refreshConfig();
                 long seed = indexDefinition.indexNameSeed == 0L ? UUID.randomUUID().getMostSignificantBits() : indexDefinition.indexNameSeed;
                 // merge gets called on node store later in the indexing flow
                 definitionBuilder.setProperty(ElasticIndexDefinition.PROP_INDEX_NAME_SEED, seed);

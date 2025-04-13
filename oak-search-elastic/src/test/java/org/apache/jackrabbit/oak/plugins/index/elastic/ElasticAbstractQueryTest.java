@@ -143,10 +143,10 @@ public abstract class ElasticAbstractQueryTest extends AbstractQueryTest {
     @Override
     protected ContentRepository createRepository() {
         esConnection = getElasticConnection();
-        indexTracker = new ElasticIndexTracker(esConnection, getMetricHandler());
         nodeStore = getNodeStore();
+        indexTracker = new ElasticIndexTracker(esConnection, getMetricHandler(), new InferenceConfig(nodeStore, INFERENCE_CONFIG_PATH));
         ElasticIndexEditorProvider editorProvider = new ElasticIndexEditorProvider(indexTracker, esConnection,
-                new ExtractedTextCache(10 * FileUtils.ONE_MB, 100), new InferenceConfig(nodeStore, INFERENCE_CONFIG_PATH));
+                new ExtractedTextCache(10 * FileUtils.ONE_MB, 100));
         ElasticIndexProvider indexProvider = new ElasticIndexProvider(indexTracker);
 
 

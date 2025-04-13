@@ -29,20 +29,14 @@ import java.util.List;
 public class ElasticIndexProvider implements QueryIndexProvider {
 
     private final ElasticIndexTracker indexTracker;
-    private final InferenceConfig inferenceConfig;
-
-    public ElasticIndexProvider(ElasticIndexTracker indexTracker, InferenceConfig inferenceConfig) {
-        this.indexTracker = indexTracker;
-        this.inferenceConfig = inferenceConfig;
-    }
 
     public ElasticIndexProvider(ElasticIndexTracker indexTracker) {
         this.indexTracker = indexTracker;
-        this.inferenceConfig = InferenceConfig.NOOP;
     }
 
     @Override
     public @NotNull List<? extends QueryIndex> getQueryIndexes(NodeState nodeState) {
-        return Collections.singletonList(new ElasticIndex(indexTracker, inferenceConfig));
+
+        return Collections.singletonList(new ElasticIndex(indexTracker));
     }
 }

@@ -54,11 +54,11 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceConstants.ENRICHER_CONFIG;
 import static org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceConstants.INFERENCE_CONFIG_TYPE;
-import static org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceConstants.INFERENCE_INDEX_CONFIG;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
@@ -77,18 +77,18 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
         for (String path : PathUtils.elements(INFERENCE_CONFIG_PATH)) {
             nodeBuilder = nodeBuilder.child(path);
         }
-        nodeBuilder.setProperty(INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_INDEX_CONFIG);
+        nodeBuilder.setProperty(INFERENCE_CONFIG_TYPE, InferenceConfig.TYPE);
         nodeBuilder.setProperty(InferenceConstants.ENABLED, true);
         NodeBuilder inferenceConfig = nodeBuilder;
 
         // Add inferenceIndexConfig
         NodeBuilder inferenceIndexConfig = inferenceConfig.child(indexName);
-        inferenceIndexConfig.setProperty(INFERENCE_CONFIG_TYPE, INFERENCE_INDEX_CONFIG);
+        inferenceIndexConfig.setProperty(INFERENCE_CONFIG_TYPE, InferenceIndexConfig.TYPE);
         inferenceIndexConfig.setProperty(ENRICHER_CONFIG, enricherConfig);
         // Add inference model1 configuration
         NodeBuilder inferenceModelConfig1 = inferenceIndexConfig.child("inferenceModel1");
-        inferenceModelConfig1.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
-        inferenceModelConfig1.setProperty(INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
+        inferenceModelConfig1.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceModelConfig.TYPE);
+//        inferenceModelConfig1.setProperty(INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
         inferenceModelConfig1.setProperty(InferenceModelConfig.MODEL, "test-model1");
         inferenceModelConfig1.setProperty(InferenceModelConfig.EMBEDDING_SERVICE_URL, "http://localhost:8080");
         inferenceModelConfig1.setProperty(InferenceModelConfig.SIMILARITY_THRESHOLD, 0.8);
@@ -109,8 +109,8 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
 
         // Add inference model2 configuration
         NodeBuilder inferenceModelConfig2 = inferenceIndexConfig.child("inferenceModel2");
-        inferenceModelConfig2.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
-        inferenceModelConfig2.setProperty(INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
+        inferenceModelConfig2.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceModelConfig.TYPE);
+//        inferenceModelConfig2.setProperty(INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
         inferenceModelConfig2.setProperty(InferenceModelConfig.MODEL, "test-model2");
         inferenceModelConfig2.setProperty(InferenceModelConfig.EMBEDDING_SERVICE_URL, "http://localhost:8080");
         inferenceModelConfig2.setProperty(InferenceModelConfig.SIMILARITY_THRESHOLD, 0.8);
@@ -167,18 +167,18 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
         for (String path : PathUtils.elements(INFERENCE_CONFIG_PATH)) {
             nodeBuilder = nodeBuilder.child(path);
         }
-        nodeBuilder.setProperty(INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_INDEX_CONFIG);
+        nodeBuilder.setProperty(INFERENCE_CONFIG_TYPE, InferenceConfig.TYPE);
         nodeBuilder.setProperty(InferenceConstants.ENABLED, isInferenceConfigEnabled);
         NodeBuilder inferenceConfig = nodeBuilder;
 
         // Add inferenceIndexConfig
         NodeBuilder inferenceIndexConfig = inferenceConfig.child(indexName);
-        inferenceIndexConfig.setProperty(INFERENCE_CONFIG_TYPE, INFERENCE_INDEX_CONFIG);
+        inferenceIndexConfig.setProperty(INFERENCE_CONFIG_TYPE, InferenceIndexConfig.TYPE);
         inferenceIndexConfig.setProperty(ENRICHER_CONFIG, enricherConfig);
         // Add inference model1 configuration
         NodeBuilder inferenceModelConfig1 = inferenceIndexConfig.child(inferenceModelConfigName);
-        inferenceModelConfig1.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
-        inferenceModelConfig1.setProperty(INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
+        inferenceModelConfig1.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceModelConfig.TYPE);
+//        inferenceModelConfig1.setProperty(INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
         inferenceModelConfig1.setProperty(InferenceModelConfig.MODEL, inferenceModelName);
         inferenceModelConfig1.setProperty(InferenceModelConfig.EMBEDDING_SERVICE_URL, embeddingServiceUrl);
         inferenceModelConfig1.setProperty(InferenceModelConfig.SIMILARITY_THRESHOLD, similarityThreshold);
@@ -201,14 +201,20 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
 
     @Test
     public void hybridSearch() throws Exception {
-        String indexName = UUID.randomUUID().toString();
+        String jcrIndexName = UUID.randomUUID().toString();
 
+
+        String queryConfigInQuery = "{\"inferenceModelConfig\": \"ada-test-model\"}";
+//        String inferenceServiceUrl = "http://litellm-content-ai-nexus.corp.ethos14-stage-va7.ethos.adobe.net/v1/embeddings";
+        String inferenceServiceUrl =  "http://localhost:" + wireMock.port() + "/v1/embeddings";
+        String  inferenceModelConfigName = "ada-test-model";
+        String inferenceModelName = "text-embedding-ada-002";
         // create inference config
-        createInferenceConfig(indexName, true, enricherConfig, "ada-test-model",
-                "text-embedding-ada-002",
-                "http://litellm-content-ai-nexus.corp.ethos14-stage-va7.ethos.adobe.net/v1/embeddings", 0.8, 1L, true, true);
+        createInferenceConfig(jcrIndexName, true, enricherConfig, inferenceModelConfigName,
+                inferenceModelName, inferenceServiceUrl,
+                0.8, 1L, true, true);
 
-
+//        root.refresh();
         IndexDefinitionBuilder builder = createIndex();
         builder.includedPaths("/content")
                 .indexRule("nt:base")
@@ -216,19 +222,22 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
                 .property("description").propertyIndex().analyzed().nodeScopeIndex()
                 .property("updatedBy").propertyIndex();
 
-        Tree inferenceConfigInIndex = builder.getBuilderTree().addChild(ElasticIndexDefinition.INFERENCE_CONFIG);
-        Tree embeddings = inferenceConfigInIndex.addChild("properties").addChild("embeddings");
-        embeddings.setProperty("fields", List.of("title", "description"), Type.STRINGS);
+//        Tree inferenceConfigInIndex = builder.getBuilderTree().addChild(ElasticIndexDefinition.INFERENCE_CONFIG);
+//        Tree embeddings = inferenceConfigInIndex.addChild("properties").addChild("embeddings");
+//        embeddings.setProperty("fields", List.of("title", "description"), Type.STRINGS);
+//
+//        Tree queryConfig = inferenceConfigInIndex.addChild("queries").addChild("semantic");
+//        queryConfig.setProperty("serviceUrl", "http://localhost:" + wireMock.port() + "/get_embedding");
+//        queryConfig.setProperty("prefix", "?");
+//        queryConfig.setProperty("similarityThreshold", "0.75");
+//        queryConfig.setProperty("timeout", "1000");
 
-        Tree queryConfig = inferenceConfigInIndex.addChild("queries").addChild("semantic");
-        queryConfig.setProperty("serviceUrl", "http://localhost:" + wireMock.port() + "/get_embedding");
-        queryConfig.setProperty("prefix", "?");
-        queryConfig.setProperty("similarityThreshold", "0.75");
-        queryConfig.setProperty("timeout", "1000");
-
-        Tree index = setIndex(indexName, builder);
+        Tree index = setIndex(jcrIndexName, builder);
         root.commit();
+//        InferenceConfig inferenceConfig = new InferenceConfig(nodeStore, INFERENCE_CONFIG_PATH);
+        InferenceConfig inferenceConfig = indexTracker.getInferenceConfig();
 
+        IndexMappingRecord mapping = getMapping(index);
         // add content
         Tree content = root.getTree("/").addChild("content");
         Tree health = content.addChild("health");
@@ -266,31 +275,74 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
         List<String> paths = executeQuery("select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and title is not null", SQL2);
         for (String path : paths) {
             URL json = this.getClass().getResource("/inference" + path + ".json");
+//            if (json != null) {
+//                @SuppressWarnings("unchecked")
+//                Map<String, Collection<Double>> map = mapper.readValue(json, Map.class);
+//                ObjectNode updateDoc = mapper.createObjectNode();
+//                ObjectNode inferenceNode = updateDoc.putObject(ElasticIndexDefinition.INFERENCE);
+//                ArrayNode embeddingsNode = inferenceNode.putObject("embeddings").putArray("value");
+//                inferenceNode.putObject("metadata").put("updatedAt", Instant.now().toEpochMilli());
+//                for (Double d : map.get("embedding")) {
+//                    embeddingsNode.add(d);
+//                }
+//                updateDocument(index, path, updateDoc);
+//            }
             if (json != null) {
                 @SuppressWarnings("unchecked")
                 Map<String, Collection<Double>> map = mapper.readValue(json, Map.class);
                 ObjectNode updateDoc = mapper.createObjectNode();
-                ObjectNode inferenceNode = updateDoc.putObject(ElasticIndexDefinition.INFERENCE);
-                ArrayNode embeddingsNode = inferenceNode.putObject("embeddings").putArray("value");
-                inferenceNode.putObject("metadata").put("updatedAt", Instant.now().toEpochMilli());
-                for (Double d : map.get("embedding")) {
-                    embeddingsNode.add(d);
-                }
+                ObjectNode inferenceNode = updateDoc.putObject(InferenceConstants.VECTOR_SPACES);
+                ArrayNode inferenceModelConfigNameNode = inferenceNode.putArray(inferenceModelConfigName);
+                List<Float> embeddings = map.get("embedding").stream().map(d -> ((Double) d).floatValue()).collect(Collectors.toList());
+                VectorDocument  vectorDocument = new VectorDocument(UUID.randomUUID().toString(), embeddings,
+                        Map.of("updatedAt", Instant.now().toEpochMilli(), "model", inferenceModelName));
+                ArrayNode VectorDocumentsNode = inferenceModelConfigNameNode.arrayNode().addPOJO(vectorDocument);
                 updateDocument(index, path, updateDoc);
             }
         }
 
         // let's instruct wiremock to return the embeddings for the queries as the inference service would
+//        try (Stream<Path> stream = Files.walk(Paths.get(this.getClass().getResource("/inference/queries").toURI()))) {
+//            stream.filter(Files::isRegularFile).forEach(queryFile -> {
+//                String query = FilenameUtils.removeExtension(queryFile.getFileName().toString()).replaceAll("_", " ");
+//                if (queryFile.toAbsolutePath().toString().contains("queries/faulty")) {
+//                    wireMock.stubFor(WireMock.post("/get_embedding")
+//                            .withRequestBody(WireMock.equalToJson("{\"text\":\"" + query + "\"}"))
+//                            .willReturn(WireMock.serverError()));
+//                } else if (queryFile.toAbsolutePath().toString().contains("delayed")) {
+//                    wireMock.stubFor(WireMock.post("/get_embedding")
+//                            .withRequestBody(WireMock.equalToJson("{\"text\":\"" + query + "\"}"))
+//                            .willReturn(WireMock.ok()
+//                                    .withHeader("Content-Type", "application/json")
+//                                    .withBody("[]")
+//                                    .withFixedDelay(2000)));
+//                } else {
+//                    String json;
+//                    try {
+//                        json = IOUtils.toString(queryFile.toUri(), StandardCharsets.UTF_8);
+//                    } catch (IOException e) {
+//                        throw new RuntimeException(e);
+//                    }
+//                    wireMock.stubFor(WireMock.post("/get_embedding")
+//                            .withRequestBody(WireMock.equalToJson("{\"text\":\"" + query + "\"}"))
+//                            .willReturn(WireMock.ok()
+//                                    .withHeader("Content-Type", "application/json")
+//                                    .withBody(json)));
+//                }
+//            });
+//        }
         try (Stream<Path> stream = Files.walk(Paths.get(this.getClass().getResource("/inference/queries").toURI()))) {
             stream.filter(Files::isRegularFile).forEach(queryFile -> {
                 String query = FilenameUtils.removeExtension(queryFile.getFileName().toString()).replaceAll("_", " ");
+                String str = inferenceConfig.getInferenceModelConfig(jcrIndexName, inferenceModelConfigName).getPayload().getInferencePayload(query);
                 if (queryFile.toAbsolutePath().toString().contains("queries/faulty")) {
-                    wireMock.stubFor(WireMock.post("/get_embedding")
-                            .withRequestBody(WireMock.equalToJson("{\"text\":\"" + query + "\"}"))
+
+                    wireMock.stubFor(WireMock.post("/v1/embeddings")
+                            .withRequestBody(WireMock.equalToJson(inferenceConfig.getInferenceModelConfig(jcrIndexName, inferenceModelConfigName).getPayload().getInferencePayload(query)))
                             .willReturn(WireMock.serverError()));
                 } else if (queryFile.toAbsolutePath().toString().contains("delayed")) {
-                    wireMock.stubFor(WireMock.post("/get_embedding")
-                            .withRequestBody(WireMock.equalToJson("{\"text\":\"" + query + "\"}"))
+                    wireMock.stubFor(WireMock.post("/v1/embeddings")
+                            .withRequestBody(WireMock.equalToJson(inferenceConfig.getInferenceModelConfig(jcrIndexName, inferenceModelConfigName).getPayload().getInferencePayload(query)))
                             .willReturn(WireMock.ok()
                                     .withHeader("Content-Type", "application/json")
                                     .withBody("[]")
@@ -302,8 +354,8 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
                     } catch (IOException e) {
                         throw new RuntimeException(e);
                     }
-                    wireMock.stubFor(WireMock.post("/get_embedding")
-                            .withRequestBody(WireMock.equalToJson("{\"text\":\"" + query + "\"}"))
+                    wireMock.stubFor(WireMock.post("/v1/embeddings")
+                            .withRequestBody(WireMock.equalToJson(inferenceConfig.getInferenceModelConfig(jcrIndexName, inferenceModelConfigName).getPayload().getInferencePayload(query)))
                             .willReturn(WireMock.ok()
                                     .withHeader("Content-Type", "application/json")
                                     .withBody(json)));
@@ -324,7 +376,9 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
             for (Map.Entry<String, String> entry : queryResults.entrySet()) {
                 String query = entry.getKey();
                 String expectedPath = entry.getValue();
+//                String queryPath = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?"+queryConfigInQuery+"?" + query + "')";
                 String queryPath = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?" + query + "')";
+
                 List<String> results = executeQuery(queryPath, SQL2, true, true);
                 assertEquals(expectedPath, results.get(0));
 

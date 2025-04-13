@@ -36,18 +36,19 @@ import org.apache.jackrabbit.oak.plugins.index.IndexName;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticPropertyDefinition;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceConfig;
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceConstants;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceIndexConfig;
 import org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils;
 import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition.IndexingRule;
 import org.apache.jackrabbit.oak.plugins.index.search.PropertyDefinition;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static org.apache.jackrabbit.oak.plugins.index.elastic.ElasticPropertyDefinition.DEFAULT_SIMILARITY_METRIC;
@@ -126,13 +127,8 @@ class ElasticIndexHelper {
         ObjectMapper mapper = new ObjectMapper();
         InferenceIndexConfig inferenceIndexConfig;
         try {
-            IndexName indexNameObject = IndexName.parse(indexName);
-            Function<String, InferenceIndexConfig> getInferenceIndexConfig = (iName) -> inferenceConfig.getIndexConfigs().get(iName);
-            if (getInferenceIndexConfig.apply(indexName) != null) {
-                inferenceIndexConfig = getInferenceIndexConfig.apply(indexName);
-            } else if (indexNameObject.isLegal() && getInferenceIndexConfig.apply(indexNameObject.getBaseName()) != null) {
-                inferenceIndexConfig = getInferenceIndexConfig.apply(indexNameObject.getBaseName());
-            } else {
+            inferenceIndexConfig = inferenceConfig.getInferenceIndexConfig(indexName);
+            if (InferenceIndexConfig.NOOP.equals(inferenceIndexConfig)) {
                 return;
             }
             Map<String, Object> enricherConfigJson = mapper.readValue(inferenceConfig.getIndexConfigs().get(indexName).getEnricherConfig(),
@@ -144,9 +140,9 @@ class ElasticIndexHelper {
             throw new RuntimeException(e);
         }
 
-        if (inferenceIndexConfig.getInferenceModels() != null) {
-            builder.properties(":vectorSpaces", b -> b.object(spaces -> {
-                for (var inferenceModelConfig : inferenceIndexConfig.getInferenceModels().entrySet()) {
+        if (inferenceIndexConfig.getInferenceModelConfigs() != null) {
+            builder.properties(InferenceConstants.VECTOR_SPACES, b -> b.object(spaces -> {
+                for (var inferenceModelConfig : inferenceIndexConfig.getInferenceModelConfigs().entrySet()) {
                     if (inferenceModelConfig.getValue().isEnabled()) {
                         spaces.properties(inferenceModelConfig.getKey(), v -> v.nested(vb -> {
                             vb.properties("id", p -> p.keyword(k -> k));

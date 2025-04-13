@@ -21,18 +21,19 @@ package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.api.Type;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * Configuration class for Inference Index settings.
  * Represents the configuration structure for inference-enabled indexes.
  */
 public class InferenceIndexConfig {
-    public static final String INFERENCE_INDEX_CONFIG = "InferenceIndexConfig";
+    public static final InferenceIndexConfig NOOP = new InferenceIndexConfig();
+    public static final String TYPE = "inferenceIndexConfig";
     public static final String ENRICHER_CONFIG = "enricherConfig";
-    public static final String INFERENCE_MODEL_CONFIG = "inferenceModelConfig";
+//    public static final String INFERENCE_MODEL_CONFIG = "inferenceModelConfig";
     /**
      * The enricher configuration as JSON string.
      */
@@ -40,25 +41,29 @@ public class InferenceIndexConfig {
     /**
      * Map of inference model configurations keyed by their names.
      */
-    private final Map<String, InferenceModelConfig> inferenceModels;
+    private final Map<String, InferenceModelConfig> inferenceModelConfigs;
+
+    private InferenceIndexConfig() {
+        this.enricherConfig = "{}";
+        this.inferenceModelConfigs = Collections.emptyMap();
+    }
 
     public InferenceIndexConfig(NodeState nodeState) {
         this.enricherConfig = nodeState.hasProperty(InferenceConstants.ENRICHER_CONFIG) ?
-            nodeState.getProperty(InferenceConstants.ENRICHER_CONFIG).getValue(Type.STRING) : null;
-        this.inferenceModels = new HashMap<>();
-        
+            nodeState.getProperty(InferenceConstants.ENRICHER_CONFIG).getValue(Type.STRING) : "{}";
+        this.inferenceModelConfigs = new HashMap<>();
         // Iterate through child nodes to find inference model configs
         for (String childName : nodeState.getChildNodeNames()) {
             NodeState childNode = nodeState.getChildNode(childName);
             if (isInferenceModelConfig(childNode)) {
-                inferenceModels.put(childName, new InferenceModelConfig(childName, childNode));
+                inferenceModelConfigs.put(childName, new InferenceModelConfig(childName, childNode));
             }
         }
     }
 
     private boolean isInferenceModelConfig(NodeState nodeState) {
         return nodeState.hasProperty(InferenceConstants.INFERENCE_CONFIG_TYPE) &&
-               nodeState.getProperty(InferenceConstants.INFERENCE_CONFIG_TYPE).getValue(Type.STRING).equals(InferenceConstants.INFERENCE_MODEL_CONFIG);
+               nodeState.getProperty(InferenceConstants.INFERENCE_CONFIG_TYPE).getValue(Type.STRING).equals(InferenceModelConfig.TYPE);
     }
 
     /**
@@ -71,8 +76,8 @@ public class InferenceIndexConfig {
     /**
      * @return Map of inference model configurations keyed by their names
      */
-    public Map<String, InferenceModelConfig> getInferenceModels() {
-        return inferenceModels;
+    public Map<String, InferenceModelConfig> getInferenceModelConfigs() {
+        return inferenceModelConfigs;
     }
 
     /**
@@ -80,16 +85,16 @@ public class InferenceIndexConfig {
      * @return The default InferenceModelConfig.java or null if none is marked as default
      */
     public InferenceModelConfig getDefaultModel() {
-        return inferenceModels.values().stream()
+        return inferenceModelConfigs.values().stream()
                 .filter(InferenceModelConfig::isDefault)
                 .findFirst()
                 .orElse(null);
     }
     @Override
     public String toString() {
-        return INFERENCE_INDEX_CONFIG +"{" +
+        return TYPE +"{" +
                 ENRICHER_CONFIG +"='" + enricherConfig + '\'' +
-                ", "+ INFERENCE_MODEL_CONFIG  +"=" + inferenceModels +
+                ", "+ InferenceModelConfig.TYPE +"=" + inferenceModelConfigs +
                 '}';
     }
 } 

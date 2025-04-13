@@ -18,16 +18,29 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.jackrabbit.commons.json.JsonParser;
 import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.commons.json.JsopBuilder;
+import org.apache.jackrabbit.oak.json.Base64BlobSerializer;
+import org.apache.jackrabbit.oak.json.JsonSerializer;
 import org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
+import org.apache.jackrabbit.oak.spi.state.NodeStateUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.StringWriter;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 /**
  * Configuration for inference payload
@@ -49,7 +62,7 @@ public class InferencePayload {
             } else if (nodeState.getProperty(INPUT_KEY).getType() == Type.STRINGS) {
                 if (nodeState.getProperty(INPUT_KEY).count() == 1) {
                     textKeyValue = nodeState.getProperty(INPUT_KEY).getValue(Type.STRINGS).iterator().next();
-                    inferencePayloadBuilder.setProperty(textKeyValue, new ArrayList<>(), Type.STRINGS);
+                    inferencePayloadBuilder.setProperty(textKeyValue, List.of(), Type.STRINGS);
                 } else {
                     isValidInferencePayload = false;
                     log.warn("Inference payload textKey property should be of type String, or String[] with only one value" +
@@ -86,8 +99,46 @@ public class InferencePayload {
     public String getInferencePayload(String text) {
         NodeBuilder inferencePayloadBuilder = new MemoryNodeBuilder(EmptyNodeState.EMPTY_NODE);
         copyFirstLevelNodeState(this.inferencePayloadBuilder.getNodeState(), inferencePayloadBuilder);
-        inferencePayloadBuilder.setProperty(textKeyValue, text);
-        return inferencePayloadBuilder.getNodeState().toString();
+        if (Type.STRING.equals(Objects.requireNonNull(inferencePayloadBuilder.getProperty(textKeyValue)).getType())) {
+            inferencePayloadBuilder.setProperty(textKeyValue, text, Type.STRING);
+        } else {
+            inferencePayloadBuilder.setProperty(textKeyValue, List.of(text), Type.STRINGS);
+        }
+
+        NodeStateToMapConverter nodeStateToMapConverter = new NodeStateToMapConverter();
+        Map<String, Object> inferencePayloadMap = nodeStateToMapConverter.convert(inferencePayloadBuilder.getNodeState());
+        ObjectMapper obj = new ObjectMapper();
+        try {
+            return obj.writerWithDefaultPrettyPrinter().writeValueAsString(inferencePayloadMap);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+//        return inferencePayloadBuilder.getNodeState().toString();
     }
 
+    private static class NodeStateToMapConverter {
+
+        public static Map<String, Object> convert(NodeState nodeState) {
+            Map<String, Object> result = new HashMap<>();
+
+            // Add properties
+            for (PropertyState property : nodeState.getProperties()) {
+                if (property.isArray()) {
+                    result.put(property.getName(), property.getValue(Type.STRINGS));
+                } else {
+                    result.put(property.getName(), property.getValue(Type.STRING));
+                }
+            }
+
+            // Add child nodes recursively
+            Iterator<String> childNames = nodeState.getChildNodeNames().iterator();
+            while (childNames.hasNext()) {
+                String childName = childNames.next();
+                NodeState childNode = nodeState.getChildNode(childName);
+                result.put(childName, convert(childNode));
+            }
+
+            return result;
+        }
+    }
 } 

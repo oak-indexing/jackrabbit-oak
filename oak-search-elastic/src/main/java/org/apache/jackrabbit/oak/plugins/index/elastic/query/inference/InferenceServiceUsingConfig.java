@@ -37,7 +37,7 @@ import java.util.stream.Collectors;
  * EXPERIMENTAL: A service that sends text to an inference service and receives embeddings in return.
  * The embeddings are cached to avoid repeated calls to the inference service.
  */
-public class InferenceService {
+public class InferenceServiceUsingConfig {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -45,7 +45,7 @@ public class InferenceService {
     private final Cache<String, List<Float>> cache;
     private final HttpClient httpClient;
 
-    public InferenceService(String url, int cacheSize) {
+    public InferenceServiceUsingConfig(String url, int cacheSize) {
         try {
             this.uri = new URI(url);
         } catch (URISyntaxException e) {

@@ -16,12 +16,10 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 
-import org.apache.commons.logging.Log;
 import org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeBuilder;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
-import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -52,12 +50,12 @@ public class InferenceIntegrationTest {
     public void testCompleteInferenceConfiguration() {
         // Setup index configuration
         NodeBuilder indexBuilder = inferenceConfigBuilder.child("testIndex");
-        indexBuilder.setProperty("type", InferenceConstants.INFERENCE_INDEX_CONFIG);
+        indexBuilder.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceIndexConfig.TYPE);
         indexBuilder.setProperty(InferenceConstants.ENRICHER_CONFIG, "{\"enricher\": \"config\"}");
 
         // Add model configuration
         NodeBuilder modelBuilder = indexBuilder.child("defaultModel");
-        modelBuilder.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
+        modelBuilder.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceModelConfig.TYPE);
         setupModelConfiguration(modelBuilder);
 
         // Create the full configuration
@@ -94,24 +92,24 @@ public class InferenceIntegrationTest {
     public void testMultipleModelsConfiguration() {
         // Setup index with multiple models
         NodeBuilder indexBuilder = inferenceConfigBuilder.child("testIndex");
-        indexBuilder.setProperty("type", InferenceConstants.INFERENCE_INDEX_CONFIG);
+        indexBuilder.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceIndexConfig.TYPE);
         
         // Add two models - one default, one not
         NodeBuilder model1Builder = indexBuilder.child("model1");
-        model1Builder.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
+        model1Builder.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceModelConfig.TYPE);
         setupModelConfiguration(model1Builder, true);
 
         NodeBuilder model2Builder = indexBuilder.child("model2");
-        model2Builder.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
+        model2Builder.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceModelConfig.TYPE);
         setupModelConfiguration(model2Builder, false);
 
         // Create and verify configuration
         InferenceConfig inferenceConfig = new InferenceConfig(nodeStore, "oak:index/:inferenceConfig");
         InferenceIndexConfig indexConfig = inferenceConfig.getIndexConfigs().get("testIndex");
         
-        assertEquals(2, indexConfig.getInferenceModels().size());
+        assertEquals(2, indexConfig.getInferenceModelConfigs().size());
         assertNotNull(indexConfig.getDefaultModel());
-        assertEquals("model1", indexConfig.getInferenceModels()
+        assertEquals("model1", indexConfig.getInferenceModelConfigs()
             .entrySet()
             .stream()
             .filter(e -> e.getValue().isDefault())

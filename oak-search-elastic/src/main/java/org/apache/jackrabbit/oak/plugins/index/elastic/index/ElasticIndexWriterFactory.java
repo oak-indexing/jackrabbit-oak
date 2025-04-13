@@ -29,15 +29,12 @@ import org.jetbrains.annotations.NotNull;
 public class ElasticIndexWriterFactory implements FulltextIndexWriterFactory<ElasticDocument> {
     private final ElasticConnection elasticConnection;
     private final ElasticIndexTracker indexTracker;
-    private final InferenceConfig inferenceConfig;
+//    private final InferenceConfig inferenceConfig;
 
-    public ElasticIndexWriterFactory(@NotNull ElasticConnection elasticConnection, @NotNull ElasticIndexTracker indexTracker,@NotNull InferenceConfig inferenceConfig) {
+    public ElasticIndexWriterFactory(@NotNull ElasticConnection elasticConnection, @NotNull ElasticIndexTracker indexTracker) {
         this.elasticConnection = elasticConnection;
         this.indexTracker = indexTracker;
-        this.inferenceConfig = inferenceConfig;
-    }
-    public ElasticIndexWriterFactory(@NotNull ElasticConnection elasticConnection, @NotNull ElasticIndexTracker indexTracker) {
-        this(elasticConnection, indexTracker, InferenceConfig.NOOP);
+//        this.inferenceConfig = inferenceConfig;
     }
 
     @Override
@@ -50,7 +47,7 @@ public class ElasticIndexWriterFactory implements FulltextIndexWriterFactory<Ela
 
         ElasticIndexDefinition esDefinition = (ElasticIndexDefinition) definition;
 
-        return new ElasticIndexWriter(indexTracker, elasticConnection, esDefinition, definitionBuilder, reindex, commitInfo, inferenceConfig);
+        return new ElasticIndexWriter(indexTracker, elasticConnection, esDefinition, definitionBuilder, reindex, commitInfo);
     }
 
 }

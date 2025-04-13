@@ -48,4 +48,16 @@ public class InferenceServiceManager {
         return SERVICES.computeIfAbsent(k, key -> new InferenceService(url, CACHE_SIZE));
     }
 
+//    public static InferenceService getInstance(@NotNull String url, String model) {
+//        String k = model == null ? url : url + "|" + model;
+//
+//        if (SERVICES.size() >= MAX_CACHED_SERVICES) {
+//            LOGGER.warning("InferenceServiceManager maximum cached services reached: " + MAX_CACHED_SERVICES);
+//            LOGGER.warning("Returning a new InferenceService instance with no cache");
+//            return new InferenceService(url, 0);
+//        }
+//
+//        return SERVICES.computeIfAbsent(k, key -> new InferenceService(url, CACHE_SIZE));
+//    }
+
 }

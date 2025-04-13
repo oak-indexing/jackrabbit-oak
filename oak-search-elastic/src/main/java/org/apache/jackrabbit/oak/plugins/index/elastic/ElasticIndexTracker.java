@@ -16,6 +16,7 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic;
 
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceConfig;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.spi.query.FulltextIndexTracker;
 import org.apache.jackrabbit.oak.spi.commit.CommitInfo;
@@ -28,10 +29,16 @@ public class ElasticIndexTracker extends FulltextIndexTracker<ElasticIndexNodeMa
 
     private final ElasticConnection elasticConnection;
     private final ElasticMetricHandler elasticMetricHandler;
+    private final InferenceConfig inferenceConfig;
 
     public ElasticIndexTracker(@NotNull ElasticConnection elasticConnection, @NotNull ElasticMetricHandler elasticMetricHandler) {
+        this(elasticConnection, elasticMetricHandler, InferenceConfig.NOOP);
+    }
+
+    public ElasticIndexTracker(ElasticConnection elasticConnection, ElasticMetricHandler elasticMetricHandler, InferenceConfig inferenceConfig) {
         this.elasticConnection = elasticConnection;
         this.elasticMetricHandler = elasticMetricHandler;
+        this.inferenceConfig = inferenceConfig;
     }
 
     @Override
@@ -41,7 +48,7 @@ public class ElasticIndexTracker extends FulltextIndexTracker<ElasticIndexNodeMa
         // removing the check on :status reduces drastically the contention between queries (that need to acquire the
         // read lock) and updates (need to acquire the write lock).
         // Moreover, we don't check diffs in stored index definitions since are not created for elastic.
-        return !IgnoreStatusDiff.equals(before, after);
+        return  !IgnoreStatusDiff.equals(before, after);
     }
 
     @Override
@@ -60,6 +67,14 @@ public class ElasticIndexTracker extends FulltextIndexTracker<ElasticIndexNodeMa
 
     public ElasticMetricHandler getElasticMetricHandler() {
         return elasticMetricHandler;
+    }
+
+    public InferenceConfig getInferenceConfig() {
+        return inferenceConfig;
+    }
+
+    public void refreshInferenceConfig() {
+        inferenceConfig.refreshConfig();
     }
 
     static class IgnoreStatusDiff extends EqualsDiff {

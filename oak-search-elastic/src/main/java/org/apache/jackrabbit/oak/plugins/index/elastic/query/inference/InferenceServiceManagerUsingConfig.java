@@ -24,9 +24,9 @@ import org.jetbrains.annotations.NotNull;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
-public class InferenceServiceManager {
+public class InferenceServiceManagerUsingConfig {
 
-    private static final Logger LOGGER = Logger.getLogger(InferenceServiceManager.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(InferenceServiceManagerUsingConfig.class.getName());
 
     private static final String MAX_CACHED_SERVICES_PROPERTY = "oak.inference.max.cached.services";
     private static final int MAX_CACHED_SERVICES = SystemPropertySupplier.create(MAX_CACHED_SERVICES_PROPERTY, 10).get();
@@ -34,18 +34,18 @@ public class InferenceServiceManager {
     private static final String CACHE_SIZE_PROPERTY = "oak.inference.cache.size";
     private static final int CACHE_SIZE = SystemPropertySupplier.create(CACHE_SIZE_PROPERTY, 100).get();
 
-    private static final ConcurrentHashMap<String, InferenceService> SERVICES = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, InferenceServiceUsingConfig> SERVICES = new ConcurrentHashMap<>();
 
-    public static InferenceService getInstance(@NotNull String url, String model) {
+    public static InferenceServiceUsingConfig getInstance(@NotNull String url, String model) {
         String k = model == null ? url : url + "|" + model;
 
         if (SERVICES.size() >= MAX_CACHED_SERVICES) {
             LOGGER.warning("InferenceServiceManager maximum cached services reached: " + MAX_CACHED_SERVICES);
             LOGGER.warning("Returning a new InferenceService instance with no cache");
-            return new InferenceService(url, 0);
+            return new InferenceServiceUsingConfig(url, 0);
         }
 
-        return SERVICES.computeIfAbsent(k, key -> new InferenceService(url, CACHE_SIZE));
+        return SERVICES.computeIfAbsent(k, key -> new InferenceServiceUsingConfig(url, CACHE_SIZE));
     }
 
 }

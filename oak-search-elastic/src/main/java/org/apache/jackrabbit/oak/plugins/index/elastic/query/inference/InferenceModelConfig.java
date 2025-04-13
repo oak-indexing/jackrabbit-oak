@@ -27,11 +27,12 @@ import org.slf4j.LoggerFactory;
  * Configuration class for Inference Model settings.
  */
 public class InferenceModelConfig {
+    public static final InferenceModelConfig NOOP = new InferenceModelConfig();
     public static final String MODEL = "model";
     public static final String EMBEDDING_SERVICE_URL = "embeddingServiceUrl";
     public static final String SIMILARITY_THRESHOLD = "similarityThreshold";
     public static final String INFERENCE_PAYLOAD = "inferencePayload";
-    public static final String INFERENCE_MODEL_CONFIG = "InferenceModelConfig";
+    public static final String TYPE = "inferenceModelConfig";
     public static final String MIN_TERMS = "minTerms";
     public static final String IS_DEFAULT = "isDefault";
     public static final String ENABLED = "enabled";
@@ -49,6 +50,18 @@ public class InferenceModelConfig {
     private final InferencePayload payload;
     private final String inferenceModelName;
 
+    private InferenceModelConfig() {
+        this.inferenceModelName = null;
+        this.model = null;
+        this.embeddingServiceUrl = null;
+        this.similarityThreshold = 0.0;
+        this.minTerms = 0L;
+        this.isDefault = false;
+        this.enabled = false;
+        this.type = TYPE;
+        this.header = null;
+        this.payload = null;
+    }
     public InferenceModelConfig(String inferenceModelName, NodeState nodeState) {
         this.inferenceModelName = inferenceModelName;
         this.model = nodeState.getProperty(MODEL).getValue(Type.STRING);
@@ -59,8 +72,8 @@ public class InferenceModelConfig {
 
         this.header = new InferenceHeaderPayload(nodeState.getChildNode(HEADER));
         this.payload = new InferencePayload(inferenceModelName, nodeState.getChildNode(INFERENCE_PAYLOAD));
-        this.type = INFERENCE_MODEL_CONFIG;
-        if ( payload.isValidInferencePayload() == true) {
+        this.type = TYPE;
+        if ( !payload.isValidInferencePayload()) {
             log.warn("Invalid inference payload for modelConfig {}, force disabling this modelConfig", inferenceModelName);
             this.enabled = false;
         }
@@ -108,7 +121,7 @@ public class InferenceModelConfig {
 
     @Override
     public String toString() {
-        return INFERENCE_MODEL_CONFIG +"{" +
+        return TYPE +"{" +
                 MODEL +"='" + model + '\'' +
                 ", "+ EMBEDDING_SERVICE_URL +"='" + embeddingServiceUrl + '\'' +
                 ", "+ SIMILARITY_THRESHOLD + similarityThreshold +

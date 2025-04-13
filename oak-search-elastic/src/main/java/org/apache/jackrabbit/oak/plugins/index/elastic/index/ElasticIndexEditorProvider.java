@@ -43,7 +43,7 @@ public class ElasticIndexEditorProvider implements IndexEditorProvider {
     private final ElasticIndexTracker indexTracker;
     private final ElasticConnection elasticConnection;
     private final ExtractedTextCache extractedTextCache;
-    private final InferenceConfig inferenceConfig;
+//    private final InferenceConfig inferenceConfig;
 
     public final static String OAK_INDEX_ELASTIC_WRITER_DISABLE_KEY = "oak.index.elastic.writer.disable";
 
@@ -51,17 +51,11 @@ public class ElasticIndexEditorProvider implements IndexEditorProvider {
 
     public ElasticIndexEditorProvider(@NotNull ElasticIndexTracker indexTracker,
                                       @NotNull ElasticConnection elasticConnection,
-                                      ExtractedTextCache extractedTextCache, @NotNull InferenceConfig inferenceConfig) {
+                                      ExtractedTextCache extractedTextCache) {
         this.indexTracker = indexTracker;
         this.elasticConnection = elasticConnection;
         this.extractedTextCache = extractedTextCache != null ? extractedTextCache : new ExtractedTextCache(0, 0);
-        this.inferenceConfig = inferenceConfig;
-    }
-
-    public ElasticIndexEditorProvider(@NotNull ElasticIndexTracker indexTracker,
-                                      @NotNull ElasticConnection elasticConnection,
-                                      ExtractedTextCache extractedTextCache) {
-        this(indexTracker, elasticConnection, extractedTextCache, InferenceConfig.NOOP);
+//        this.inferenceConfig = inferenceConfig;
     }
 
     @Override
@@ -78,7 +72,7 @@ public class ElasticIndexEditorProvider implements IndexEditorProvider {
             ElasticIndexDefinition indexDefinition =
                     new ElasticIndexDefinition(root, definition.getNodeState(), indexPath, elasticConnection.getIndexPrefix());
 
-            ElasticIndexWriterFactory writerFactory = new ElasticIndexWriterFactory(elasticConnection, indexTracker, inferenceConfig);
+            ElasticIndexWriterFactory writerFactory = new ElasticIndexWriterFactory(elasticConnection, indexTracker);
 
             ElasticIndexEditorContext context = new ElasticIndexEditorContext(root,
                     definition, indexDefinition,
