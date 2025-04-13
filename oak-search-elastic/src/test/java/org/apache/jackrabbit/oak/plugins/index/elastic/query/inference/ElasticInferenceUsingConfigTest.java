@@ -288,15 +288,25 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
 //                updateDocument(index, path, updateDoc);
 //            }
             if (json != null) {
-                @SuppressWarnings("unchecked")
                 Map<String, Collection<Double>> map = mapper.readValue(json, Map.class);
                 ObjectNode updateDoc = mapper.createObjectNode();
-                ObjectNode inferenceNode = updateDoc.putObject(InferenceConstants.VECTOR_SPACES);
-                ArrayNode inferenceModelConfigNameNode = inferenceNode.putArray(inferenceModelConfigName);
                 List<Float> embeddings = map.get("embedding").stream().map(d -> ((Double) d).floatValue()).collect(Collectors.toList());
                 VectorDocument  vectorDocument = new VectorDocument(UUID.randomUUID().toString(), embeddings,
                         Map.of("updatedAt", Instant.now().toEpochMilli(), "model", inferenceModelName));
-                ArrayNode VectorDocumentsNode = inferenceModelConfigNameNode.arrayNode().addPOJO(vectorDocument);
+                ObjectNode vectorSpacesNode = updateDoc.putObject(InferenceConstants.VECTOR_SPACES);
+                ArrayNode inferenceModelConfigNode = vectorSpacesNode.putArray(inferenceModelConfigName);
+                inferenceModelConfigNode.addPOJO(vectorDocument);
+
+//                ArrayNode defaultVectorsNode = vectorSpacesNode.putArray("default");
+//                ObjectNode vectorNode = defaultVectorsNode.addObject();
+//                vectorNode.put("id", UUID.randomUUID().toString());
+//                ArrayNode vectorArray = vectorNode.putArray("vector");
+//                map.get("embedding").forEach(d -> vectorArray.add(d.floatValue()));
+//                ObjectNode metadataNode = vectorNode.putObject("metadata");
+//                metadataNode.put("model", inferenceModelName);
+//                metadataNode.put("text", "Understanding AEM Development");
+
+
                 updateDocument(index, path, updateDoc);
             }
         }

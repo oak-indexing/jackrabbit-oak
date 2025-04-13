@@ -585,24 +585,24 @@ public class ElasticRequestHandler {
 //                    InferenceModelConfig inferenceModelConfig = InferenceModelConfig.NOOP;
                     //InferenceQueryConfig inferenceQueryConfig = InferenceQueryConfig.NOOP;
                     String inferenceModelConfig = null;
-//                    String queryText;
-//                    if (text.startsWith("?")) {
-//                        InferenceQuery inferenceQuery = new InferenceQuery(text);
-//                        String queryConfig = inferenceQuery.getQueryInferenceConfig();
-//                        queryText = inferenceQuery.getQueryText();
-//                        InferenceQueryConfig inferenceQueryConfig = new InferenceQueryConfig(queryConfig);
-//                        inferenceModelConfig = inferenceQueryConfig.getInferenceModelConfig();
-//                    } else {
-//                        queryText = text;
-//                    }
-//
-//                    if (inferenceConfig.isEnabled()
-//                            && !InferenceModelConfig.NOOP.equals(inferenceConfig.getInferenceModelConfig(indexName, inferenceModelConfig))) {
-//
-//                        bqBuilder.must(m -> m.bool(b -> inferenceConfigQuery(b, propertyName, queryText, pr, includeDynamicBoostedValues)));
-//                    }
-//                    // Experimental support for inference queries
-//                    else
+                    String queryText;
+                    if (text.startsWith("?")) {
+                        InferenceQuery inferenceQuery = new InferenceQuery(text);
+                        String queryConfig = inferenceQuery.getQueryInferenceConfig();
+                        queryText = inferenceQuery.getQueryText();
+                        InferenceQueryConfig inferenceQueryConfig = new InferenceQueryConfig(queryConfig);
+                        inferenceModelConfig = inferenceQueryConfig.getInferenceModelConfig();
+                    } else {
+                        queryText = text;
+                    }
+
+                    if (inferenceConfig.isEnabled()
+                            && !InferenceModelConfig.NOOP.equals(inferenceConfig.getInferenceModelConfig(indexName, inferenceModelConfig))) {
+
+                        bqBuilder.must(m -> m.bool(b -> inferenceConfigQuery(b, propertyName, queryText, pr, includeDynamicBoostedValues)));
+                    }
+                    // Experimental support for inference queries
+                    else
                         if (elasticIndexDefinition.inferenceDefinition != null && elasticIndexDefinition.inferenceDefinition.queries != null) {
                             bqBuilder.must(m -> m.bool(b -> inference(b, propertyName, text, pr, includeDynamicBoostedValues)));
                         }
