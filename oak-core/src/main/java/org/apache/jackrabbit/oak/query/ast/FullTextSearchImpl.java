@@ -36,6 +36,7 @@ import org.apache.jackrabbit.oak.spi.query.fulltext.FullTextParser;
 import org.apache.jackrabbit.oak.query.index.FilterImpl;
 import org.apache.jackrabbit.oak.plugins.memory.PropertyValues;
 import org.apache.jackrabbit.oak.spi.query.QueryIndex.FulltextQueryIndex;
+import org.apache.jackrabbit.oak.spi.query.fulltext.InferenceQuery;
 
 /**
  * A fulltext "contains(...)" condition.
@@ -137,7 +138,9 @@ public class FullTextSearchImpl extends ConstraintImpl {
             }
             String p2 = normalizePropertyName(p);
             String rawText = getRawText(v);
-            FullTextExpression e = FullTextParser.parse(p2, rawText);
+            InferenceQuery inferenceQuery = new InferenceQuery(rawText);
+            String queryText = inferenceQuery.getQueryText();
+            FullTextExpression e = FullTextParser.parse(p2, queryText);
             return new FullTextContains(p2, rawText, e);
         } catch (ParseException e) {
             throw new IllegalArgumentException("Invalid expression: " + fullTextSearchExpression, e);

@@ -32,44 +32,32 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * EXPERIMENTAL: A service that sends text to an inference service and receives embeddings in return.
  * The embeddings are cached to avoid repeated calls to the inference service.
  */
-public class InferenceServiceUsingConfig implements InferenceService{
+public class InferenceServiceUsingIndexConfig implements InferenceService{
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final URI uri;
     private final Cache<String, List<Float>> cache;
     private final HttpClient httpClient;
-    private final long timeoutMillis;
-    private final InferenceModelConfig inferenceModelConfig;
-    private final String[] headersValue;
 
-
-    public InferenceServiceUsingConfig(InferenceModelConfig inferenceModelConfig) {
-        try{
-            this.uri = new URI(inferenceModelConfig.getEmbeddingServiceUrl());
+    public InferenceServiceUsingIndexConfig(String url, int cacheSize) {
+        try {
+            this.uri = new URI(url);
         } catch (URISyntaxException e) {
-            throw new IllegalArgumentException("Invalid URL: " + inferenceModelConfig.getEmbeddingServiceUrl(), e);
+            throw new IllegalArgumentException("Invalid URL: " + url, e);
         }
-        this.cache = new Cache<>(inferenceModelConfig.getCacheSize());
+        this.cache = new Cache<>(cacheSize);
         this.httpClient = HttpClient.newHttpClient();
-        this.timeoutMillis = inferenceModelConfig.getTimeoutMillis();
-        this.inferenceModelConfig = inferenceModelConfig;
-        this.headersValue = inferenceModelConfig.getHeader().getInferenceHeaderPayload()
-                .entrySet().stream()
-                .flatMap(e-> Stream.of(e.getKey(),e.getValue()))
-                .collect(Collectors.toList()).toArray(String[]::new);
-
     }
 
     @Override
     public List<Float> embeddings(String text) {
-        return embeddings(text, timeoutMillis);
+        return embeddings(text, 5000);
     }
 
     public List<Float> embeddings(String text, long timeoutMillis) {
@@ -79,18 +67,13 @@ public class InferenceServiceUsingConfig implements InferenceService{
 
         try {
             // Create the JSON payload.
-//            String jsonInputString = "{\"text\":\"" + text + "\"}";
-            String jsonInputString = inferenceModelConfig.getPayload().getInferencePayload(text);
-            List <String> headerValues = inferenceModelConfig.getHeader().getInferenceHeaderPayload()
-                    .entrySet().stream()
-                    .flatMap(e-> Stream.of(e.getKey(),e.getValue()))
-                    .collect(Collectors.toList());
+            String jsonInputString = "{\"text\":\"" + text + "\"}";
 
             // Build the HttpRequest.
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(uri)
                     .timeout(java.time.Duration.ofMillis(timeoutMillis))
-                    .headers(headersValue)
+                    .header("Content-Type", "application/json; utf-8")
                     .POST(HttpRequest.BodyPublishers.ofString(jsonInputString, StandardCharsets.UTF_8))
                     .build();
 
@@ -115,8 +98,8 @@ public class InferenceServiceUsingConfig implements InferenceService{
         } catch (Exception e) {
             throw new InferenceServiceException("Failed to get embeddings", e);
         }
-
     }
+
 
     private static class Cache<K, V> extends LinkedHashMap<K, V> {
         private final int maxEntries;

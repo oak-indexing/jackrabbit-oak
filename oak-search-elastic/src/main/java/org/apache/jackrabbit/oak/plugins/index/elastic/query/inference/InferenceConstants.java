@@ -25,4 +25,5 @@ public interface InferenceConstants {
     String INFERENCE_CONFIG_TYPE = "type";
     String OAK_INDEX_INFERENCE_CONFIG = "/oak:index/:inferenceConfig";
     String VECTOR_SPACES = ":vectorSpaces";
+    String VECTOR = "vector";
 }

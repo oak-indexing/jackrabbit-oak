@@ -44,10 +44,10 @@ import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticPropertyDefinition;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.async.facets.ElasticFacetProvider;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceConfig;
-import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceIndexConfig;
+import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceConstants;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceModelConfig;
-import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceQuery;
-import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceQueryConfig;
+import org.apache.jackrabbit.oak.spi.query.fulltext.InferenceQuery;
+import org.apache.jackrabbit.oak.spi.query.fulltext.InferenceQueryConfig;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceService;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceServiceManager;
 import org.apache.jackrabbit.oak.plugins.index.elastic.util.ElasticIndexUtils;
@@ -109,7 +109,6 @@ import java.util.function.BiConsumer;
 import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -563,8 +562,11 @@ public class ElasticRequestHandler {
             }
 
             private boolean visitTerm(String propertyName, String text, String boost, boolean not) {
+                String queryText;
                 BoolQuery.Builder bqBuilder = new BoolQuery.Builder();
+
                 if (propertyName != null && FulltextIndex.isNodePath(propertyName) && !pr.isPathTransformed()) {
+                    queryText = text;
                     //Get rid of /* as aggregated fulltext field name is the
                     //node relative path
                     String p = PathUtils.getParentPath(propertyName);
@@ -585,32 +587,34 @@ public class ElasticRequestHandler {
 //                    InferenceModelConfig inferenceModelConfig = InferenceModelConfig.NOOP;
                     //InferenceQueryConfig inferenceQueryConfig = InferenceQueryConfig.NOOP;
                     String inferenceModelConfig = null;
-                    String queryText;
+                    InferenceQueryConfig inferenceQueryConfig;
+                    InferenceQuery inferenceQuery;
                     if (text.startsWith("?")) {
-                        InferenceQuery inferenceQuery = new InferenceQuery(text);
+                        inferenceQuery = new InferenceQuery(text);
                         String queryConfig = inferenceQuery.getQueryInferenceConfig();
                         queryText = inferenceQuery.getQueryText();
-                        InferenceQueryConfig inferenceQueryConfig = new InferenceQueryConfig(queryConfig);
+                        inferenceQueryConfig = new InferenceQueryConfig(queryConfig);
                         inferenceModelConfig = inferenceQueryConfig.getInferenceModelConfig();
                     } else {
+                        inferenceQueryConfig = null;
+                        inferenceQuery = null;
                         queryText = text;
                     }
 
                     if (inferenceConfig.isEnabled()
                             && !InferenceModelConfig.NOOP.equals(inferenceConfig.getInferenceModelConfig(indexName, inferenceModelConfig))) {
 
-                        bqBuilder.must(m -> m.bool(b -> inferenceConfigQuery(b, propertyName, queryText, pr, includeDynamicBoostedValues)));
+                        bqBuilder.must(m -> m.bool(b -> inferenceConfigQuery(b, propertyName, queryText, pr, includeDynamicBoostedValues, inferenceQuery, inferenceQueryConfig)));
                     }
                     // Experimental support for inference queries
-                    else
-                        if (elasticIndexDefinition.inferenceDefinition != null && elasticIndexDefinition.inferenceDefinition.queries != null) {
-                            bqBuilder.must(m -> m.bool(b -> inference(b, propertyName, text, pr, includeDynamicBoostedValues)));
+                    else if (elasticIndexDefinition.inferenceDefinition != null && elasticIndexDefinition.inferenceDefinition.queries != null) {
+                            bqBuilder.must(m -> m.bool(b -> inference(b, propertyName, queryText, pr, includeDynamicBoostedValues)));
                         }
                     else {
                         if (inferenceModelConfig != null){
                             LOG.warn("Inference model config {} is not supported for index {}", inferenceModelConfig, indexName);
                         }
-                        QueryStringQuery.Builder qsqBuilder = fullTextQuery(text, getElasticFulltextFieldName(propertyName), pr, includeDynamicBoostedValues);
+                        QueryStringQuery.Builder qsqBuilder = fullTextQuery(queryText, getElasticFulltextFieldName(propertyName), pr, includeDynamicBoostedValues);
                         bqBuilder.must(m -> m.queryString(qsqBuilder.build()));
                     }
                 }
@@ -619,7 +623,7 @@ public class ElasticRequestHandler {
                     bqBuilder.boost(Float.valueOf(boost));
                 }
 
-                Stream<NestedQuery> dynamicScoreQueries = dynamicScoreQueries(text);
+                Stream<NestedQuery> dynamicScoreQueries = dynamicScoreQueries(queryText);
                 dynamicScoreQueries.forEach(dsq -> bqBuilder.should(s -> s.nested(dsq)));
 
                 if (not) {
@@ -634,61 +638,115 @@ public class ElasticRequestHandler {
         return Query.of(q -> q.bool(result.get()));
     }
 
-    private ObjectBuilder<BoolQuery> inferenceConfigQuery(BoolQuery.Builder b, String propertyName, String text, PlanResult pr, boolean dbEnabled) {
+    private ObjectBuilder<BoolQuery> inferenceConfigQuery(BoolQuery.Builder b, String propertyName, String text, PlanResult pr, boolean dbEnabled, InferenceQuery inferenceQuery, InferenceQueryConfig inferenceQueryConfig) {
         ElasticIndexDefinition.InferenceDefinition.Query q = null;
         // select first query eligible for the given text
         // TODO: evaluate if/how to handle multiple queries
-        String  queryText = text;
-        for (ElasticIndexDefinition.InferenceDefinition.Query query : elasticIndexDefinition.inferenceDefinition.queries) {
-            if (query.isEligibleForInput(queryText)) {
-                queryText = query.rewrite(queryText);
-                if (query.hasMinTerms(queryText)) {
-                    q = query;
-                    break;
-                }
-            }
-        }
+//        String  queryText = text;
+//        for (ElasticIndexDefinition.InferenceDefinition.Query query : elasticIndexDefinition.inferenceDefinition.queries) {
+//            if (query.isEligibleForInput(queryText)) {
+//                queryText = query.rewrite(queryText);
+//                if (query.hasMinTerms(queryText)) {
+//                    q = query;
+//                    break;
+//                }
+//            }
+//        }
 
-        QueryStringQuery.Builder qsqBuilder = fullTextQuery(queryText, getElasticFulltextFieldName(propertyName), pr, dbEnabled);
+        QueryStringQuery.Builder qsqBuilder = fullTextQuery(inferenceQuery.getQueryText(), getElasticFulltextFieldName(propertyName), pr, dbEnabled);
 
         // the query can be null if no inference query is eligible for the given text or the min terms are not met
         // in this case, we fall back to the default full-text query
-        if (q != null) {
-            LOG.info("Using inference query: {}", q);
+        if (inferenceQuery.getQueryInferenceConfig() != null) {
+            LOG.info("Using inference query: {}", inferenceQuery.getQueryInferenceConfig());
             try {
+                String inferenceQueryModelName = new InferenceQueryConfig(inferenceQuery.getQueryInferenceConfig()).getInferenceModelConfig();
+                String indexName = PathUtils.getName(elasticIndexDefinition.getIndexName());
+                InferenceModelConfig inferenceModelConfig = inferenceConfig.getInferenceModelConfig(indexName, inferenceQueryModelName);
+
                 // let's retrieve the fields with the same model as the query
-                final ElasticIndexDefinition.InferenceDefinition.Query query = q;
-                List<ElasticIndexDefinition.InferenceDefinition.Property> properties = elasticIndexDefinition.inferenceDefinition.properties.stream()
-                        .filter(pd -> pd.model.equals(query.model))
-                        .collect(Collectors.toList());
-                if (!properties.isEmpty()) {
-                    InferenceService inferenceService = InferenceServiceManager.getInstance(q.serviceUrl, q.model);
-                    List<Float> embeddings = inferenceService.embeddings(queryText, (int) q.timeout);
+//                final ElasticIndexDefinition.InferenceDefinition.Query query = q;
+//                List<ElasticIndexDefinition.InferenceDefinition.Property> properties = elasticIndexDefinition.inferenceDefinition.properties.stream()
+//                        .filter(pd -> pd.model.equals(query.model))
+//                        .collect(Collectors.toList());
+                if (inferenceModelConfig.isEnabled()) {
+                    InferenceService inferenceService = InferenceServiceManager
+                            .getInstance(inferenceModelConfig);
+                    List<Float> embeddings = inferenceService.embeddings(inferenceQuery.getQueryText(), (int) inferenceModelConfig.getTimeout());
                     if (embeddings != null) {
-                        for (ElasticIndexDefinition.InferenceDefinition.Property p : properties) {
-                            // https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-knn-query.html
-                            KnnQuery.Builder knnQueryBuilder = new KnnQuery.Builder();
-                            knnQueryBuilder.field(p.name + ".value");
-                            knnQueryBuilder.numCandidates(q.numCandidates);
-                            knnQueryBuilder.queryVector(embeddings);
-                            knnQueryBuilder.similarity(q.similarityThreshold);
-                            b.should(s -> s.knn(knnQueryBuilder.build()));
-                        }
-                        int tokens = queryText.split("\\s+").length;
+                        KnnQuery.Builder knnQueryBuilder = new KnnQuery.Builder();
+                        knnQueryBuilder.field(InferenceConstants.VECTOR_SPACES + "." + inferenceQueryModelName + "." + InferenceConstants.VECTOR);
+                        knnQueryBuilder.numCandidates(inferenceModelConfig.getNumCandidates());
+                        knnQueryBuilder.queryVector(embeddings);
+//                        knnQueryBuilder.boost(query.options().boost());
+
+                        KnnQuery knnQuery = knnQueryBuilder.build();
+
+                        NestedQuery.Builder nestedQueryBuilder = new NestedQuery.Builder()
+                                .path(InferenceConstants.VECTOR_SPACES + "." + inferenceQueryModelName)
+                                .query(Query.of(q2 -> q2.knn(knnQuery)));
+
+                        b.should(s -> s.nested(nestedQueryBuilder.build()));
+
+                        int tokens = inferenceQuery.getQueryText().split("\\s+").length;
                         // the more tokens, the less important the full-text query is
                         // TODO: make it configurable
                         double qsBoost = (tokens > 1) ? 1.0d / (5 * tokens) : 1.0d;
+
+//                        return b.should(s -> s.queryString(qsqBuilder.boost((float) qsBoost).build()));
                         return b.should(s -> s.queryString(qsqBuilder.boost((float) qsBoost).build()));
+
+//                        Query.of(q -> {
+//                            BoolQuery.Builder boolQueryBuilder = new BoolQuery.Builder();
+//
+//                            NestedQuery.Builder nestedQueryBuilder = new NestedQuery.Builder()
+//                                    .path(InferenceConstants.VECTOR_SPACES + "." + inferenceQueryModelName)
+//                                    .query(Query.of(q2 -> q2.knn(knnQuery)));
+//
+////                            if (query.options().chunks() != null && query.options().chunks().includeInResponse()) {
+////                                nestedQueryBuilder.innerHits(new InnerHits.Builder().name(VECTOR_CHUNKS_INNER_HIT_IDENTIFIER).build());
+////                                if (query.options().chunks().scoreMode() != null) {
+////                                    // TODO - as of now, only MAX and None are supported by elastic for nested knn query
+////                                    //  All other modes default to MAX. This is a limitation of elastic.
+////                                    //  Issue with elastic raised here : https://github.com/elastic/elasticsearch/issues/122625
+////                                    //  If this issue is not resolved in near future, we would need to think of some different implementation
+////                                    //  to support these modes.
+////                                    nestedQueryBuilder.scoreMode(switch (query.options().chunks().scoreMode()) {
+////                                        case AVG -> ChildScoreMode.Avg;
+////                                        case MAX -> ChildScoreMode.Max;
+////                                        case MIN -> ChildScoreMode.Min;
+////                                        case SUM -> ChildScoreMode.Sum;
+////                                        case NONE -> ChildScoreMode.None;
+////                                    });
+////                                }
+////                            }
+//
+//                            // Wrap the nested knn query inside a bool, to be able to add the filters clause.
+//                            // if we add the filter clause directly to the knn query, it does not work because nested knn query do not support
+//                            // filters on nested fields (and in our case, we need filters to be on nested fields under :lexicalSpaces.)
+//                            boolQueryBuilder.must(Query.of(q2 -> q2.nested(nestedQueryBuilder.build())));
+//
+//                            if (filterQuery != null) {
+//                                boolQueryBuilder.filter(filterQuery);
+//                            }
+//
+//                            return q.bool(boolQueryBuilder.build());
+//                        });
+
+
+
                     } else {
                         LOG.warn("No embeddings found for text {}", text);
                     }
                 } else {
-                    LOG.warn("No properties with model {} found", query.model);
+                    LOG.warn("No properties with model {} found", inferenceQueryModelName);
                 }
+
             } catch (Exception e) {
                 LOG.warn("Error while calling inference service. Query won't use embeddings", e);
             }
         }
+
         return b.must(mm -> mm.queryString(qsqBuilder.build()));
     }
 

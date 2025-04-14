@@ -42,11 +42,31 @@ public class InferenceServiceManager {
         if (SERVICES.size() >= MAX_CACHED_SERVICES) {
             LOGGER.warning("InferenceServiceManager maximum cached services reached: " + MAX_CACHED_SERVICES);
             LOGGER.warning("Returning a new InferenceService instance with no cache");
-            return new InferenceService(url, 0);
+            return new InferenceServiceUsingIndexConfig(url, 0);
         }
 
-        return SERVICES.computeIfAbsent(k, key -> new InferenceService(url, CACHE_SIZE));
+        return SERVICES.computeIfAbsent(k, key -> new InferenceServiceUsingIndexConfig(url, CACHE_SIZE));
     }
+
+
+    public static InferenceService getInstance(InferenceModelConfig inferenceModelConfig) {
+//        String k = inferenceModelConfig.getModel() == null ? url : url + "|" + model;
+        //TODO we should use hash here, so that in case of InferenceModelConfig refresh we should create new instance
+        // or clear cache on InferenceConfig refresh
+        String key = inferenceModelConfig.getEmbeddingServiceUrl()
+                + "|" + inferenceModelConfig.getInferenceModelConfigName()
+                + "|"+ inferenceModelConfig.getModel();
+
+        if (SERVICES.size() >= MAX_CACHED_SERVICES) {
+            LOGGER.warning("InferenceServiceManager maximum cached services reached: " + MAX_CACHED_SERVICES);
+            LOGGER.warning("Returning a new InferenceService instance with no cache");
+            return new InferenceServiceUsingConfig(inferenceModelConfig);
+        }
+
+        return SERVICES.computeIfAbsent(key, k -> new InferenceServiceUsingConfig(inferenceModelConfig));
+
+    }
+
 
 //    public static InferenceService getInstance(@NotNull String url, String model) {
 //        String k = model == null ? url : url + "|" + model;

@@ -18,6 +18,7 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 
+import org.apache.jackrabbit.oak.spi.query.fulltext.InferenceQuery;
 import org.junit.Test;
 
 import static org.junit.Assert.*;

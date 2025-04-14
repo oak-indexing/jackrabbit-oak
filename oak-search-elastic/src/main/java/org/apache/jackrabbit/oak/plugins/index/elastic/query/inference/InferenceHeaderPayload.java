@@ -18,29 +18,38 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.jackrabbit.oak.api.PropertyState;
+import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
+
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * Configuration for inference payload
  */
 public class InferenceHeaderPayload {
-    NodeState inferenceHeaderPayload;
+    private final Map<String, String> inferenceHeaderPayloadMap;
 
     public InferenceHeaderPayload(NodeState nodeState) {
         NodeBuilder inferenceHeaderPayloadBuilder;
         inferenceHeaderPayloadBuilder = new MemoryNodeBuilder(EmptyNodeState.EMPTY_NODE);
-        copyFirstLevelNodeState(nodeState, inferenceHeaderPayloadBuilder);
-        inferenceHeaderPayload = inferenceHeaderPayloadBuilder.getNodeState();
+//        inferenceHeaderPayloadMap = new HashMap<>();
+        inferenceHeaderPayloadMap = copyFirstLevelNodeState(nodeState);
+        //inferenceHeaderPayloadMap = inferenceHeaderPayloadBuilder.getNodeState();
     }
 
-    private static void copyFirstLevelNodeState(NodeState source, NodeBuilder target) {
+    private Map<String, String> copyFirstLevelNodeState(NodeState source) {
         // Copy properties
+        Map<String, String> target = new HashMap<>();
         for (PropertyState property : source.getProperties()) {
-            target.setProperty(property);
+            target.put(property.getName(), property.getValue(Type.STRING));
         }
+        return ImmutableMap.copyOf(target);
     }
 
     /* 
@@ -49,15 +58,15 @@ public class InferenceHeaderPayload {
      * @param text
      * @return
      */
-    public NodeState getInferenceHeaderPayload() {
+    public Map<String, String> getInferenceHeaderPayload() {
         // inferencePayloadBuilder.setProperty(textKey, text);
         // return inferencePayloadBuilder.getNodeState().toString();
-        return inferenceHeaderPayload;
+        return inferenceHeaderPayloadMap;
     }
 
     @Override
     public String toString(){
-        return inferenceHeaderPayload.toString();
+        return inferenceHeaderPayloadMap.toString();
     }
 
 } 

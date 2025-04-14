@@ -20,6 +20,7 @@ package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 
 import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.plugins.index.IndexName;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
@@ -69,24 +70,30 @@ public class InferenceConfig {
             enabled = false;
             indexConfigs = Collections.emptyMap();
         } else {
-            //TODO use pathUtils to get path parts
-            String[] pathParts = inferenceConfigPath.trim().split("/");
             NodeState nodeState = nodeStore.getRoot();
-            for (String pathPart : pathParts) {
-                if (nodeState.exists()){
-                    if (pathPart.isEmpty()) {
-                        continue;
-                    } else {
-                        nodeState = nodeState.getChildNode(pathPart);
-                    }
-                }
-                else {
-                    LOG.warning("InferenceConfig: NodeState does not exist for path: " + inferenceConfigPath);
-                    enabled = false;
-                    indexConfigs = Collections.emptyMap();
-                    return;
-                }
+            for (String elem : PathUtils.elements(inferenceConfigPath)) {
+                nodeState = nodeState.getChildNode(elem);
+//                tp = permissionProvider.getTreePermission(elem, ns, (AbstractTreePermission) tp);
             }
+
+//            //TODO use pathUtils to get path parts
+//            String[] pathParts = inferenceConfigPath.trim().split("/");
+//            NodeState nodeState = nodeStore.getRoot();
+//            for (String pathPart : pathParts) {
+//                if (nodeState.exists()){
+//                    if (pathPart.isEmpty()) {
+//                        continue;
+//                    } else {
+//                        nodeState = nodeState.getChildNode(pathPart);
+//                    }
+//                }
+//                else {
+//                    LOG.warning("InferenceConfig: NodeState does not exist for path: " + inferenceConfigPath);
+//                    enabled = false;
+//                    indexConfigs = Collections.emptyMap();
+//                    return;
+//                }
+//            }
 
             // Semantic search enabled or not.
             PropertyState enabledProp = nodeState.getProperty(InferenceConstants.ENABLED);

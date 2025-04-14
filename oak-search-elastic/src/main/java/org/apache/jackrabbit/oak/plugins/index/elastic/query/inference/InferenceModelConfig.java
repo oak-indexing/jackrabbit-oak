@@ -23,6 +23,9 @@ import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.jackrabbit.oak.plugins.blob.datastore.FileDataStoreService.CACHE_SIZE;
+import static org.apache.jackrabbit.oak.plugins.index.search.util.ConfigUtil.getOptionalValue;
+
 /**
  * Configuration class for Inference Model settings.
  */
@@ -37,7 +40,12 @@ public class InferenceModelConfig {
     public static final String IS_DEFAULT = "isDefault";
     public static final String ENABLED = "enabled";
     public static final String HEADER = "header";
+    public static final String TIMEOUT = "timeout";
+    public static final String PREFIX = "prefix";
     private static final Logger log = LoggerFactory.getLogger(InferenceModelConfig.class);
+    private static final String NUM_CANDIDATES = "numCandidates";
+    private static final String QUERY_TYPE = "queryType";
+    private static final String CACHE_SIZE = "cacheSize";
 
     private final String model;
     private final String embeddingServiceUrl;
@@ -48,10 +56,33 @@ public class InferenceModelConfig {
     private final String type;
     private final InferenceHeaderPayload header;
     private final InferencePayload payload;
-    private final String inferenceModelName;
+    private final String inferenceModelConfigName;
+
+
+    /**
+     * The prefix used for the query. If the input string starts with this prefix, the query will be executed. Default is null (no prefix).
+     */
+    public String prefix;
+    /**
+     * The number of candidates to be returned by the query. Default is 100.
+     */
+    public int numCandidates;
+    /**
+     * The type of the query. Default is "hybrid". Currently not used
+     */
+    public String queryType; // this can be hybrid or vector
+
+
+    /**
+     * The timeout for the query in milliseconds. Default is 5000.
+     */
+    public long timeout;
+
+    public int cacheSize;
+
 
     private InferenceModelConfig() {
-        this.inferenceModelName = null;
+        this.inferenceModelConfigName = null;
         this.model = null;
         this.embeddingServiceUrl = null;
         this.similarityThreshold = 0.0;
@@ -62,8 +93,9 @@ public class InferenceModelConfig {
         this.header = null;
         this.payload = null;
     }
-    public InferenceModelConfig(String inferenceModelName, NodeState nodeState) {
-        this.inferenceModelName = inferenceModelName;
+
+    public InferenceModelConfig(String inferenceModelConfigName, NodeState nodeState) {
+        this.inferenceModelConfigName = inferenceModelConfigName;
         this.model = nodeState.getProperty(MODEL).getValue(Type.STRING);
         this.embeddingServiceUrl = nodeState.getProperty(EMBEDDING_SERVICE_URL).getValue(Type.STRING);
         this.similarityThreshold = nodeState.getProperty(SIMILARITY_THRESHOLD).getValue(Type.DOUBLE);
@@ -71,15 +103,25 @@ public class InferenceModelConfig {
         this.isDefault = nodeState.getProperty(IS_DEFAULT).getValue(Type.BOOLEAN);
 
         this.header = new InferenceHeaderPayload(nodeState.getChildNode(HEADER));
-        this.payload = new InferencePayload(inferenceModelName, nodeState.getChildNode(INFERENCE_PAYLOAD));
+        this.payload = new InferencePayload(inferenceModelConfigName, nodeState.getChildNode(INFERENCE_PAYLOAD));
         this.type = TYPE;
         if ( !payload.isValidInferencePayload()) {
-            log.warn("Invalid inference payload for modelConfig {}, force disabling this modelConfig", inferenceModelName);
+            log.warn("Invalid inference payload for modelConfig {}, force disabling this modelConfig", inferenceModelConfigName);
             this.enabled = false;
         }
         else {
             this.enabled = nodeState.getProperty(ENABLED).getValue(Type.BOOLEAN);
         }
+        this.timeout = getOptionalValue(nodeState, TIMEOUT, 5000L);
+        this.prefix = getOptionalValue(nodeState, PREFIX, "?");
+        this.numCandidates = getOptionalValue(nodeState, NUM_CANDIDATES, 100);
+        //TODO this should be part of InferenceQueryConfig
+        this.queryType = getOptionalValue(nodeState, QUERY_TYPE, "hybrid");
+        this.cacheSize = getOptionalValue(nodeState, CACHE_SIZE, 100);
+    }
+
+    public String getInferenceModelConfigName() {
+        return inferenceModelConfigName;
     }
 
     // Getters
@@ -119,6 +161,23 @@ public class InferenceModelConfig {
         return this.payload;
     }
 
+    public String getPrefix() {
+        return prefix;
+    }
+
+    public int getNumCandidates() {
+        return numCandidates;
+    }
+
+    public String getQueryType() {
+        return queryType;
+    }
+
+    public long getTimeout() {
+        return timeout;
+    }
+
+
     @Override
     public String toString() {
         return TYPE +"{" +
@@ -131,5 +190,13 @@ public class InferenceModelConfig {
                 ", "+ HEADER +"=" + header +
                 ", "+ INFERENCE_PAYLOAD +"=" + payload +
                 '}';
+    }
+
+    public int getCacheSize() {
+        return this.cacheSize;
+    }
+
+    public long getTimeoutMillis() {
+        return this.timeout;
     }
 }

@@ -386,8 +386,8 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
             for (Map.Entry<String, String> entry : queryResults.entrySet()) {
                 String query = entry.getKey();
                 String expectedPath = entry.getValue();
-//                String queryPath = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?"+queryConfigInQuery+"?" + query + "')";
-                String queryPath = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?" + query + "')";
+                String queryPath = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?"+queryConfigInQuery+"?" + query + "')";
+//                String queryPath = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?" + query + "')";
 
                 List<String> results = executeQuery(queryPath, SQL2, true, true);
                 assertEquals(expectedPath, results.get(0));
@@ -398,11 +398,12 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
             }
 
             // test that a failure in the inference service does not prevent the query from returning results
-            String queryPath3 = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?machine learning')";
+//            String queryPath3 = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?machine learning')";
+            String queryPath3 = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?"+queryConfigInQuery+"?" + "machine learning')";
             assertQuery(queryPath3, List.of("/content/ml", "/content/programming"));
 
             // test that a delayed response from the inference service does not prevent the query from returning results
-            String queryPath4 = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?farming practices')";
+            String queryPath4 = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, ''?"+queryConfigInQuery+"?" + "farming practices')";
             assertQuery(queryPath4, List.of("/content/farm"));
         });
 
