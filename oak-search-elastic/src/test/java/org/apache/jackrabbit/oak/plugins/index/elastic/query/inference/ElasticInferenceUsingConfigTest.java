@@ -16,7 +16,6 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 
-import co.elastic.clients.elasticsearch._types.mapping.Property;
 import co.elastic.clients.elasticsearch.indices.get_mapping.IndexMappingRecord;
 import co.elastic.clients.json.JsonData;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -35,7 +34,6 @@ import org.apache.jackrabbit.oak.api.Tree;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticAbstractQueryTest;
-import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.util.IndexDefinitionBuilder;
 import org.apache.jackrabbit.oak.spi.commit.CommitInfo;
 import org.apache.jackrabbit.oak.spi.commit.EmptyHook;
@@ -58,7 +56,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceConstants.ENRICHER_CONFIG;
-import static org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceConstants.INFERENCE_CONFIG_TYPE;
+import static org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceConstants.TYPE;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
@@ -77,17 +75,17 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
         for (String path : PathUtils.elements(INFERENCE_CONFIG_PATH)) {
             nodeBuilder = nodeBuilder.child(path);
         }
-        nodeBuilder.setProperty(INFERENCE_CONFIG_TYPE, InferenceConfig.TYPE);
+        nodeBuilder.setProperty(TYPE, InferenceConfig.TYPE);
         nodeBuilder.setProperty(InferenceConstants.ENABLED, true);
         NodeBuilder inferenceConfig = nodeBuilder;
 
         // Add inferenceIndexConfig
         NodeBuilder inferenceIndexConfig = inferenceConfig.child(indexName);
-        inferenceIndexConfig.setProperty(INFERENCE_CONFIG_TYPE, InferenceIndexConfig.TYPE);
+        inferenceIndexConfig.setProperty(TYPE, InferenceIndexConfig.TYPE);
         inferenceIndexConfig.setProperty(ENRICHER_CONFIG, enricherConfig);
         // Add inference model1 configuration
         NodeBuilder inferenceModelConfig1 = inferenceIndexConfig.child("inferenceModel1");
-        inferenceModelConfig1.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceModelConfig.TYPE);
+        inferenceModelConfig1.setProperty(InferenceConstants.TYPE, InferenceModelConfig.TYPE);
 //        inferenceModelConfig1.setProperty(INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
         inferenceModelConfig1.setProperty(InferenceModelConfig.MODEL, "test-model1");
         inferenceModelConfig1.setProperty(InferenceModelConfig.EMBEDDING_SERVICE_URL, "http://localhost:8080");
@@ -109,7 +107,7 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
 
         // Add inference model2 configuration
         NodeBuilder inferenceModelConfig2 = inferenceIndexConfig.child("inferenceModel2");
-        inferenceModelConfig2.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceModelConfig.TYPE);
+        inferenceModelConfig2.setProperty(InferenceConstants.TYPE, InferenceModelConfig.TYPE);
 //        inferenceModelConfig2.setProperty(INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
         inferenceModelConfig2.setProperty(InferenceModelConfig.MODEL, "test-model2");
         inferenceModelConfig2.setProperty(InferenceModelConfig.EMBEDDING_SERVICE_URL, "http://localhost:8080");
@@ -167,17 +165,17 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
         for (String path : PathUtils.elements(INFERENCE_CONFIG_PATH)) {
             nodeBuilder = nodeBuilder.child(path);
         }
-        nodeBuilder.setProperty(INFERENCE_CONFIG_TYPE, InferenceConfig.TYPE);
+        nodeBuilder.setProperty(TYPE, InferenceConfig.TYPE);
         nodeBuilder.setProperty(InferenceConstants.ENABLED, isInferenceConfigEnabled);
         NodeBuilder inferenceConfig = nodeBuilder;
 
         // Add inferenceIndexConfig
         NodeBuilder inferenceIndexConfig = inferenceConfig.child(indexName);
-        inferenceIndexConfig.setProperty(INFERENCE_CONFIG_TYPE, InferenceIndexConfig.TYPE);
+        inferenceIndexConfig.setProperty(TYPE, InferenceIndexConfig.TYPE);
         inferenceIndexConfig.setProperty(ENRICHER_CONFIG, enricherConfig);
         // Add inference model1 configuration
         NodeBuilder inferenceModelConfig1 = inferenceIndexConfig.child(inferenceModelConfigName);
-        inferenceModelConfig1.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceModelConfig.TYPE);
+        inferenceModelConfig1.setProperty(InferenceConstants.TYPE, InferenceModelConfig.TYPE);
 //        inferenceModelConfig1.setProperty(INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
         inferenceModelConfig1.setProperty(InferenceModelConfig.MODEL, inferenceModelName);
         inferenceModelConfig1.setProperty(InferenceModelConfig.EMBEDDING_SERVICE_URL, embeddingServiceUrl);

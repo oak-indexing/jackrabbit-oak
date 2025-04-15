@@ -21,8 +21,8 @@ package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 public interface InferenceConstants {
     String ENABLED = "enabled";
     String ENRICHER_CONFIG = "enricherConfig";
-    String INFERENCE_CONFIG_TYPE = "type";
-    String OAK_INDEX_INFERENCE_CONFIG = "/oak:index/:inferenceConfig";
+    String TYPE = "type";
+    String DEFAULT_OAK_INDEX_INFERENCE_CONFIG_PATH = "/oak:index/:inferenceConfig";
     String VECTOR_SPACES = ":vectorSpaces";
     String VECTOR = "vector";
 }

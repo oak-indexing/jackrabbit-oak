@@ -18,8 +18,10 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 
-import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.spi.state.NodeState;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -30,10 +32,11 @@ import java.util.Map;
  * Represents the configuration structure for inference-enabled indexes.
  */
 public class InferenceIndexConfig {
+    private final static Logger LOG = LoggerFactory.getLogger(InferenceIndexConfig.class.getName());
     public static final InferenceIndexConfig NOOP = new InferenceIndexConfig();
     public static final String TYPE = "inferenceIndexConfig";
     public static final String ENRICHER_CONFIG = "enricherConfig";
-//    public static final String INFERENCE_MODEL_CONFIG = "inferenceModelConfig";
+
     /**
      * The enricher configuration as JSON string.
      */
@@ -48,22 +51,33 @@ public class InferenceIndexConfig {
         this.inferenceModelConfigs = Collections.emptyMap();
     }
 
+    public boolean isValid(NodeState nodeState) {
+        return true;
+//        return nodeState != null && nodeState.exists() &&
+//                nodeState.getProperty(InferenceConstants.ENRICHER_CONFIG) != null &&
+    }
+
     public InferenceIndexConfig(NodeState nodeState) {
-        this.enricherConfig = nodeState.hasProperty(InferenceConstants.ENRICHER_CONFIG) ?
-            nodeState.getProperty(InferenceConstants.ENRICHER_CONFIG).getValue(Type.STRING) : "{}";
-        this.inferenceModelConfigs = new HashMap<>();
-        // Iterate through child nodes to find inference model configs
-        for (String childName : nodeState.getChildNodeNames()) {
-            NodeState childNode = nodeState.getChildNode(childName);
-            if (isInferenceModelConfig(childNode)) {
-                inferenceModelConfigs.put(childName, new InferenceModelConfig(childName, childNode));
+        if (isValid(nodeState)){
+            this.enricherConfig = nodeState.hasProperty(InferenceConstants.ENRICHER_CONFIG) ?
+                    nodeState.getProperty(InferenceConstants.ENRICHER_CONFIG).getValue(Type.STRING) : "{}";
+            this.inferenceModelConfigs = new HashMap<>();
+            // Iterate through child nodes to find inference model configs
+            for (String childName : nodeState.getChildNodeNames()) {
+                NodeState childNode = nodeState.getChildNode(childName);
+                if (isInferenceModelConfig(childNode)) {
+                    inferenceModelConfigs.put(childName, new InferenceModelConfig(childName, childNode));
+                }
             }
+        } else {
+            this.enricherConfig = "{}";
+            this.inferenceModelConfigs = Collections.emptyMap();
         }
     }
 
     private boolean isInferenceModelConfig(NodeState nodeState) {
-        return nodeState.hasProperty(InferenceConstants.INFERENCE_CONFIG_TYPE) &&
-               nodeState.getProperty(InferenceConstants.INFERENCE_CONFIG_TYPE).getValue(Type.STRING).equals(InferenceModelConfig.TYPE);
+        return nodeState.hasProperty(InferenceConstants.TYPE) &&
+                nodeState.getProperty(InferenceConstants.TYPE).getValue(Type.STRING).equals(InferenceModelConfig.TYPE);
     }
 
     /**
@@ -82,6 +96,7 @@ public class InferenceIndexConfig {
 
     /**
      * Gets the default inference model configuration if one exists
+     *
      * @return The default InferenceModelConfig.java or null if none is marked as default
      */
     public InferenceModelConfig getDefaultModel() {
@@ -90,11 +105,12 @@ public class InferenceIndexConfig {
                 .findFirst()
                 .orElse(null);
     }
+
     @Override
     public String toString() {
-        return TYPE +"{" +
-                ENRICHER_CONFIG +"='" + enricherConfig + '\'' +
-                ", "+ InferenceModelConfig.TYPE +"=" + inferenceModelConfigs +
+        return TYPE + "{" +
+                ENRICHER_CONFIG + "='" + enricherConfig + '\'' +
+                ", " + InferenceModelConfig.TYPE + "=" + inferenceModelConfigs +
                 '}';
     }
 } 

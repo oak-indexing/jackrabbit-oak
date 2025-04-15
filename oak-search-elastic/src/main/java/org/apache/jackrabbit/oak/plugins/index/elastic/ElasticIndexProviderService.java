@@ -125,7 +125,7 @@ public class ElasticIndexProviderService {
         int remoteIndexDeletionThreshold() default 24*60*60;
 
         @AttributeDefinition(name = "Inference Config Path", description = "Path to the inference configuration")
-        String inferenceConfigPath() default InferenceConstants.OAK_INDEX_INFERENCE_CONFIG;
+        String inferenceConfigPath() default InferenceConstants.DEFAULT_OAK_INDEX_INFERENCE_CONFIG_PATH;
     }
 
 

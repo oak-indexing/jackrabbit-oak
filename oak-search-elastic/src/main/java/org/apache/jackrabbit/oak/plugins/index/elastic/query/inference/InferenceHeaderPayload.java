@@ -18,11 +18,11 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 
-import com.google.common.collect.ImmutableMap;
 import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -42,7 +42,7 @@ public class InferenceHeaderPayload {
         for (PropertyState property : source.getProperties()) {
             target.put(property.getName(), property.getValue(Type.STRING));
         }
-        return ImmutableMap.copyOf(target);
+        return Collections.unmodifiableMap(target);
     }
 
     /*

@@ -87,7 +87,7 @@ public class JsonUtil {
 
     /**
      * Converts a NodeState to JSON string with specified depth
-     * 
+     *
      * @param nodeState The NodeState to convert
      * @param maxDepth Maximum depth to traverse, use -1 for unlimited depth
      * @return JSON string representation
@@ -100,7 +100,7 @@ public class JsonUtil {
 
     private static JsonNode convertNodeStateToJson(NodeState nodeState, int maxDepth, int currentDepth) {
         ObjectNode result = mapper.createObjectNode();
-        
+
         // Return if max depth reached
         if (maxDepth != -1 && currentDepth > maxDepth) {
             return result;
@@ -110,7 +110,7 @@ public class JsonUtil {
         for (PropertyState property : nodeState.getProperties()) {
             String name = property.getName();
             Type<?> type = property.getType();
-            
+
             if (property.isArray()) {
                 ArrayNode arrayNode = mapper.createArrayNode();
                 if (type == Type.STRINGS) {
@@ -163,7 +163,7 @@ public class JsonUtil {
 
     /**
      * Convert a NodeState to a Map representation
-     * 
+     *
      * @param nodeState The NodeState to convert
      * @param maxDepth Maximum depth to traverse
      * @param currentDepth Current traversal depth
@@ -185,7 +185,7 @@ public class JsonUtil {
                 if (type == Type.STRINGS) {
                     result.put(name, property.getValue(Type.STRINGS));
                 } else if (type == Type.LONGS) {
-                    result.put(name, property.getValue(Type.LONGS)); 
+                    result.put(name, property.getValue(Type.LONGS));
                 } else if (type == Type.DOUBLES) {
                     result.put(name, property.getValue(Type.DOUBLES));
                 } else if (type == Type.BOOLEANS) {

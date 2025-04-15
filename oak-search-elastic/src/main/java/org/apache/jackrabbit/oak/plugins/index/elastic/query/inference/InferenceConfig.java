@@ -24,78 +24,69 @@ import org.apache.jackrabbit.oak.commons.PathUtils;
 import org.apache.jackrabbit.oak.plugins.index.IndexName;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
-import java.util.logging.Logger;
 
 /**
  * Data model class representing the inference configuration stored under /oak:index/:inferenceConfig
  */
 public class InferenceConfig {
+    Logger LOG = LoggerFactory.getLogger(InferenceConfig.class.getName());
+
     public static final InferenceConfig NOOP = new InferenceConfig();
     public static final String TYPE = "inferenceConfig";
-    Logger LOG = Logger.getLogger(InferenceConfig.class.getName());
     /**
      * Semantic search is enabled if this flag is true
      */
-    private boolean enabled;
+    private volatile boolean enabled;
     /**
      * Map of index names to their respective inference configurations
      */
-    private Map<String, InferenceIndexConfig> indexConfigs;
+    private volatile Map<String, InferenceIndexConfig> indexConfigs;
     private NodeStore nodeStore;
     private String inferenceConfigPath;
+    private final Object lock = new Object();
 
     /**
      * Loads configuration from the given NodeState
-     *
-     * @param nodeState NodeState representing :inferenceConfig node
      * @return InferenceConfiguration instance
      */
 
-    private InferenceConfig(){
-        LOG.warning("InferenceConfig: NOOP Inference config initialized");
+    private InferenceConfig() {
+        LOG.warn("InferenceConfig: NOOP Inference config initialized");
         enabled = false;
         indexConfigs = Collections.emptyMap();
     }
 
+    /*
+        * Constructor to load inference configuration from the given NodeStore and path
+        *
+     */
     public InferenceConfig(NodeStore nodeStore, String inferenceConfigPath) {
         this.nodeStore = nodeStore;
         this.inferenceConfigPath = inferenceConfigPath;
         if (nodeStore == null) {
-            LOG.warning("InferenceConfig: NodeStore is null");
+            LOG.warn("InferenceConfig: NodeStore is null");
             enabled = false;
             indexConfigs = Collections.emptyMap();
         } else {
             NodeState nodeState = nodeStore.getRoot();
             for (String elem : PathUtils.elements(inferenceConfigPath)) {
                 nodeState = nodeState.getChildNode(elem);
-//                tp = permissionProvider.getTreePermission(elem, ns, (AbstractTreePermission) tp);
+                if (!nodeState.exists()) {
+                    LOG.warn("InferenceConfig: NodeState does not exist for path: " + inferenceConfigPath);
+                    enabled = false;
+                    indexConfigs = Collections.emptyMap();
+                    return;
+                }
             }
 
-//            //TODO use pathUtils to get path parts
-//            String[] pathParts = inferenceConfigPath.trim().split("/");
-//            NodeState nodeState = nodeStore.getRoot();
-//            for (String pathPart : pathParts) {
-//                if (nodeState.exists()){
-//                    if (pathPart.isEmpty()) {
-//                        continue;
-//                    } else {
-//                        nodeState = nodeState.getChildNode(pathPart);
-//                    }
-//                }
-//                else {
-//                    LOG.warning("InferenceConfig: NodeState does not exist for path: " + inferenceConfigPath);
-//                    enabled = false;
-//                    indexConfigs = Collections.emptyMap();
-//                    return;
-//                }
-//            }
-
-            // Semantic search enabled or not.
+            // Inference enabled or not.
             PropertyState enabledProp = nodeState.getProperty(InferenceConstants.ENABLED);
             this.enabled = enabledProp != null && enabledProp.getValue(Type.BOOLEAN);
             this.indexConfigs = new HashMap<>();
@@ -114,8 +105,8 @@ public class InferenceConfig {
     }
 
     private static boolean isValidInferenceIndexConfig(NodeState nodeState, String indexName) {
-        return nodeState.getChildNode(indexName).hasProperty("type")
-                && InferenceIndexConfig.TYPE.equals(nodeState.getChildNode(indexName).getProperty(InferenceConstants.INFERENCE_CONFIG_TYPE).getValue(Type.STRING));
+        return nodeState.getChildNode(indexName).hasProperty(InferenceConstants.TYPE)
+                && InferenceIndexConfig.TYPE.equals(nodeState.getChildNode(indexName).getProperty(InferenceConstants.TYPE).getValue(Type.STRING));
     }
 
     public boolean isEnabled() {
@@ -123,19 +114,23 @@ public class InferenceConfig {
     }
 
     public InferenceIndexConfig getInferenceIndexConfig(String indexName) {
-        InferenceIndexConfig inferenceIndexConfig = InferenceIndexConfig.NOOP;
-        IndexName indexNameObject = IndexName.parse(indexName);
-        Function<String, InferenceIndexConfig> getInferenceIndexConfig = (iName) ->
-                this.getIndexConfigs().getOrDefault(iName, InferenceIndexConfig.NOOP);
-        if (!InferenceIndexConfig.NOOP.equals(getInferenceIndexConfig.apply(indexName))) {
-            inferenceIndexConfig = getInferenceIndexConfig.apply(indexName);
-        } else if (indexNameObject.isLegal()
-                && indexNameObject.getBaseName() != null
-//                && !InferenceIndexConfig.NOOP.equals(getInferenceIndexConfig.apply(indexNameObject.getBaseName()))
-        ) {
-            inferenceIndexConfig =  getInferenceIndexConfig.apply(indexNameObject.getBaseName());
+        if (!isEnabled()) {
+            return InferenceIndexConfig.NOOP;
+        } else {
+            InferenceIndexConfig inferenceIndexConfig;
+            IndexName indexNameObject;
+            Function<String, InferenceIndexConfig> getInferenceIndexConfig = (iName) ->
+                    this.getIndexConfigs().getOrDefault(iName, InferenceIndexConfig.NOOP);
+            if (!InferenceIndexConfig.NOOP.equals(inferenceIndexConfig = getInferenceIndexConfig.apply(indexName))) {
+                LOG.debug("InferenceIndexConfig for indexName: {} is: {}", indexName, inferenceIndexConfig);
+            } else if ((indexNameObject = IndexName.parse(indexName)) != null && indexNameObject.isLegal()
+                    && indexNameObject.getBaseName() != null
+            ) {
+                LOG.debug("InferenceIndexConfig is using baseIndexName {} and is: {}", indexNameObject.getBaseName(), inferenceIndexConfig);
+                inferenceIndexConfig = getInferenceIndexConfig.apply(indexNameObject.getBaseName());
+            }
+            return inferenceIndexConfig;
         }
-        return inferenceIndexConfig;
     }
 
     public InferenceModelConfig getInferenceModelConfig(String inferenceIndexName, String inferenceModelConfigName) {
@@ -144,16 +139,19 @@ public class InferenceConfig {
     }
 
     public Map<String, InferenceIndexConfig> getIndexConfigs() {
-        if (isEnabled()) {
-            return Collections.unmodifiableMap(indexConfigs);
+        synchronized (lock) {
+            if (isEnabled()) {
+                return Collections.unmodifiableMap(indexConfigs);
+            }
+            return Collections.emptyMap();
         }
-        return Collections.emptyMap();
     }
 
-    //TODO check concurrency
     public void refreshConfig() {
-        InferenceConfig refreshedInferenceConfig = new InferenceConfig(this.nodeStore, this.inferenceConfigPath);
-        this.enabled = refreshedInferenceConfig.enabled;
-        this.indexConfigs = refreshedInferenceConfig.indexConfigs;
+        synchronized (lock) {
+            InferenceConfig refreshedInferenceConfig = new InferenceConfig(this.nodeStore, this.inferenceConfigPath);
+            this.enabled = refreshedInferenceConfig.enabled;
+            this.indexConfigs = refreshedInferenceConfig.indexConfigs;
+        }
     }
 } 

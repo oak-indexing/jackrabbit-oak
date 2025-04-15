@@ -50,12 +50,12 @@ public class InferenceIntegrationTest {
     public void testCompleteInferenceConfiguration() {
         // Setup index configuration
         NodeBuilder indexBuilder = inferenceConfigBuilder.child("testIndex");
-        indexBuilder.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceIndexConfig.TYPE);
+        indexBuilder.setProperty(InferenceConstants.TYPE, InferenceIndexConfig.TYPE);
         indexBuilder.setProperty(InferenceConstants.ENRICHER_CONFIG, "{\"enricher\": \"config\"}");
 
         // Add model configuration
         NodeBuilder modelBuilder = indexBuilder.child("defaultModel");
-        modelBuilder.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceModelConfig.TYPE);
+        modelBuilder.setProperty(InferenceConstants.TYPE, InferenceModelConfig.TYPE);
         setupModelConfiguration(modelBuilder);
 
         // Create the full configuration
@@ -92,15 +92,15 @@ public class InferenceIntegrationTest {
     public void testMultipleModelsConfiguration() {
         // Setup index with multiple models
         NodeBuilder indexBuilder = inferenceConfigBuilder.child("testIndex");
-        indexBuilder.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceIndexConfig.TYPE);
+        indexBuilder.setProperty(InferenceConstants.TYPE, InferenceIndexConfig.TYPE);
         
         // Add two models - one default, one not
         NodeBuilder model1Builder = indexBuilder.child("model1");
-        model1Builder.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceModelConfig.TYPE);
+        model1Builder.setProperty(InferenceConstants.TYPE, InferenceModelConfig.TYPE);
         setupModelConfiguration(model1Builder, true);
 
         NodeBuilder model2Builder = indexBuilder.child("model2");
-        model2Builder.setProperty(InferenceConstants.INFERENCE_CONFIG_TYPE, InferenceModelConfig.TYPE);
+        model2Builder.setProperty(InferenceConstants.TYPE, InferenceModelConfig.TYPE);
         setupModelConfiguration(model2Builder, false);
 
         // Create and verify configuration
