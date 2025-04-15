@@ -21,9 +21,6 @@ package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 import com.google.common.collect.ImmutableMap;
 import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.api.Type;
-import org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState;
-import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeBuilder;
-import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 
 import java.util.HashMap;
@@ -36,11 +33,7 @@ public class InferenceHeaderPayload {
     private final Map<String, String> inferenceHeaderPayloadMap;
 
     public InferenceHeaderPayload(NodeState nodeState) {
-        NodeBuilder inferenceHeaderPayloadBuilder;
-        inferenceHeaderPayloadBuilder = new MemoryNodeBuilder(EmptyNodeState.EMPTY_NODE);
-//        inferenceHeaderPayloadMap = new HashMap<>();
         inferenceHeaderPayloadMap = copyFirstLevelNodeState(nodeState);
-        //inferenceHeaderPayloadMap = inferenceHeaderPayloadBuilder.getNodeState();
     }
 
     private Map<String, String> copyFirstLevelNodeState(NodeState source) {
@@ -52,20 +45,18 @@ public class InferenceHeaderPayload {
         return ImmutableMap.copyOf(target);
     }
 
-    /* 
+    /*
      * Get the inference payload as a json string
-     * 
+     *
      * @param text
      * @return
      */
     public Map<String, String> getInferenceHeaderPayload() {
-        // inferencePayloadBuilder.setProperty(textKey, text);
-        // return inferencePayloadBuilder.getNodeState().toString();
         return inferenceHeaderPayloadMap;
     }
 
     @Override
-    public String toString(){
+    public String toString() {
         return inferenceHeaderPayloadMap.toString();
     }
 

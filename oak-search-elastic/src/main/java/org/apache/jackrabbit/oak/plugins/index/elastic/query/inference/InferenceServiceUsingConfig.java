@@ -18,6 +18,7 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -96,20 +97,48 @@ public class InferenceServiceUsingConfig implements InferenceService{
 
             // Send the request and get the response.
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            JsonNode jsonResponse = MAPPER.readTree(response.body());
+/*
 
             // Parse the response string into a JsonNode.
             JsonNode jsonResponse = MAPPER.readTree(response.body());
 
+            String openaiEmbedding = "{\n" +
+                    "  \"object\": \"list\",\n" +
+                    "  \"data\": [\n" +
+                    "    {\n" +
+                    "      \"object\": \"embedding\",\n" +
+                    "      \"embedding\": [\n" +
+                    "        0.0023064255,\n" +
+                    "        -0.009327292,\n" +
+                    "        -0.0028842222\n" +
+                    "      ],\n" +
+                    "      \"index\": 0\n" +
+                    "    }\n" +
+                    "  ],\n" +
+                    "  \"model\": \"text-embedding-ada-002\",\n" +
+                    "  \"usage\": {\n" +
+                    "    \"prompt_tokens\": 8,\n" +
+                    "    \"total_tokens\": 8\n" +
+                    "  }\n" +
+                    "}";
+
             // Extract the 'embedding' property.
             JsonNode embedding = jsonResponse.get("embedding");
+            Float[] embeddings = MAPPER.treeToValue(embedding, Float[].class);
+*/
 
-            double[] embeddings = MAPPER.treeToValue(embedding, double[].class);
+            InferenceResponseModel inferenceResponseModel = MAPPER.readValue( response.body(), InferenceResponseModel.class);
+//            inferenceResponseModel.getData().get(0).setEmbedding(Arrays.asList(embeddings));
+
+            String jsonString = MAPPER.writeValueAsString(inferenceResponseModel);
+            System.out.println( text +" = " + jsonString);
 
             // Convert the array of doubles to a list of floats.
-            List<Float> result = Arrays.stream(embeddings)
-                    .mapToObj(d -> ((Double) d).floatValue())
-                    .collect(Collectors.toList());
-
+//            List<Float> result = Arrays.stream(embeddings)
+//                    .mapToObj(d -> ((Double) d).floatValue())
+//                    .collect(Collectors.toList());
+            List<Float> result = inferenceResponseModel.getData().get(0).getEmbedding();
             cache.put(text, result);
             return result;
         } catch (Exception e) {

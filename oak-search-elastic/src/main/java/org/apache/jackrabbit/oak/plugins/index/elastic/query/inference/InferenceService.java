@@ -18,27 +18,11 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
-/**
- * EXPERIMENTAL: A service that sends text to an inference service and receives embeddings in return.
- * The embeddings are cached to avoid repeated calls to the inference service.
- */
 public interface InferenceService {
 
-    public List<Float> embeddings(String text);
+    List<Float> embeddings(String text);
+
     List<Float> embeddings(String text, long timeoutMillis);
 }
