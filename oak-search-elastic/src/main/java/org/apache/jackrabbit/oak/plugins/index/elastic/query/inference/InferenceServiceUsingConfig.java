@@ -18,7 +18,6 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -28,7 +27,6 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,7 +37,7 @@ import java.util.stream.Stream;
  * EXPERIMENTAL: A service that sends text to an inference service and receives embeddings in return.
  * The embeddings are cached to avoid repeated calls to the inference service.
  */
-public class InferenceServiceUsingConfig implements InferenceService{
+public class InferenceServiceUsingConfig implements InferenceService {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -52,7 +50,7 @@ public class InferenceServiceUsingConfig implements InferenceService{
 
 
     public InferenceServiceUsingConfig(InferenceModelConfig inferenceModelConfig) {
-        try{
+        try {
             this.uri = new URI(inferenceModelConfig.getEmbeddingServiceUrl());
         } catch (URISyntaxException e) {
             throw new IllegalArgumentException("Invalid URL: " + inferenceModelConfig.getEmbeddingServiceUrl(), e);
@@ -63,7 +61,7 @@ public class InferenceServiceUsingConfig implements InferenceService{
         this.inferenceModelConfig = inferenceModelConfig;
         this.headersValue = inferenceModelConfig.getHeader().getInferenceHeaderPayload()
                 .entrySet().stream()
-                .flatMap(e-> Stream.of(e.getKey(),e.getValue()))
+                .flatMap(e -> Stream.of(e.getKey(), e.getValue()))
                 .collect(Collectors.toList()).toArray(String[]::new);
 
     }
@@ -82,9 +80,9 @@ public class InferenceServiceUsingConfig implements InferenceService{
             // Create the JSON payload.
 //            String jsonInputString = "{\"text\":\"" + text + "\"}";
             String jsonInputString = inferenceModelConfig.getPayload().getInferencePayload(text);
-            List <String> headerValues = inferenceModelConfig.getHeader().getInferenceHeaderPayload()
+            List<String> headerValues = inferenceModelConfig.getHeader().getInferenceHeaderPayload()
                     .entrySet().stream()
-                    .flatMap(e-> Stream.of(e.getKey(),e.getValue()))
+                    .flatMap(e -> Stream.of(e.getKey(), e.getValue()))
                     .collect(Collectors.toList());
 
             // Build the HttpRequest.
@@ -97,47 +95,8 @@ public class InferenceServiceUsingConfig implements InferenceService{
 
             // Send the request and get the response.
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            JsonNode jsonResponse = MAPPER.readTree(response.body());
-/*
-
-            // Parse the response string into a JsonNode.
-            JsonNode jsonResponse = MAPPER.readTree(response.body());
-
-            String openaiEmbedding = "{\n" +
-                    "  \"object\": \"list\",\n" +
-                    "  \"data\": [\n" +
-                    "    {\n" +
-                    "      \"object\": \"embedding\",\n" +
-                    "      \"embedding\": [\n" +
-                    "        0.0023064255,\n" +
-                    "        -0.009327292,\n" +
-                    "        -0.0028842222\n" +
-                    "      ],\n" +
-                    "      \"index\": 0\n" +
-                    "    }\n" +
-                    "  ],\n" +
-                    "  \"model\": \"text-embedding-ada-002\",\n" +
-                    "  \"usage\": {\n" +
-                    "    \"prompt_tokens\": 8,\n" +
-                    "    \"total_tokens\": 8\n" +
-                    "  }\n" +
-                    "}";
-
-            // Extract the 'embedding' property.
-            JsonNode embedding = jsonResponse.get("embedding");
-            Float[] embeddings = MAPPER.treeToValue(embedding, Float[].class);
-*/
-
-            InferenceResponseModel inferenceResponseModel = MAPPER.readValue( response.body(), InferenceResponseModel.class);
-//            inferenceResponseModel.getData().get(0).setEmbedding(Arrays.asList(embeddings));
-
+            InferenceResponseModel inferenceResponseModel = MAPPER.readValue(response.body(), InferenceResponseModel.class);
             String jsonString = MAPPER.writeValueAsString(inferenceResponseModel);
-            System.out.println( text +" = " + jsonString);
-
-            // Convert the array of doubles to a list of floats.
-//            List<Float> result = Arrays.stream(embeddings)
-//                    .mapToObj(d -> ((Double) d).floatValue())
-//                    .collect(Collectors.toList());
             List<Float> result = inferenceResponseModel.getData().get(0).getEmbedding();
             cache.put(text, result);
             return result;

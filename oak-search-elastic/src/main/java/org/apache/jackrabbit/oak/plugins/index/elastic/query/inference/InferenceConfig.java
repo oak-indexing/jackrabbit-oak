@@ -31,7 +31,10 @@ import org.slf4j.LoggerFactory;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.locks.StampedLock;
 import java.util.function.Function;
+
+import static org.apache.jackrabbit.oak.plugins.index.search.util.ConfigUtil.getOptionalValue;
 
 /**
  * Data model class representing the inference configuration stored under /oak:index/:inferenceConfig
@@ -41,6 +44,8 @@ public class InferenceConfig {
 
     public static final InferenceConfig NOOP = new InferenceConfig();
     public static final String TYPE = "inferenceConfig";
+
+    private final StampedLock stampedLock = new StampedLock();
     /**
      * Semantic search is enabled if this flag is true
      */
@@ -51,22 +56,22 @@ public class InferenceConfig {
     private volatile Map<String, InferenceIndexConfig> indexConfigs;
     private NodeStore nodeStore;
     private String inferenceConfigPath;
-    private final Object lock = new Object();
 
     /**
      * Loads configuration from the given NodeState
+     *
      * @return InferenceConfiguration instance
      */
 
     private InferenceConfig() {
         LOG.warn("InferenceConfig: NOOP Inference config initialized");
         enabled = false;
-        indexConfigs = Collections.emptyMap();
+        indexConfigs = Map.of();
     }
 
     /*
-        * Constructor to load inference configuration from the given NodeStore and path
-        *
+     * Constructor to load inference configuration from the given NodeStore and path
+     *
      */
     public InferenceConfig(NodeStore nodeStore, String inferenceConfigPath) {
         this.nodeStore = nodeStore;
@@ -88,16 +93,16 @@ public class InferenceConfig {
             }
 
             // Inference enabled or not.
-            PropertyState enabledProp = nodeState.getProperty(InferenceConstants.ENABLED);
-            this.enabled = enabledProp != null && enabledProp.getValue(Type.BOOLEAN);
-            this.indexConfigs = new HashMap<>();
+            this.enabled = getOptionalValue(nodeState, InferenceConstants.ENABLED,false);
+            Map<String, InferenceIndexConfig> temp_indexConfigs = new HashMap<>();
 
             // Read index configurations
             for (String indexName : nodeState.getChildNodeNames()) {
                 if (isValidInferenceIndexConfig(nodeState, indexName)) {
-                    this.indexConfigs.put(indexName, new InferenceIndexConfig(nodeState.getChildNode(indexName)));
+                    temp_indexConfigs.put(indexName, new InferenceIndexConfig(nodeState.getChildNode(indexName)));
                 }
             }
+            this.indexConfigs = Collections.unmodifiableMap(temp_indexConfigs);
             //TODO Check if we we are also logging sensitive info.
             LOG.info("Loaded inference configuration: " + this.toString());
 
@@ -114,7 +119,7 @@ public class InferenceConfig {
         return enabled;
     }
 
-    public InferenceIndexConfig getInferenceIndexConfig(String indexName) {
+    public @NotNull InferenceIndexConfig getInferenceIndexConfig(String indexName) {
         if (!isEnabled()) {
             return InferenceIndexConfig.NOOP;
         } else {
@@ -139,20 +144,35 @@ public class InferenceConfig {
         return inferenceIndexConfig.getInferenceModelConfigs().getOrDefault(inferenceModelConfigName, InferenceModelConfig.NOOP);
     }
 
-    public Map<String, InferenceIndexConfig> getIndexConfigs() {
-        synchronized (lock) {
-            if (isEnabled()) {
-                return Collections.unmodifiableMap(indexConfigs);
+    public @NotNull Map<String, InferenceIndexConfig> getIndexConfigs() {
+        // Using StampedLock which has better performance for read operations
+        long stamp = stampedLock.tryOptimisticRead();
+
+        if (!stampedLock.validate(stamp)) {
+            // Fallback to pessimistic read lock if optimistic read fails
+            stamp = stampedLock.readLock();
+            try {
+                return isEnabled() ?
+                        Collections.unmodifiableMap(indexConfigs) : Map.of();
+            } finally {
+                stampedLock.unlockRead(stamp);
             }
-            return Collections.emptyMap();
+        } else {
+            // Optimistic read lock succeeded
+            return isEnabled() ?
+                    Collections.unmodifiableMap(indexConfigs) : Map.of();
         }
     }
 
-    public void refreshConfig() {
-        synchronized (lock) {
+    public InferenceConfig refreshConfig() {
+        long stamp = stampedLock.writeLock();
+        try {
             InferenceConfig refreshedInferenceConfig = new InferenceConfig(this.nodeStore, this.inferenceConfigPath);
             this.enabled = refreshedInferenceConfig.enabled;
             this.indexConfigs = refreshedInferenceConfig.indexConfigs;
+            return this;
+        } finally {
+            stampedLock.unlockWrite(stamp);
         }
     }
 } 

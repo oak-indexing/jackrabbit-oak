@@ -82,7 +82,7 @@ public class ElasticIndexProviderService {
         @AttributeDefinition(name = "Extracted text cache size (MB)",
                 description = "Cache size in MB for caching extracted text for some time. When set to 0 then " +
                         "cache would be disabled")
-        int extractedTextCacheSizeInMB() default 20 ;
+        int extractedTextCacheSizeInMB() default 20;
 
         @AttributeDefinition(name = "Extracted text cache expiry (secs)",
                 description = "Time in seconds for which the extracted text would be cached in memory")
@@ -122,7 +122,7 @@ public class ElasticIndexProviderService {
 
         @AttributeDefinition(name = "Remote index deletion threshold", description = "Time in seconds after which a remote index whose local index is not found gets deleted." +
                 "Default is 1 day.")
-        int remoteIndexDeletionThreshold() default 24*60*60;
+        int remoteIndexDeletionThreshold() default 24 * 60 * 60;
 
         @AttributeDefinition(name = "Inference Config Path", description = "Path to the inference configuration")
         String inferenceConfigPath() default InferenceConstants.DEFAULT_OAK_INDEX_INFERENCE_CONFIG_PATH;

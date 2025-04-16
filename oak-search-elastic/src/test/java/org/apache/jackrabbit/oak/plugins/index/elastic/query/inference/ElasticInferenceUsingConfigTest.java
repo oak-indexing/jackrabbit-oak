@@ -178,7 +178,7 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
 
         // Setup payload configuration
         NodeBuilder payload1 = inferenceModelConfig1.child(InferenceModelConfig.INFERENCE_PAYLOAD);
-        payload1.setProperty(InferencePayload.DEFAULT_INPUT_KEY, List.of("input"), Type.STRINGS);
+        payload1.setProperty("input", List.of(""), Type.STRINGS);
 //        payload1.setProperty("dimension", 1536);
         payload1.setProperty("model", "text-embedding-ada-002");
         nodeStore.merge(rootBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);

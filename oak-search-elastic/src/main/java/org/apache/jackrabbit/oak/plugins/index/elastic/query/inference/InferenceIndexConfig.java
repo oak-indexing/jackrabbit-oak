@@ -48,31 +48,30 @@ public class InferenceIndexConfig {
 
     private InferenceIndexConfig() {
         this.enricherConfig = "{}";
-        this.inferenceModelConfigs = Collections.emptyMap();
-    }
-
-    public boolean isValid(NodeState nodeState) {
-        return true;
-//        return nodeState != null && nodeState.exists() &&
-//                nodeState.getProperty(InferenceConstants.ENRICHER_CONFIG) != null &&
+        this.inferenceModelConfigs = Map.of();
     }
 
     public InferenceIndexConfig(NodeState nodeState) {
-        if (isValid(nodeState)){
-            this.enricherConfig = nodeState.hasProperty(InferenceConstants.ENRICHER_CONFIG) ?
+        String tempEnricherConfig;
+        Map<String, InferenceModelConfig> tempInferenceModelConfigs;
+        try {
+            tempEnricherConfig = nodeState.hasProperty(InferenceConstants.ENRICHER_CONFIG) ?
                     nodeState.getProperty(InferenceConstants.ENRICHER_CONFIG).getValue(Type.STRING) : "{}";
-            this.inferenceModelConfigs = new HashMap<>();
+            tempInferenceModelConfigs = new HashMap<>();
             // Iterate through child nodes to find inference model configs
             for (String childName : nodeState.getChildNodeNames()) {
                 NodeState childNode = nodeState.getChildNode(childName);
                 if (isInferenceModelConfig(childNode)) {
-                    inferenceModelConfigs.put(childName, new InferenceModelConfig(childName, childNode));
+                    tempInferenceModelConfigs.put(childName, new InferenceModelConfig(childName, childNode));
                 }
             }
-        } else {
-            this.enricherConfig = "{}";
-            this.inferenceModelConfigs = Collections.emptyMap();
+        } catch (Exception e) {
+            LOG.error("Error while loading inference index configuration", e);
+            tempEnricherConfig = "{}";
+            tempInferenceModelConfigs = Map.of();
         }
+        this.enricherConfig = tempEnricherConfig;
+        this.inferenceModelConfigs = Collections.unmodifiableMap(tempInferenceModelConfigs);
     }
 
     private boolean isInferenceModelConfig(NodeState nodeState) {
@@ -95,15 +94,16 @@ public class InferenceIndexConfig {
     }
 
     /**
-     * Gets the default inference model configuration if one exists
+     * Gets the enabled default inference model configuration if one exists
      *
      * @return The default InferenceModelConfig.java or null if none is marked as default
      */
-    public InferenceModelConfig getDefaultModel() {
+    public InferenceModelConfig getDefaultEnabledModel() {
         return inferenceModelConfigs.values().stream()
                 .filter(InferenceModelConfig::isDefault)
+                .filter(InferenceModelConfig::isEnabled)
                 .findFirst()
-                .orElse(null);
+                .orElse(InferenceModelConfig.NOOP);
     }
 
     @Override

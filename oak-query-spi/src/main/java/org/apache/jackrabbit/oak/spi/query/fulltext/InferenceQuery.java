@@ -28,7 +28,7 @@ public class InferenceQuery {
     private static final Logger LOG = LoggerFactory.getLogger(InferenceQuery.class);
     private static final String DEFAULT_INFERENCE_QUERY_CONFIG_PREFIX = "?";
     private static final String INFERENCE_QUERY_CONFIG_PREFIX_KEY = "org.apache.jackrabbit.oak.search.inference.query.prefix";
-    private static final String INFERENCE_QUERY_CONFIG_PREFIX = System.getProperty(
+    public static final String INFERENCE_QUERY_CONFIG_PREFIX = System.getProperty(
             INFERENCE_QUERY_CONFIG_PREFIX_KEY, DEFAULT_INFERENCE_QUERY_CONFIG_PREFIX);
 
     private final String queryInferenceConfig;

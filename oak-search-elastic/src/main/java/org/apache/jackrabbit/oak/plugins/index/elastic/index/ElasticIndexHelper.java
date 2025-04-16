@@ -32,7 +32,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.commons.PathUtils;
-import org.apache.jackrabbit.oak.plugins.index.IndexName;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.elastic.ElasticPropertyDefinition;
 import org.apache.jackrabbit.oak.plugins.index.elastic.query.inference.InferenceConfig;
@@ -47,8 +46,6 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static org.apache.jackrabbit.oak.plugins.index.elastic.ElasticPropertyDefinition.DEFAULT_SIMILARITY_METRIC;
@@ -58,6 +55,7 @@ import static org.apache.jackrabbit.oak.plugins.index.elastic.ElasticPropertyDef
  */
 class ElasticIndexHelper {
 
+    private static final ObjectMapper mapper = new ObjectMapper();
     // Unset the refresh interval and disable replicas at index creation to optimize for initial loads
     // https://www.elastic.co/guide/en/elasticsearch/reference/current/tune-for-indexing-speed.html
     private static final Time INITIAL_REFRESH_INTERVAL = Time.of(b -> b.time("-1"));
@@ -124,37 +122,37 @@ class ElasticIndexHelper {
 
     private static void mapInferenceConfig(TypeMapping.Builder builder, @NotNull ElasticIndexDefinition indexDefinition, @NotNull InferenceConfig inferenceConfig) {
         String indexName = PathUtils.getName(indexDefinition.getIndexName());
-        ObjectMapper mapper = new ObjectMapper();
         InferenceIndexConfig inferenceIndexConfig;
+//        try {
+        // Store the inference configuration in the index metadata so that it can be used by the inference service
+        inferenceIndexConfig = inferenceConfig.getInferenceIndexConfig(indexName);
+        if (InferenceIndexConfig.NOOP.equals(inferenceIndexConfig)) {
+            return;
+        }
         try {
-            inferenceIndexConfig = inferenceConfig.getInferenceIndexConfig(indexName);
-            if (InferenceIndexConfig.NOOP.equals(inferenceIndexConfig)) {
-                return;
-            }
             Map<String, Object> enricherConfigJson = mapper.readValue(inferenceConfig.getIndexConfigs().get(indexName).getEnricherConfig(),
-                    new TypeReference<Map<String, Object>>() {});
+                    new TypeReference<Map<String, Object>>() {
+                    });
             enricherConfigJson.forEach((k, v) -> {
                 builder.meta(k, JsonData.of(v));
             });
         } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("json processing for enricher config failed " + e.getMessage());
         }
 
-        if (inferenceIndexConfig.getInferenceModelConfigs() != null) {
-            builder.properties(InferenceConstants.VECTOR_SPACES, b -> b.object(spaces -> {
-                for (var inferenceModelConfig : inferenceIndexConfig.getInferenceModelConfigs().entrySet()) {
-                    if (inferenceModelConfig.getValue().isEnabled()) {
-                        spaces.properties(inferenceModelConfig.getKey(), v -> v.nested(vb -> {
-                            vb.properties("id", p -> p.keyword(k -> k));
-                            vb.properties("vector", p -> p.denseVector(dv -> dv));
-                            vb.properties("metadata", p -> p.object(o -> o.enabled(false)));
-                            return vb;
-                        }));
-                    }
+        builder.properties(InferenceConstants.VECTOR_SPACES, b -> b.object(spaces -> {
+            for (var inferenceModelConfig : inferenceIndexConfig.getInferenceModelConfigs().entrySet()) {
+                if (inferenceModelConfig.getValue().isEnabled()) {
+                    spaces.properties(inferenceModelConfig.getKey(), v -> v.nested(vb -> {
+                        vb.properties("id", p -> p.keyword(k -> k));
+                        vb.properties("vector", p -> p.denseVector(dv -> dv));
+                        vb.properties("metadata", p -> p.object(o -> o.enabled(false)));
+                        return vb;
+                    }));
                 }
-                return spaces;
-            }));
-        }
+            }
+            return spaces;
+        }));
     }
 
     private static void mapInternalProperties(@NotNull TypeMapping.Builder builder) {

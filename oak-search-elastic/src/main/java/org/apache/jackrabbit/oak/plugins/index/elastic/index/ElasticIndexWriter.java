@@ -72,8 +72,9 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
         this.elasticConnection = elasticConnection;
         this.indexDefinition = indexDefinition;
         this.reindex = reindex;
-        //TODO Should this be under reindex block?
-        indexTracker.refreshInferenceConfig();
+        if (this.reindex) {
+            indexTracker.refreshInferenceConfig().refreshConfig();
+        }
         this.inferenceConfig = indexTracker.getInferenceConfig();
 
         // We don't use stored index definitions with elastic. Every time a new writer gets created we
@@ -145,7 +146,7 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
                        @NotNull ElasticIndexDefinition indexDefinition,
                        @NotNull ElasticBulkProcessorHandler bulkProcessorHandler,
                        boolean reindex) {
-        this(indexTracker, elasticConnection, indexDefinition, bulkProcessorHandler, false, null);
+        this(indexTracker, elasticConnection, indexDefinition, bulkProcessorHandler, false, InferenceConfig.NOOP);
     }
 
     @Override

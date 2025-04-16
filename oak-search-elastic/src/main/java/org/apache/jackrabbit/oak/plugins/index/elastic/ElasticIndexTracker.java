@@ -48,7 +48,7 @@ public class ElasticIndexTracker extends FulltextIndexTracker<ElasticIndexNodeMa
         // removing the check on :status reduces drastically the contention between queries (that need to acquire the
         // read lock) and updates (need to acquire the write lock).
         // Moreover, we don't check diffs in stored index definitions since are not created for elastic.
-        return  !IgnoreStatusDiff.equals(before, after);
+        return !IgnoreStatusDiff.equals(before, after);
     }
 
     @Override
@@ -73,8 +73,8 @@ public class ElasticIndexTracker extends FulltextIndexTracker<ElasticIndexNodeMa
         return inferenceConfig;
     }
 
-    public void refreshInferenceConfig() {
-        inferenceConfig.refreshConfig();
+    public InferenceConfig refreshInferenceConfig() {
+        return inferenceConfig.refreshConfig();
     }
 
     static class IgnoreStatusDiff extends EqualsDiff {

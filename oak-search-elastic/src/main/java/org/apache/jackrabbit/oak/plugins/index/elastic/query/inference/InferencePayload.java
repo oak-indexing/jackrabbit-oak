@@ -20,73 +20,27 @@ package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.jackrabbit.oak.api.PropertyState;
-import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.json.JsonUtils;
-import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Configuration for inference payload
+ * Configuration for inference payload. We support open-ai api standard
  */
 public class InferencePayload {
-    public static final String DEFAULT_INPUT_KEY = "inputKey";
-    public static final String INPUT_KEY = System.getProperty("org.apache.jackrabbit.oak.search.inference.payload.inputKey", DEFAULT_INPUT_KEY);
-    private static final Logger log = LoggerFactory.getLogger(InferencePayload.class);
+    private static final Logger LOG = LoggerFactory.getLogger(InferencePayload.class);
+    private static final ObjectMapper objectMapper = new ObjectMapper();
     private final Map<String, Object> inferencePayloadMap;
-    NodeBuilder inferencePayloadBuilder;
-    String textKeyValue;
-    boolean isValidInferencePayload = true;
-
+    private final String inputTextKey = "input";
 
     public InferencePayload(String inferenceModelName, NodeState nodeState) {
-//        inferencePayloadBuilder = new MemoryNodeBuilder(EmptyNodeState.EMPTY_NODE);
-//        copyFirstLevelNodeState(nodeState, inferencePayloadBuilder);
-//        if (nodeState.hasProperty(INPUT_KEY)) {
-//            if (nodeState.getProperty(INPUT_KEY).getType() == Type.STRING) {
-//                textKeyValue = nodeState.getProperty(INPUT_KEY).getValue(Type.STRING);
-//            } else if (nodeState.getProperty(INPUT_KEY).getType() == Type.STRINGS) {
-//                if (nodeState.getProperty(INPUT_KEY).count() == 1) {
-//                    textKeyValue = nodeState.getProperty(INPUT_KEY).getValue(Type.STRINGS).iterator().next();
-//                    inferencePayloadBuilder.setProperty(textKeyValue, List.of(), Type.STRINGS);
-//                } else {
-//                    isValidInferencePayload = false;
-//                    log.warn("Inference payload textKey property should be of type String, or String[] with only one value" +
-//                            " for modelConfig {}", inferenceModelName);
-//                }
-//            }
-//        } else {
-//            isValidInferencePayload = false;
-//            log.warn("Inference payload input property {} is missing for modelConfig {}", INPUT_KEY, inferenceModelName);
-//        }
-//        if (!INPUT_KEY.equals(textKeyValue)){
-//            inferencePayloadBuilder.removeProperty(INPUT_KEY);
-//        }
-
         inferencePayloadMap = JsonUtils.convertNodeStateToMap(nodeState, 0);
-        inferencePayloadMap.remove(INPUT_KEY);
-        textKeyValue = "input";
-
     }
-
-    public boolean isValidInferencePayload() {
-        return isValidInferencePayload;
-    }
-
-    private static void copyFirstLevelNodeState(NodeState source, NodeBuilder target) {
-        // Copy properties
-        for (PropertyState property : source.getProperties()) {
-            target.setProperty(property);
-        }
-    }
-
     /*
      * Get the inference payload as a json string
      *
@@ -97,53 +51,13 @@ public class InferencePayload {
 
         // This creates a shallow copy - only the map structure is cloned but values are still references
         Map<String, Object> inferencePayloadMapCopy = new HashMap<>(inferencePayloadMap);
-        inferencePayloadMapCopy.put(textKeyValue, List.of(text));
+        inferencePayloadMapCopy.put(inputTextKey, List.of(text));
 
-//        NodeBuilder inferencePayloadBuilder = new MemoryNodeBuilder(EmptyNodeState.EMPTY_NODE);
-//        copyFirstLevelNodeState(this.inferencePayloadBuilder.getNodeState(), inferencePayloadBuilder);
-//        if (Type.STRING.equals(Objects.requireNonNull(inferencePayloadBuilder.getProperty(textKeyValue)).getType())) {
-//            inferencePayloadBuilder.setProperty(textKeyValue, text, Type.STRING);
-//        } else {
-//            inferencePayloadBuilder.setProperty(textKeyValue, List.of(text), Type.STRINGS);
-//        }
-//
-//
-//
-//        NodeStateToMapConverter nodeStateToMapConverter = new NodeStateToMapConverter();
-//        Map<String, Object> inferencePayloadMap = nodeStateToMapConverter.convert(inferencePayloadBuilder.getNodeState());
-        ObjectMapper obj = new ObjectMapper();
         try {
-
-            return obj.writerWithDefaultPrettyPrinter().writeValueAsString(inferencePayloadMapCopy);
+            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(inferencePayloadMapCopy);
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }
-//        return inferencePayloadBuilder.getNodeState().toString();
     }
 
-    private static class NodeStateToMapConverter {
-
-        public static Map<String, Object> convert(NodeState nodeState) {
-            Map<String, Object> result = new HashMap<>();
-
-            // Add properties
-            for (PropertyState property : nodeState.getProperties()) {
-                if (property.isArray()) {
-                    result.put(property.getName(), property.getValue(Type.STRINGS));
-                } else {
-                    result.put(property.getName(), property.getValue(Type.STRING));
-                }
-            }
-
-            // Add child nodes recursively
-            Iterator<String> childNames = nodeState.getChildNodeNames().iterator();
-            while (childNames.hasNext()) {
-                String childName = childNames.next();
-                NodeState childNode = nodeState.getChildNode(childName);
-                result.put(childName, convert(childNode));
-            }
-
-            return result;
-        }
-    }
 } 

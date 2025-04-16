@@ -72,7 +72,7 @@ public class InferenceIntegrationTest {
         assertEquals("{\"enricher\": \"config\"}", indexConfig.getEnricherConfig());
 
         // Verify model config
-        InferenceModelConfig modelConfig = indexConfig.getDefaultModel();
+        InferenceModelConfig modelConfig = indexConfig.getDefaultEnabledModel();
         assertNotNull(modelConfig);
         assertTrue(modelConfig.isEnabled());
         assertTrue(modelConfig.isDefault());
@@ -108,7 +108,7 @@ public class InferenceIntegrationTest {
         InferenceIndexConfig indexConfig = inferenceConfig.getIndexConfigs().get("testIndex");
         
         assertEquals(2, indexConfig.getInferenceModelConfigs().size());
-        assertNotNull(indexConfig.getDefaultModel());
+        assertNotNull(indexConfig.getDefaultEnabledModel());
         assertEquals("model1", indexConfig.getInferenceModelConfigs()
             .entrySet()
             .stream()

@@ -59,7 +59,7 @@ class ElasticIndex extends FulltextIndex {
 
     @Override
     protected FulltextIndexPlanner getPlanner(IndexNode indexNode, String path, Filter filter, List<OrderEntry> sortOrder) {
-        return new ElasticIndexPlanner(indexNode, path, filter, sortOrder, inferenceConfig);
+        return new ElasticIndexPlanner(indexNode, path, filter, sortOrder);
     }
 
     @Override

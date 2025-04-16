@@ -20,11 +20,13 @@ package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 
 import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.json.JsonUtils;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Configuration for inference payload
@@ -33,16 +35,9 @@ public class InferenceHeaderPayload {
     private final Map<String, String> inferenceHeaderPayloadMap;
 
     public InferenceHeaderPayload(NodeState nodeState) {
-        inferenceHeaderPayloadMap = copyFirstLevelNodeState(nodeState);
-    }
-
-    private Map<String, String> copyFirstLevelNodeState(NodeState source) {
-        // Copy properties
-        Map<String, String> target = new HashMap<>();
-        for (PropertyState property : source.getProperties()) {
-            target.put(property.getName(), property.getValue(Type.STRING));
-        }
-        return Collections.unmodifiableMap(target);
+        inferenceHeaderPayloadMap = JsonUtils.convertNodeStateToMap(nodeState, 0)
+                .entrySet().stream().filter(entry -> entry.getValue() instanceof String)
+                .collect(HashMap::new, (map, entry) -> map.put(entry.getKey(), (String) entry.getValue()), HashMap::putAll);
     }
 
     /*

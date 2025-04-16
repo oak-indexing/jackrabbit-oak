@@ -30,6 +30,7 @@ import static org.apache.jackrabbit.oak.plugins.index.search.util.ConfigUtil.get
 
 /**
  * Configuration class for Inference Model settings.
+ * Currently only hybrid search is implemented
  */
 public class InferenceModelConfig {
     public static final InferenceModelConfig NOOP = new InferenceModelConfig();
@@ -38,7 +39,7 @@ public class InferenceModelConfig {
     public static final String SIMILARITY_THRESHOLD = "similarityThreshold";
     public static final String INFERENCE_PAYLOAD = "inferencePayload";
     // InferenceQueryConfig also uses InferenceModelConfig.TYPE so referencing
-    // it from InferenceQueryConfig itself.
+    // it from InferenceQueryConfig.
     public static final String TYPE = InferenceQueryConfig.TYPE;
     public static final String MIN_TERMS = "minTerms";
     public static final String IS_DEFAULT = "isDefault";
@@ -48,7 +49,6 @@ public class InferenceModelConfig {
     public static final String PREFIX = "prefix";
     private static final Logger log = LoggerFactory.getLogger(InferenceModelConfig.class);
     private static final String NUM_CANDIDATES = "numCandidates";
-    private static final String QUERY_TYPE = "queryType";
     private static final String CACHE_SIZE = "cacheSize";
 
     private final String model;
@@ -109,18 +109,10 @@ public class InferenceModelConfig {
         this.header = new InferenceHeaderPayload(nodeState.getChildNode(HEADER));
         this.payload = new InferencePayload(inferenceModelConfigName, nodeState.getChildNode(INFERENCE_PAYLOAD));
         this.type = TYPE;
-        if ( !payload.isValidInferencePayload()) {
-            log.warn("Invalid inference payload for modelConfig {}, force disabling this modelConfig", inferenceModelConfigName);
-            this.enabled = false;
-        }
-        else {
-            this.enabled = nodeState.getProperty(ENABLED).getValue(Type.BOOLEAN);
-        }
+        this.enabled = getOptionalValue(nodeState, ENABLED,false);
         this.timeout = getOptionalValue(nodeState, TIMEOUT, 5000L);
         this.prefix = getOptionalValue(nodeState, PREFIX, "?");
         this.numCandidates = getOptionalValue(nodeState, NUM_CANDIDATES, 100);
-        //TODO this should be part of InferenceQueryConfig
-        this.queryType = getOptionalValue(nodeState, QUERY_TYPE, "hybrid");
         this.cacheSize = getOptionalValue(nodeState, CACHE_SIZE, 100);
     }
 
@@ -181,26 +173,25 @@ public class InferenceModelConfig {
         return timeout;
     }
 
-
-    @Override
-    public String toString() {
-        return TYPE +"{" +
-                MODEL +"='" + model + '\'' +
-                ", "+ EMBEDDING_SERVICE_URL +"='" + embeddingServiceUrl + '\'' +
-                ", "+ SIMILARITY_THRESHOLD + similarityThreshold +
-                ", "+ MIN_TERMS +"=" + minTerms +
-                ", "+ IS_DEFAULT +"=" + isDefault +
-                ", "+ ENABLED +"=" + enabled +
-                ", "+ HEADER +"=" + header +
-                ", "+ INFERENCE_PAYLOAD +"=" + payload +
-                '}';
-    }
-
     public int getCacheSize() {
         return this.cacheSize;
     }
 
     public long getTimeoutMillis() {
         return this.timeout;
+    }
+
+    @Override
+    public String toString() {
+        return TYPE + "{" +
+                MODEL + "='" + model + '\'' +
+                ", " + EMBEDDING_SERVICE_URL + "='" + embeddingServiceUrl + '\'' +
+                ", " + SIMILARITY_THRESHOLD + similarityThreshold +
+                ", " + MIN_TERMS + "=" + minTerms +
+                ", " + IS_DEFAULT + "=" + isDefault +
+                ", " + ENABLED + "=" + enabled +
+                ", " + HEADER + "=" + header +
+                ", " + INFERENCE_PAYLOAD + "=" + payload +
+                '}';
     }
 }

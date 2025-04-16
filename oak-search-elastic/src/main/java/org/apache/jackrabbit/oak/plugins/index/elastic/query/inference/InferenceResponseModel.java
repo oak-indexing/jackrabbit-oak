@@ -3,6 +3,7 @@ package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
+// This response object maps to open-ai embeddings api response
 public class InferenceResponseModel {
 
     private String object;

@@ -34,15 +34,8 @@ import java.util.List;
 
 public class ElasticIndexPlanner extends FulltextIndexPlanner {
 
-    private final InferenceConfig inferenceConfig;
-
     public ElasticIndexPlanner(IndexNode indexNode, String indexPath, Filter filter, List<QueryIndex.OrderEntry> sortOrder) {
-        this(indexNode, indexPath, filter, sortOrder, InferenceConfig.NOOP);
-    }
-
-    public ElasticIndexPlanner(IndexNode indexNode, String indexPath, Filter filter, List<QueryIndex.OrderEntry> sortOrder, InferenceConfig inferenceConfig) {
         super(indexNode, indexPath, filter, sortOrder);
-        this.inferenceConfig = inferenceConfig;
     }
 
     /**
