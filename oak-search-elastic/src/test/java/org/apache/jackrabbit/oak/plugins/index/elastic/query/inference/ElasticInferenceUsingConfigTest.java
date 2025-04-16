@@ -176,7 +176,6 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
         // Add inference model1 configuration
         NodeBuilder inferenceModelConfig1 = inferenceIndexConfig.child(inferenceModelConfigName);
         inferenceModelConfig1.setProperty(InferenceConstants.TYPE, InferenceModelConfig.TYPE);
-//        inferenceModelConfig1.setProperty(INFERENCE_CONFIG_TYPE, InferenceConstants.INFERENCE_MODEL_CONFIG);
         inferenceModelConfig1.setProperty(InferenceModelConfig.MODEL, inferenceModelName);
         inferenceModelConfig1.setProperty(InferenceModelConfig.EMBEDDING_SERVICE_URL, embeddingServiceUrl);
         inferenceModelConfig1.setProperty(InferenceModelConfig.SIMILARITY_THRESHOLD, similarityThreshold);
@@ -354,7 +353,7 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
                             .willReturn(WireMock.ok()
                                     .withHeader("Content-Type", "application/json")
                                     .withBody("[]")
-                                    .withFixedDelay(2000)));
+                                    .withFixedDelay(6000)));
                 } else {
                     String json;
                     try {
@@ -379,42 +378,45 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
                 "what are the key algorithms used in machine learning", "/content/ml"
         );
 
+
         assertEventually(() -> {
 
             for (Map.Entry<String, String> entry : queryResults.entrySet()) {
+
                 String query = entry.getKey();
+
                 String expectedPath = entry.getValue();
                 String queryPath = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?"+queryConfigInQuery+"?" + query + "')";
-//                String queryPath = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?" + query + "')";
 
                 List<String> results = executeQuery(queryPath, SQL2, true, true);
                 assertEquals(expectedPath, results.get(0));
 
                 // test that the same query does not return any result when the inference service is not invoked (no prefix)
-//                String queryPath2 = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '" + query + "')";
-//                assertQuery(queryPath2, List.of());
+                String queryPath2 = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '" + query + "')";
+                assertQuery(queryPath2, List.of());
             }
-/*
+
             // test that a failure in the inference service does not prevent the query from returning results
-//            String queryPath3 = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?machine learning')";
             String queryPath3 = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?"+queryConfigInQuery+"?" + "machine learning')";
             assertQuery(queryPath3, List.of("/content/ml", "/content/programming"));
 
             // test that a delayed response from the inference service does not prevent the query from returning results
-            String queryPath4 = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, ''?"+queryConfigInQuery+"?" + "farming practices')";
+            String queryPath4 = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?"+queryConfigInQuery+"?" + "farming practices')";
             assertQuery(queryPath4, List.of("/content/farm"));
-            */
+
         });
 
-/*
+        ObjectNode carsDoc = getDocument(index, "/content/cars");
+        assertNotNull(carsDoc.get(InferenceConstants.VECTOR_SPACES));
         // let's check that inference data is not deleted when updating a document
         cars.setProperty("updatedBy", "John Doe");
         root.commit();
 
         assertEventually(() -> assertQuery("select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and updatedBy = 'John Doe'", List.of("/content/cars")));
 
-        ObjectNode carsDoc = getDocument(index, "/content/cars");
-        assertNotNull(carsDoc.get(ElasticIndexDefinition.INFERENCE));
-        */
+        ObjectNode carsDocUpdated = getDocument(index, "/content/cars");
+        //TODO should we delete VECTOR_SPACES from ES doc on each update?
+        assertNotNull(carsDocUpdated.get(InferenceConstants.VECTOR_SPACES));
+
     }
 }

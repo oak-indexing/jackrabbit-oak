@@ -1,11 +1,8 @@
 package org.apache.jackrabbit.oak.spi.query.fulltext;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.jackrabbit.oak.commons.json.JsonUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.Optional;
 
 public class InferenceQuery {
     private static final Logger LOG = LoggerFactory.getLogger(InferenceQuery.class);
@@ -18,20 +15,9 @@ public class InferenceQuery {
     private final String queryText;
 
     public InferenceQuery(String text) {
-        validateInputText(text);
         String[] components = parseText(text);
         this.queryInferenceConfig = components[0];
         this.queryText = components[1];
-    }
-
-    private void validateInputText(String text) {
-        if (StringUtils.isBlank(text)) {
-            throw new IllegalArgumentException("Input text cannot be null or empty");
-        }
-
-        if (!text.startsWith(INFERENCE_QUERY_CONFIG_PREFIX)) {
-            throw new IllegalArgumentException("Text must start with '?' delimiter");
-        }
     }
 
     private String[] parseText(String inputtext) {
