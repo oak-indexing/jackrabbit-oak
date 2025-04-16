@@ -1,6 +1,26 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package org.apache.jackrabbit.oak.spi.query.fulltext;
 
 import org.apache.jackrabbit.oak.json.JsonUtils;
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,7 +34,7 @@ public class InferenceQuery {
     private final String queryInferenceConfig;
     private final String queryText;
 
-    public InferenceQuery(String text) {
+    public InferenceQuery(@NotNull String text) {
         String[] components = parseText(text);
         this.queryInferenceConfig = components[0];
         this.queryText = components[1];
@@ -23,8 +43,8 @@ public class InferenceQuery {
     private String[] parseText(String inputtext) {
         String text = inputtext.trim();
         // Remove the first delimiter
-        if (text.startsWith(INFERENCE_QUERY_CONFIG_PREFIX) && text.charAt(1) == '{') {
-            text = text.substring(1);
+        if (text.startsWith(INFERENCE_QUERY_CONFIG_PREFIX) && text.charAt(INFERENCE_QUERY_CONFIG_PREFIX.length()) == '{') {
+            text = text.substring(INFERENCE_QUERY_CONFIG_PREFIX.length());
 
             // Try to find the end of the JSON part by parsing incrementally
             int possibleEndIndex = 0;
@@ -35,8 +55,14 @@ public class InferenceQuery {
             while (possibleEndIndex < text.length()) {
                 possibleEndIndex = text.indexOf(INFERENCE_QUERY_CONFIG_PREFIX, possibleEndIndex + 1);
                 if (possibleEndIndex == -1) {
-                    possibleEndIndex = 1;
-//                    LOG.warn("Could not find valid JSON part ending with '?'");
+                    // If we reach here, it means we couldn't find a valid JSON part
+                    //TODO check if we should use jsonPart as empty or null
+                    jsonPart = "";
+                    queryTextPart = text;
+                    LOG.warn("Query starts with inference prefix {}, but without valid json part," +
+                                    " if case this prefix is a valid fulltext query prefix, please update system property {} with different prefix value",
+                            INFERENCE_QUERY_CONFIG_PREFIX, INFERENCE_QUERY_CONFIG_PREFIX_KEY);
+                    break;
                 }
                 String candidateJson = text.substring(0, possibleEndIndex);
                 // Verify if this is valid JSON using Oak's JsopTokenizer
