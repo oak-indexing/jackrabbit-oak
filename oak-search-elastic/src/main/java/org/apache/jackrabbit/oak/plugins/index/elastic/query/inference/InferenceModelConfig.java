@@ -19,6 +19,8 @@
 package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 
 import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.spi.query.fulltext.InferenceQuery;
+import org.apache.jackrabbit.oak.spi.query.fulltext.InferenceQueryConfig;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,7 +37,9 @@ public class InferenceModelConfig {
     public static final String EMBEDDING_SERVICE_URL = "embeddingServiceUrl";
     public static final String SIMILARITY_THRESHOLD = "similarityThreshold";
     public static final String INFERENCE_PAYLOAD = "inferencePayload";
-    public static final String TYPE = "inferenceModelConfig";
+    // InferenceQueryConfig also uses InferenceModelConfig.TYPE so referencing
+    // it from InferenceQueryConfig itself.
+    public static final String TYPE = InferenceQueryConfig.TYPE;
     public static final String MIN_TERMS = "minTerms";
     public static final String IS_DEFAULT = "isDefault";
     public static final String ENABLED = "enabled";
