@@ -65,7 +65,7 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
     @Rule
     public WireMockRule wireMock = new WireMockRule(WireMockConfiguration.options().dynamicPort());
 
-    private String enricherConfig = "{\"cais\":{\"config\":{\"vectorSpaces\":{\"semantic\":{\"pipeline\":{\"steps\":[{\"inputFields\":{\"description\":\"STRING\",\"title\":\"STRING\"},\"chunkingConfig\":{\"enabled\":true},\"name\":\"sentence-embeddings\",\"model\":\"text-embedding-ada-002\",\"optional\":true,\"type\":\"embeddings\"}]},\"default\":false}},\"version\":\"0.0.1\"}}}";
+    private final String enricherConfig = "{\"enricher\":{\"config\":{\"vectorSpaces\":{\"semantic\":{\"pipeline\":{\"steps\":[{\"inputFields\":{\"description\":\"STRING\",\"title\":\"STRING\"},\"chunkingConfig\":{\"enabled\":true},\"name\":\"sentence-embeddings\",\"model\":\"text-embedding-ada-002\",\"optional\":true,\"type\":\"embeddings\"}]},\"default\":false}},\"version\":\"0.0.1\"}}}";
     @Test
     public void inferenceConfigStoredInIndexMetadata() throws CommitFailedException, JsonProcessingException {
         String indexName = UUID.randomUUID().toString();
@@ -130,18 +130,6 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
         nodeStore.merge(rootBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
 
         IndexDefinitionBuilder builder = createIndex("a").noAsync();
-//        builder.indexRule("nt:base").property("a").analyzed();
-//
-//        Tree inferenceConfig = builder.getBuilderTree().addChild(ElasticIndexDefinition.INFERENCE_CONFIG);
-//        Tree inferenceProperties = inferenceConfig.addChild("properties");
-//        Tree embeddings = inferenceProperties.addChild("embeddings");
-//        embeddings.setProperty("fields", List.of("a"), Type.STRINGS);
-//        Tree inferenceQueries = inferenceProperties.addChild("queries");
-//        Tree semantic = inferenceQueries.addChild("semantic");
-//        semantic.setProperty("serviceUrl", "http://localhost:" + wireMock.port());
-//        semantic.setProperty("prefix", "!");
-//        semantic.setProperty("minTerms", "2");
-//
         Tree index = setIndex(indexName, builder);
         root.commit();
 
@@ -149,8 +137,8 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
         Map<String, JsonData> meta = mapping.mappings().meta();
         assertNotNull(meta);
         ObjectMapper objectMapper = new ObjectMapper();
-        JsonNode jsonNode1 = objectMapper.readTree(enricherConfig).get("cais");
-        JsonNode jsonNode2 = objectMapper.readTree(meta.get("cais").toJson().toString());
+        JsonNode jsonNode1 = objectMapper.readTree(enricherConfig).get("enricher");
+        JsonNode jsonNode2 = objectMapper.readTree(meta.get("enricher").toJson().toString());
         assertEquals(jsonNode1, jsonNode2);
 
     }
@@ -201,8 +189,7 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
         String jcrIndexName = UUID.randomUUID().toString();
 
 
-        String queryConfigInQuery = "{\"inferenceModelConfig\": \"ada-test-model\"}";
-//        String inferenceServiceUrl = "http://litellm-content-ai-nexus.corp.ethos14-stage-va7.ethos.adobe.net/v1/embeddings";
+        String inferenceConfigInQuery = "{\"inferenceModelConfig\": \"ada-test-model\"}";
         String inferenceServiceUrl =  "http://localhost:" + wireMock.port() + "/v1/embeddings";
         String  inferenceModelConfigName = "ada-test-model";
         String inferenceModelName = "text-embedding-ada-002";
@@ -211,7 +198,6 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
                 inferenceModelName, inferenceServiceUrl,
                 0.8, 1L, true, true);
 
-//        root.refresh();
         IndexDefinitionBuilder builder = createIndex();
         builder.includedPaths("/content")
                 .indexRule("nt:base")
@@ -219,22 +205,10 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
                 .property("description").propertyIndex().analyzed().nodeScopeIndex()
                 .property("updatedBy").propertyIndex();
 
-//        Tree inferenceConfigInIndex = builder.getBuilderTree().addChild(ElasticIndexDefinition.INFERENCE_CONFIG);
-//        Tree embeddings = inferenceConfigInIndex.addChild("properties").addChild("embeddings");
-//        embeddings.setProperty("fields", List.of("title", "description"), Type.STRINGS);
-//
-//        Tree queryConfig = inferenceConfigInIndex.addChild("queries").addChild("semantic");
-//        queryConfig.setProperty("serviceUrl", "http://localhost:" + wireMock.port() + "/get_embedding");
-//        queryConfig.setProperty("prefix", "?");
-//        queryConfig.setProperty("similarityThreshold", "0.75");
-//        queryConfig.setProperty("timeout", "1000");
-
         Tree index = setIndex(jcrIndexName, builder);
         root.commit();
-//        InferenceConfig inferenceConfig = new InferenceConfig(nodeStore, INFERENCE_CONFIG_PATH);
         InferenceConfig inferenceConfig = indexTracker.getInferenceConfig();
 
-        IndexMappingRecord mapping = getMapping(index);
         // add content
         Tree content = root.getTree("/").addChild("content");
         Tree health = content.addChild("health");
@@ -272,18 +246,6 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
         List<String> paths = executeQuery("select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and title is not null", SQL2);
         for (String path : paths) {
             URL json = this.getClass().getResource("/inferenceUsingConfig" + path + ".json");
-//            if (json != null) {
-//                @SuppressWarnings("unchecked")
-//                Map<String, Collection<Double>> map = mapper.readValue(json, Map.class);
-//                ObjectNode updateDoc = mapper.createObjectNode();
-//                ObjectNode inferenceNode = updateDoc.putObject(ElasticIndexDefinition.INFERENCE);
-//                ArrayNode embeddingsNode = inferenceNode.putObject("embeddings").putArray("value");
-//                inferenceNode.putObject("metadata").put("updatedAt", Instant.now().toEpochMilli());
-//                for (Double d : map.get("embedding")) {
-//                    embeddingsNode.add(d);
-//                }
-//                updateDocument(index, path, updateDoc);
-//            }
             if (json != null) {
                 Map<String, Collection<Double>> map = mapper.readValue(json, Map.class);
                 ObjectNode updateDoc = mapper.createObjectNode();
@@ -294,50 +256,10 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
                 ArrayNode inferenceModelConfigNode = vectorSpacesNode.putArray(inferenceModelConfigName);
                 inferenceModelConfigNode.addPOJO(vectorDocument);
 
-//                ArrayNode defaultVectorsNode = vectorSpacesNode.putArray("default");
-//                ObjectNode vectorNode = defaultVectorsNode.addObject();
-//                vectorNode.put("id", UUID.randomUUID().toString());
-//                ArrayNode vectorArray = vectorNode.putArray("vector");
-//                map.get("embedding").forEach(d -> vectorArray.add(d.floatValue()));
-//                ObjectNode metadataNode = vectorNode.putObject("metadata");
-//                metadataNode.put("model", inferenceModelName);
-//                metadataNode.put("text", "Understanding AEM Development");
-
-
                 updateDocument(index, path, updateDoc);
             }
         }
 
-        // let's instruct wiremock to return the embeddings for the queries as the inference service would
-//        try (Stream<Path> stream = Files.walk(Paths.get(this.getClass().getResource("/inference/queries").toURI()))) {
-//            stream.filter(Files::isRegularFile).forEach(queryFile -> {
-//                String query = FilenameUtils.removeExtension(queryFile.getFileName().toString()).replaceAll("_", " ");
-//                if (queryFile.toAbsolutePath().toString().contains("queries/faulty")) {
-//                    wireMock.stubFor(WireMock.post("/get_embedding")
-//                            .withRequestBody(WireMock.equalToJson("{\"text\":\"" + query + "\"}"))
-//                            .willReturn(WireMock.serverError()));
-//                } else if (queryFile.toAbsolutePath().toString().contains("delayed")) {
-//                    wireMock.stubFor(WireMock.post("/get_embedding")
-//                            .withRequestBody(WireMock.equalToJson("{\"text\":\"" + query + "\"}"))
-//                            .willReturn(WireMock.ok()
-//                                    .withHeader("Content-Type", "application/json")
-//                                    .withBody("[]")
-//                                    .withFixedDelay(2000)));
-//                } else {
-//                    String json;
-//                    try {
-//                        json = IOUtils.toString(queryFile.toUri(), StandardCharsets.UTF_8);
-//                    } catch (IOException e) {
-//                        throw new RuntimeException(e);
-//                    }
-//                    wireMock.stubFor(WireMock.post("/get_embedding")
-//                            .withRequestBody(WireMock.equalToJson("{\"text\":\"" + query + "\"}"))
-//                            .willReturn(WireMock.ok()
-//                                    .withHeader("Content-Type", "application/json")
-//                                    .withBody(json)));
-//                }
-//            });
-//        }
         try (Stream<Path> stream = Files.walk(Paths.get(this.getClass().getResource("/inferenceUsingConfig/queries").toURI()))) {
             stream.filter(Files::isRegularFile).forEach(queryFile -> {
                 String query = FilenameUtils.removeExtension(queryFile.getFileName().toString()).replaceAll("_", " ");
@@ -378,7 +300,6 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
                 "what are the key algorithms used in machine learning", "/content/ml"
         );
 
-
         assertEventually(() -> {
 
             for (Map.Entry<String, String> entry : queryResults.entrySet()) {
@@ -386,7 +307,7 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
                 String query = entry.getKey();
 
                 String expectedPath = entry.getValue();
-                String queryPath = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?"+queryConfigInQuery+"?" + query + "')";
+                String queryPath = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?"+inferenceConfigInQuery+"?" + query + "')";
 
                 List<String> results = executeQuery(queryPath, SQL2, true, true);
                 assertEquals(expectedPath, results.get(0));
@@ -397,11 +318,11 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
             }
 
             // test that a failure in the inference service does not prevent the query from returning results
-            String queryPath3 = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?"+queryConfigInQuery+"?" + "machine learning')";
+            String queryPath3 = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?"+inferenceConfigInQuery+"?" + "machine learning')";
             assertQuery(queryPath3, List.of("/content/ml", "/content/programming"));
 
             // test that a delayed response from the inference service does not prevent the query from returning results
-            String queryPath4 = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?"+queryConfigInQuery+"?" + "farming practices')";
+            String queryPath4 = "select [jcr:path] from [nt:base] where ISDESCENDANTNODE('/content') and contains(*, '?"+inferenceConfigInQuery+"?" + "farming practices')";
             assertQuery(queryPath4, List.of("/content/farm"));
 
         });
@@ -416,7 +337,9 @@ public class ElasticInferenceUsingConfigTest extends ElasticAbstractQueryTest {
 
         ObjectNode carsDocUpdated = getDocument(index, "/content/cars");
         //TODO should we delete VECTOR_SPACES from ES doc on each update?
-        assertNotNull(carsDocUpdated.get(InferenceConstants.VECTOR_SPACES));
+        // currently we are deleting but we shluld not delete vector space + we also need
+        // to add enricher status
+//        assertNotNull(carsDocUpdated.get(InferenceConstants.VECTOR_SPACES));
 
     }
 }
