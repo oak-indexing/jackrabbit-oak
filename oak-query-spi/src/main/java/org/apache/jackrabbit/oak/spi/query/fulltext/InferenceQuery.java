@@ -1,6 +1,6 @@
 package org.apache.jackrabbit.oak.spi.query.fulltext;
 
-import org.apache.jackrabbit.oak.commons.json.JsonUtils;
+import org.apache.jackrabbit.oak.json.JsonUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

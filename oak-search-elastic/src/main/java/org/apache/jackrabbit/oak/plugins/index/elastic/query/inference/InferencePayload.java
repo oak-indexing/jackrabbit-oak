@@ -19,32 +19,19 @@
 package org.apache.jackrabbit.oak.plugins.index.elastic.query.inference;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.json.JsonObjectBuilder;
-import org.apache.jackrabbit.commons.json.JsonParser;
 import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.api.Type;
-import org.apache.jackrabbit.oak.commons.json.JsonObject;
-import org.apache.jackrabbit.oak.commons.json.JsopBuilder;
-import org.apache.jackrabbit.oak.json.Base64BlobSerializer;
-import org.apache.jackrabbit.oak.json.JsonSerializer;
-import org.apache.jackrabbit.oak.plugins.index.elastic.util.JsonUtil;
-import org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState;
-import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeBuilder;
+import org.apache.jackrabbit.oak.json.JsonUtils;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
-import org.apache.jackrabbit.oak.spi.state.NodeStateUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.StringWriter;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * Configuration for inference payload
@@ -83,7 +70,7 @@ public class InferencePayload {
 //            inferencePayloadBuilder.removeProperty(INPUT_KEY);
 //        }
 
-        inferencePayloadMap = JsonUtil.convertNodeStateToMap(nodeState, 1,0);
+        inferencePayloadMap = JsonUtils.convertNodeStateToMap(nodeState, 0);
         inferencePayloadMap.remove(INPUT_KEY);
         textKeyValue = "input";
 
@@ -100,9 +87,9 @@ public class InferencePayload {
         }
     }
 
-    /* 
+    /*
      * Get the inference payload as a json string
-     * 
+     *
      * @param text
      * @return
      */
