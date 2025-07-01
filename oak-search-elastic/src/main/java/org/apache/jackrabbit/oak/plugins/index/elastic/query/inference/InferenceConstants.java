@@ -25,7 +25,7 @@ public interface InferenceConstants {
     String DEFAULT_OAK_INDEX_INFERENCE_CONFIG_PATH = "/oak:index/:inferenceConfig";
     String VECTOR_SPACES = ":vectorSpaces";
     String VECTOR = "vector";
-    String ENRICH_NODE = ":enrich";
+    String ENRICH_NODE = "enrich";
     String ENRICHER_STATUS_DATA = "enricherStatusData";
     String ENRICHER_STATUS_MAPPING = "enricherStatusMapping";
     String DEFAULT_ENVIRONMENT_VARIABLE_PREFIX = "$";
