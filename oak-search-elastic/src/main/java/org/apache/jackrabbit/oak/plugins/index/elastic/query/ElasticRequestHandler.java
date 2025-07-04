@@ -638,7 +638,8 @@ public class ElasticRequestHandler {
                     queryText = vectorQuery.getQueryText();
                     VectorQueryConfig vectorQueryConfig = new VectorQueryConfig(queryConfig);
                     String inferenceModelConfig = InferenceConfig.getInstance().getInferenceModelConfig(indexName, vectorQueryConfig.getInferenceModelConfig()).getInferenceModelConfigName();
-
+                    // finalize whether we should rerank for semantic queries.
+                    indexPlan.getFilter().setShouldRerank(vectorQueryConfig.shouldRerank());
                     if (indexPlan.getFilter().getQueryLimits().isInferenceEnabled() && InferenceConfig.getInstance().isEnabled()
                             && !InferenceModelConfig.NOOP.equals(InferenceConfig.getInstance().getInferenceModelConfig(indexName, inferenceModelConfig))) {
 

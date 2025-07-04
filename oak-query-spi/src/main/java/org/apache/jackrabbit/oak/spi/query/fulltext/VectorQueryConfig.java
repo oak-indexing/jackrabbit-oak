@@ -29,6 +29,8 @@ public class VectorQueryConfig {
     @Nullable
     private final String inferenceModelConfig;
 
+    private boolean shouldRerank = false;
+
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
     public VectorQueryConfig(@NotNull String queryConfig) {
@@ -40,7 +42,8 @@ public class VectorQueryConfig {
         } else {
             try {
                 JsonNode jsonNode1 = objectMapper.readTree(queryConfig);
-                inferenceModelConfig = jsonNode1.get(TYPE).asText();
+                inferenceModelConfig = jsonNode1.has(TYPE) ? jsonNode1.get(TYPE).asText(): "";
+                shouldRerank = jsonNode1.has("shouldRerank") && jsonNode1.get("shouldRerank").asBoolean();
             } catch (JsonProcessingException e) {
                 throw new RuntimeException("Error parsing inference query config: "+ queryConfig  + "error message: " + e.getMessage());
             }
@@ -49,5 +52,9 @@ public class VectorQueryConfig {
 
     public @Nullable String getInferenceModelConfig() {
         return inferenceModelConfig;
+    }
+
+    public boolean shouldRerank () {
+        return shouldRerank;
     }
 }

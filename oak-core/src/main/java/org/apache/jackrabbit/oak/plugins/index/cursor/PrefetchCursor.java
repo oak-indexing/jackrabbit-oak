@@ -28,6 +28,8 @@ import java.util.regex.PatternSyntaxException;
 
 import org.apache.jackrabbit.oak.api.Result.SizePrecision;
 import org.apache.jackrabbit.oak.commons.PathUtils;
+import org.apache.jackrabbit.oak.query.QueryImpl;
+import org.apache.jackrabbit.oak.query.ast.RerankService;
 import org.apache.jackrabbit.oak.spi.query.Cursor;
 import org.apache.jackrabbit.oak.spi.query.IndexRow;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
@@ -50,8 +52,10 @@ public class PrefetchCursor extends AbstractCursor {
     private final PrefetchNodeStore store;
     private final int prefetchCount;
     private final NodeState rootState;
+    private final boolean shouldRerank;
     private Iterator<IndexRow> prefetched;
     private final List<String> prefetchRelative;
+    private final QueryImpl query;
 
     PrefetchCursor(Cursor cursor, PrefetchNodeStore store, int prefetchCount, NodeState rootState, List<String> prefetchRelative) {
         this.cursor = cursor;
@@ -60,6 +64,19 @@ public class PrefetchCursor extends AbstractCursor {
         this.rootState = rootState;
         this.prefetched = Collections.emptyIterator();
         this.prefetchRelative = prefetchRelative;
+        this.query = null;
+        this.shouldRerank = false;
+    }
+
+    PrefetchCursor(Cursor cursor, PrefetchNodeStore store, int prefetchCount, NodeState rootState, List<String> prefetchRelative, QueryImpl query, boolean shouldRerank) {
+        this.cursor = cursor;
+        this.store = store;
+        this.prefetchCount = prefetchCount;
+        this.rootState = rootState;
+        this.prefetched = Collections.emptyIterator();
+        this.prefetchRelative = prefetchRelative;
+        this.query = query;
+        this.shouldRerank = shouldRerank;
     }
 
     @Override
@@ -89,6 +106,11 @@ public class PrefetchCursor extends AbstractCursor {
                     p = PathUtils.getParentPath(p);
                 } while (!PathUtils.denotesRoot(p));
             }
+            if (shouldRerank) {
+                String userId = query.getExecutionContext().getRoot().getContentSession().getAuthInfo().getUserID();
+                rows = RerankService.reRank(userId, rows);
+            }
+
             store.prefetch(paths, rootState);
             prefetched = rows.iterator();
         }

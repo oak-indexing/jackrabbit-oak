@@ -109,6 +109,8 @@ public class FilterImpl implements Filter {
      */
     private boolean preparing;
 
+    private boolean shouldRerank = false;
+
     // TODO support "order by"
 
     /**
@@ -260,6 +262,16 @@ public class FilterImpl implements Filter {
     @Override
     public boolean isInferenceEnabled() {
         return getQueryLimits().isInferenceEnabled();
+    }
+
+    @Override
+    public void setShouldRerank(boolean shouldRerank) {
+         this.shouldRerank = shouldRerank;
+    }
+
+    @Override
+    public boolean shouldrerank(){
+        return this.shouldRerank;
     }
 
     public SelectorImpl getSelector() {

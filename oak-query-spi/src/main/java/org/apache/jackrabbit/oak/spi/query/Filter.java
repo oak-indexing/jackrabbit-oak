@@ -187,6 +187,11 @@ public interface Filter {
         return false;
     }
 
+    default boolean shouldrerank() {
+        return false;
+    }
+    default void setShouldRerank(boolean shouldRerank) {}
+
     /**
      * A restriction for a property.
      */

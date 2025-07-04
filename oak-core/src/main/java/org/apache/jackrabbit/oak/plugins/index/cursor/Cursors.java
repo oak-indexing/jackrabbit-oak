@@ -19,6 +19,7 @@ package org.apache.jackrabbit.oak.plugins.index.cursor;
 import java.util.List;
 
 import org.apache.jackrabbit.oak.query.FilterIterators;
+import org.apache.jackrabbit.oak.query.QueryImpl;
 import org.apache.jackrabbit.oak.spi.query.Cursor;
 import org.apache.jackrabbit.oak.spi.query.Filter;
 import org.apache.jackrabbit.oak.spi.query.QueryLimits;
@@ -56,6 +57,10 @@ public class Cursors {
     public static Cursor newPrefetchCursor(Cursor cursor, PrefetchNodeStore store, int prefetchCount,
             NodeState rootState, List<String> prefetchRelative) {
         return new PrefetchCursor(cursor, store, prefetchCount, rootState, prefetchRelative);
+    }
+
+    public static Cursor newPrefetchCursor(Cursor cursor, PrefetchNodeStore store, int prefetchCount, NodeState rootState, List<String> prefetch, QueryImpl query, boolean shouldRerank) {
+        return new PrefetchCursor(cursor, store, prefetchCount, rootState, prefetch, query, shouldRerank);
     }
 
     /**

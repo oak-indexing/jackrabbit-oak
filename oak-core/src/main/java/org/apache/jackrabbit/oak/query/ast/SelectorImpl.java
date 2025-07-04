@@ -367,10 +367,12 @@ public class SelectorImpl extends SourceImpl {
         }
         int prefetchCount = query.getQueryOptions().prefetchCount.
                 orElse(query.getExecutionContext().getSettings().getPrefetchCount());
+        // hack reranking works with prefetch
+        prefetchCount = 100;
         if (prefetchCount > 0) {
             PrefetchNodeStore store = query.getExecutionContext().getPrefetchNodeStore();
             cursor = Cursors.newPrefetchCursor(cursor, store, prefetchCount,
-                    rootState, query.getQueryOptions().prefetch);
+                    rootState, query.getQueryOptions().prefetch, query, plan.getIndexPlan().getFilter().shouldrerank());
         }
     }
 
