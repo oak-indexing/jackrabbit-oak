@@ -18,6 +18,7 @@
  */
 package org.apache.jackrabbit.oak.query.ast;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -35,11 +36,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Service for reranking search results using Metarank.
@@ -56,12 +53,12 @@ public class RerankService {
     // Configurable Metarank endpoint
     private static String METARANK_ENDPOINT = System.getProperty(
         "org.apache.jackrabbit.oak.plugins.index.elastic.metarank.endpoint",
-        "http://localhost:8080/rank");
+        "http://localhost:8080/rank/xgboost");
 
     // Configurable Metarank model name
-    private static String METARANK_MODEL = System.getProperty(
-        "org.apache.jackrabbit.oak.plugins.index.elastic.metarank.model",
-        "default");
+//    private static String METARANK_MODEL = System.getProperty(
+//        "org.apache.jackrabbit.oak.plugins.index.elastic.metarank.model",
+//        "xgboost");
 
     // Configurable timeout for Metarank API calls in milliseconds
     private static long METARANK_TIMEOUT_MS = Long.parseLong(System.getProperty(
@@ -141,32 +138,51 @@ public class RerankService {
      */
     private static ObjectNode createMetarankRequest(String userId, List<IndexRow> items) {
         ObjectNode requestBody = OBJECT_MAPPER.createObjectNode();
+//
+//        // Set the model to use for reranking
+//        requestBody.put("model", METARANK_MODEL);
+//
+//        // Create the items array
+//        ArrayNode itemsArray = requestBody.putArray("items");
+//        itemsArray.addObject()
+//            .put("userId", userId);
+//
+//        // Add each item to the request
+//        for (int i = 0; i < items.size(); i++) {
+//            IndexRow row = items.get(i);
+//            ObjectNode item = itemsArray.addObject();
+//            item.put("id", row.getPath());
+//
+//            // Get score if available
+//            PropertyValue scoreValue = row.getValue(QueryConstants.JCR_SCORE);
+//            double score = scoreValue != null ? Double.parseDouble(scoreValue.getValue(org.apache.jackrabbit.oak.api.Type.STRING)) : 1.0;
+//            item.put("score", score);
+//
+//            // Add excerpts as features if available
+//            PropertyValue excerptValue = row.getValue(QueryConstants.REP_EXCERPT);
+//            if (excerptValue != null) {
+//                ObjectNode features = item.putObject("features");
+//                features.put("excerpt", excerptValue.getValue(org.apache.jackrabbit.oak.api.Type.STRING));
+//            }
+//        }
 
-        // Set the model to use for reranking
-        requestBody.put("model", METARANK_MODEL);
+        // Set event type
+        requestBody.put("event", "ranking");
 
-        // Create the items array
+        // Add a unique ID (UUID) for the ranking event
+        requestBody.put("id", UUID.randomUUID().toString());
+
+        // Add current timestamp in milliseconds
+        requestBody.put("timestamp", String.valueOf(System.currentTimeMillis()));
+
+        // Add user ID
+        requestBody.put("user", userId);
+
+        // Add items array
         ArrayNode itemsArray = requestBody.putArray("items");
-        itemsArray.addObject()
-            .put("userId", userId);
-
-        // Add each item to the request
-        for (int i = 0; i < items.size(); i++) {
-            IndexRow row = items.get(i);
+        for (IndexRow row : items) {
             ObjectNode item = itemsArray.addObject();
-            item.put("id", row.getPath());
-
-            // Get score if available
-            PropertyValue scoreValue = row.getValue(QueryConstants.JCR_SCORE);
-            double score = scoreValue != null ? Double.parseDouble(scoreValue.getValue(org.apache.jackrabbit.oak.api.Type.STRING)) : 1.0;
-            item.put("score", score);
-
-            // Add excerpts as features if available
-            PropertyValue excerptValue = row.getValue(QueryConstants.REP_EXCERPT);
-            if (excerptValue != null) {
-                ObjectNode features = item.putObject("features");
-                features.put("excerpt", excerptValue.getValue(org.apache.jackrabbit.oak.api.Type.STRING));
-            }
+            item.put("id", row.getPath());  // assumes getPath() gives the unique content id
         }
 
         return requestBody;
@@ -179,9 +195,52 @@ public class RerankService {
      * @param originalItems The original list of search results
      * @return A list of reranked search results
      */
+//    private static List<IndexRow> processMetarankResponse(String responseBody, List<IndexRow> originalItems) {
+//        try {
+//            // Parse the response
+//            ObjectNode responseJson = (ObjectNode) OBJECT_MAPPER.readTree(responseBody);
+//            ArrayNode rankedItems = (ArrayNode) responseJson.get("items");
+//
+//            if (rankedItems == null || rankedItems.size() == 0) {
+//                LOG.warn("Metarank returned empty or invalid response: {}", responseBody);
+//                return originalItems;
+//            }
+//
+//            // Create a map of path to new score
+//            Map<String, Double> newScores = new HashMap<>();
+//            for (int i = 0; i < rankedItems.size(); i++) {
+//                ObjectNode item = (ObjectNode) rankedItems.get(i);
+//                String id = item.get("id").asText();
+//                double score = item.get("score").asDouble();
+//                newScores.put(id, score);
+//            }
+//
+//            // Update scores and sort items
+//            List<IndexRow> rerankedItems = new ArrayList<>(originalItems.size());
+//
+//            // For each original item, create a new one with the updated score
+//            for (IndexRow originalRow : originalItems) {
+//                Double newScore = newScores.getOrDefault(originalRow.getPath(), 1.0);
+//                // Create a new IndexRow with the updated score but keep all other properties the same
+//                IndexRow newRow = new RerankedIndexRow(originalRow, newScore);
+//                rerankedItems.add(newRow);
+//            }
+//
+//            // Sort by score in descending order
+//            rerankedItems.sort(Comparator.comparing((IndexRow row) -> {
+//                PropertyValue scoreValue = row.getValue(QueryConstants.JCR_SCORE);
+//                return scoreValue != null ? Double.parseDouble(scoreValue.getValue(org.apache.jackrabbit.oak.api.Type.STRING)) : 0.0;
+//            }).reversed());
+//
+//            return rerankedItems;
+//        } catch (Exception e) {
+//            LOG.error("Failed to process Metarank response", e);
+//            return originalItems; // Return original items if processing failed
+//        }
+//    }
+
     private static List<IndexRow> processMetarankResponse(String responseBody, List<IndexRow> originalItems) {
         try {
-            // Parse the response
             ObjectNode responseJson = (ObjectNode) OBJECT_MAPPER.readTree(responseBody);
             ArrayNode rankedItems = (ArrayNode) responseJson.get("items");
 
@@ -190,38 +249,48 @@ public class RerankService {
                 return originalItems;
             }
 
-            // Create a map of path to new score
-            Map<String, Double> newScores = new HashMap<>();
-            for (int i = 0; i < rankedItems.size(); i++) {
-                ObjectNode item = (ObjectNode) rankedItems.get(i);
-                String id = item.get("id").asText();
-                double score = item.get("score").asDouble();
-                newScores.put(id, score);
+            //  Extract reranked items with score > 0.0
+            LinkedHashMap<String, Double> rerankedScores = new LinkedHashMap<>();
+            for (JsonNode itemNode : rankedItems) {
+                String id = itemNode.get("item").asText();
+                double score = itemNode.get("score").asDouble();
+                if (score > 0.0) {
+                    rerankedScores.put(id, score); // maintain order
+                }
             }
 
-            // Update scores and sort items
-            List<IndexRow> rerankedItems = new ArrayList<>(originalItems.size());
-
-            // For each original item, create a new one with the updated score
-            for (IndexRow originalRow : originalItems) {
-                Double newScore = newScores.getOrDefault(originalRow.getPath(), 1.0);
-                // Create a new IndexRow with the updated score but keep all other properties the same
-                IndexRow newRow = new RerankedIndexRow(originalRow, newScore);
-                rerankedItems.add(newRow);
+            //  map from path to original item
+            Map<String, IndexRow> originalMap = new HashMap<>();
+            for (IndexRow row : originalItems) {
+                originalMap.put(row.getPath(), row);
             }
 
-            // Sort by score in descending order
-            rerankedItems.sort(Comparator.comparing((IndexRow row) -> {
-                PropertyValue scoreValue = row.getValue(QueryConstants.JCR_SCORE);
-                return scoreValue != null ? Double.parseDouble(scoreValue.getValue(org.apache.jackrabbit.oak.api.Type.STRING)) : 0.0;
-            }).reversed());
+            //  Add reranked items to final list first
+            List<IndexRow> finalList = new ArrayList<>();
+            Set<String> rerankedIds = new HashSet<>();
+            for (String id : rerankedScores.keySet()) {
+                IndexRow originalRow = originalMap.get(id);
+                if (originalRow != null) {
+                    finalList.add(originalRow);
+                    rerankedIds.add(id);
+                }
+            }
 
-            return rerankedItems;
+            //  Add original items that were not reranked (or scored 0)
+            for (IndexRow row : originalItems) {
+                if (!rerankedIds.contains(row.getPath())) {
+                    finalList.add(row);
+                }
+            }
+
+            return finalList;
+
         } catch (Exception e) {
             LOG.error("Failed to process Metarank response", e);
-            return originalItems; // Return original items if processing failed
+            return originalItems;
         }
     }
+
 
     /**
      * A simple implementation of IndexRow that wraps another IndexRow but with a different score.
