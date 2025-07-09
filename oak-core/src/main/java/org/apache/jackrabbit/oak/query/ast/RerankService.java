@@ -22,6 +22,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.apache.http.HttpEntity;
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.util.EntityUtils;
 import org.apache.jackrabbit.oak.api.PropertyValue;
 import org.apache.jackrabbit.oak.plugins.memory.PropertyValues;
 import org.apache.jackrabbit.oak.spi.query.Cursor;
@@ -31,11 +39,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /**
@@ -46,19 +50,17 @@ import java.util.*;
 public class RerankService {
     private static final Logger LOG = LoggerFactory.getLogger(RerankService.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
-        .connectTimeout(Duration.ofSeconds(5))
+    private static final CloseableHttpClient HTTP_CLIENT = HttpClients.custom()
+        .setDefaultRequestConfig(RequestConfig.custom()
+            .setConnectTimeout(5000)
+            .setSocketTimeout(5000)
+            .build())
         .build();
 
     // Configurable Metarank endpoint
     private static String METARANK_ENDPOINT = System.getProperty(
         "org.apache.jackrabbit.oak.plugins.index.elastic.metarank.endpoint",
         "http://localhost:8080/rank/xgboost");
-
-    // Configurable Metarank model name
-//    private static String METARANK_MODEL = System.getProperty(
-//        "org.apache.jackrabbit.oak.plugins.index.elastic.metarank.model",
-//        "xgboost");
 
     // Configurable timeout for Metarank API calls in milliseconds
     private static long METARANK_TIMEOUT_MS = Long.parseLong(System.getProperty(
@@ -104,28 +106,33 @@ public class RerankService {
             // Create the request payload for Metarank
             ObjectNode requestBody = createMetarankRequest(userId, items);
 
-            // Call Metarank API
-            HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(METARANK_ENDPOINT))
-                .timeout(Duration.ofMillis(METARANK_TIMEOUT_MS))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
+            // Call Metarank API using Apache HttpClient
+            HttpPost httpPost = new HttpPost(METARANK_ENDPOINT);
+            httpPost.setHeader("Content-Type", "application/json");
+            httpPost.setEntity(new StringEntity(requestBody.toString(), StandardCharsets.UTF_8));
+            
+            // Set request timeout
+            RequestConfig requestConfig = RequestConfig.custom()
+                .setSocketTimeout((int) METARANK_TIMEOUT_MS)
+                .setConnectTimeout((int) METARANK_TIMEOUT_MS)
                 .build();
+            httpPost.setConfig(requestConfig);
 
-            HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+            try (CloseableHttpResponse response = HTTP_CLIENT.execute(httpPost)) {
+                int statusCode = response.getStatusLine().getStatusCode();
+                HttpEntity entity = response.getEntity();
+                String responseBody = entity != null ? EntityUtils.toString(entity) : null;
 
-            if (response.statusCode() != 200) {
-                LOG.warn("Metarank returned non-200 status code: {}, body: {}", response.statusCode(), response.body());
-                return items; // Return original items if reranking failed
+                if (statusCode != 200) {
+                    LOG.warn("Metarank returned non-200 status code: {}, body: {}", statusCode, responseBody);
+                    return items; // Return original items if reranking failed
+                }
+
+                // Process the response and rerank items
+                return processMetarankResponse(responseBody, items);
             }
-
-            // Process the response and rerank items
-            return processMetarankResponse(response.body(), items);
-        } catch (IOException | InterruptedException e) {
+        } catch (IOException e) {
             LOG.error("Failed to call Metarank service", e);
-            if (e instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-            }
             return items; // Return original items if reranking failed
         }
     }
@@ -138,33 +145,6 @@ public class RerankService {
      */
     private static ObjectNode createMetarankRequest(String userId, List<IndexRow> items) {
         ObjectNode requestBody = OBJECT_MAPPER.createObjectNode();
-//
-//        // Set the model to use for reranking
-//        requestBody.put("model", METARANK_MODEL);
-//
-//        // Create the items array
-//        ArrayNode itemsArray = requestBody.putArray("items");
-//        itemsArray.addObject()
-//            .put("userId", userId);
-//
-//        // Add each item to the request
-//        for (int i = 0; i < items.size(); i++) {
-//            IndexRow row = items.get(i);
-//            ObjectNode item = itemsArray.addObject();
-//            item.put("id", row.getPath());
-//
-//            // Get score if available
-//            PropertyValue scoreValue = row.getValue(QueryConstants.JCR_SCORE);
-//            double score = scoreValue != null ? Double.parseDouble(scoreValue.getValue(org.apache.jackrabbit.oak.api.Type.STRING)) : 1.0;
-//            item.put("score", score);
-//
-//            // Add excerpts as features if available
-//            PropertyValue excerptValue = row.getValue(QueryConstants.REP_EXCERPT);
-//            if (excerptValue != null) {
-//                ObjectNode features = item.putObject("features");
-//                features.put("excerpt", excerptValue.getValue(org.apache.jackrabbit.oak.api.Type.STRING));
-//            }
-//        }
 
         // Set event type
         requestBody.put("event", "ranking");
@@ -187,57 +167,6 @@ public class RerankService {
 
         return requestBody;
     }
-
-    /**
-     * Processes the response from the Metarank API and reranks the items accordingly.
-     *
-     * @param responseBody  The response body from the Metarank API
-     * @param originalItems The original list of search results
-     * @return A list of reranked search results
-     */
-//    private static List<IndexRow> processMetarankResponse(String responseBody, List<IndexRow> originalItems) {
-//        try {
-//            // Parse the response
-//            ObjectNode responseJson = (ObjectNode) OBJECT_MAPPER.readTree(responseBody);
-//            ArrayNode rankedItems = (ArrayNode) responseJson.get("items");
-//
-//            if (rankedItems == null || rankedItems.size() == 0) {
-//                LOG.warn("Metarank returned empty or invalid response: {}", responseBody);
-//                return originalItems;
-//            }
-//
-//            // Create a map of path to new score
-//            Map<String, Double> newScores = new HashMap<>();
-//            for (int i = 0; i < rankedItems.size(); i++) {
-//                ObjectNode item = (ObjectNode) rankedItems.get(i);
-//                String id = item.get("id").asText();
-//                double score = item.get("score").asDouble();
-//                newScores.put(id, score);
-//            }
-//
-//            // Update scores and sort items
-//            List<IndexRow> rerankedItems = new ArrayList<>(originalItems.size());
-//
-//            // For each original item, create a new one with the updated score
-//            for (IndexRow originalRow : originalItems) {
-//                Double newScore = newScores.getOrDefault(originalRow.getPath(), 1.0);
-//                // Create a new IndexRow with the updated score but keep all other properties the same
-//                IndexRow newRow = new RerankedIndexRow(originalRow, newScore);
-//                rerankedItems.add(newRow);
-//            }
-//
-//            // Sort by score in descending order
-//            rerankedItems.sort(Comparator.comparing((IndexRow row) -> {
-//                PropertyValue scoreValue = row.getValue(QueryConstants.JCR_SCORE);
-//                return scoreValue != null ? Double.parseDouble(scoreValue.getValue(org.apache.jackrabbit.oak.api.Type.STRING)) : 0.0;
-//            }).reversed());
-//
-//            return rerankedItems;
-//        } catch (Exception e) {
-//            LOG.error("Failed to process Metarank response", e);
-//            return originalItems; // Return original items if processing failed
-//        }
-//    }
 
     private static List<IndexRow> processMetarankResponse(String responseBody, List<IndexRow> originalItems) {
         try {

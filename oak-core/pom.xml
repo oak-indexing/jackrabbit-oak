@@ -313,6 +313,12 @@
       <version>${jackrabbit.version}</version>
     </dependency>
 
+    <!-- HTTP Client -->
+    <dependency>
+      <groupId>org.apache.httpcomponents</groupId>
+      <artifactId>httpclient</artifactId>
+    </dependency>
+
     <!-- Logging -->
     <dependency>
       <groupId>org.slf4j</groupId>
