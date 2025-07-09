@@ -371,8 +371,10 @@ public class SelectorImpl extends SourceImpl {
         prefetchCount = 100;
         if (prefetchCount > 0) {
             PrefetchNodeStore store = query.getExecutionContext().getPrefetchNodeStore();
-            cursor = Cursors.newPrefetchCursor(cursor, store, prefetchCount,
+            if (plan.getIndexPlan() != null) {
+                cursor = Cursors.newPrefetchCursor(cursor, store, prefetchCount,
                     rootState, query.getQueryOptions().prefetch, query, plan.getIndexPlan().getFilter().shouldrerank());
+            }
         }
     }
 
