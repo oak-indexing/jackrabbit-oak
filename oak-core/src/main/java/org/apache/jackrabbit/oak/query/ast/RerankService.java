@@ -149,8 +149,10 @@ public class RerankService {
         // Set event type
         requestBody.put("event", "ranking");
 
+        String reRankId= UUID.randomUUID().toString();
         // Add a unique ID (UUID) for the ranking event
-        requestBody.put("id", UUID.randomUUID().toString());
+        requestBody.put("id", reRankId);
+        LOG.info("reRankId: {}", reRankId);
 
         // Add current timestamp in milliseconds
         requestBody.put("timestamp", String.valueOf(System.currentTimeMillis()));
