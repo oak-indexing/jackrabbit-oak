@@ -223,9 +223,8 @@ public class ChangeTrackingAsyncIndexUpdate {
                 "Failed to commit changes to change tracking index", e);
         }
         
-        // Get the total number of changes recorded (estimate from the editor)
-        // For now, we'll use 0 as placeholder since we can't easily get the count from the editor
-        long changeCount = 0; // TODO: Get actual count from editor
+        // Get the actual number of changes recorded from the editor
+        long changeCount = editor.getEntriesWritten();
         totalChangesRecorded += changeCount;
         
         // Update change tracker metadata
