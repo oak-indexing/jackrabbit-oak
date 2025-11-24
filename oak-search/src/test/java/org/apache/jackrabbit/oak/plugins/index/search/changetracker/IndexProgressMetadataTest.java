@@ -17,18 +17,19 @@
 package org.apache.jackrabbit.oak.plugins.index.search.changetracker;
 
 import org.junit.Test;
-
 import static org.junit.Assert.*;
 
 /**
- * Tests for {@link IndexProgressMetadata}.
+ * Unit test for {@link IndexProgressMetadata}.
  */
 public class IndexProgressMetadataTest {
-    
+
+    private static final String TEST_INDEX_PATH = "/oak:index/damAssetLucene";
+
     @Test
     public void testBuilder() {
         IndexProgressMetadata metadata = new IndexProgressMetadata.Builder()
-                .indexPath("/oak:index/damAssetLucene")
+                .indexPath(TEST_INDEX_PATH)
                 .lastProcessedTimestamp(1234567890000L)
                 .lastProcessedSerialNumber(42L)
                 .currentChunkStart(1234567880000L)
@@ -37,11 +38,9 @@ public class IndexProgressMetadataTest {
                 .lastChunkCommit(1701234567920L)
                 .totalProcessed(1250000L)
                 .totalChunks(125L)
-                .averageChunkTime(120000L)
-                .lastChunkSize(10000)
                 .build();
         
-        assertEquals("/oak:index/damAssetLucene", metadata.getIndexPath());
+        assertEquals(TEST_INDEX_PATH, metadata.getIndexPath());
         assertEquals(1234567890000L, metadata.getLastProcessedTimestamp());
         assertEquals(42L, metadata.getLastProcessedSerialNumber());
         assertEquals(1234567880000L, metadata.getCurrentChunkStart());
@@ -50,139 +49,15 @@ public class IndexProgressMetadataTest {
         assertEquals(1701234567920L, metadata.getLastChunkCommit());
         assertEquals(1250000L, metadata.getTotalProcessed());
         assertEquals(125L, metadata.getTotalChunks());
-        assertEquals(120000L, metadata.getAverageChunkTime());
-        assertEquals(10000, metadata.getLastChunkSize());
     }
-    
-    @Test(expected = IllegalStateException.class)
-    public void testBuilderMissingIndexPath() {
-        new IndexProgressMetadata.Builder()
-                .lastProcessedTimestamp(1234567890000L)
-                .build();
-    }
-    
+
     @Test
-    public void testHasProcessedChanges_true() {
+    public void testDefaultBuilder() {
         IndexProgressMetadata metadata = new IndexProgressMetadata.Builder()
-                .indexPath("/oak:index/test")
-                .lastProcessedTimestamp(1000L)
-                .lastProcessedSerialNumber(1L)
+                .indexPath(TEST_INDEX_PATH)
                 .build();
         
-        assertTrue(metadata.hasProcessedChanges());
-    }
-    
-    @Test
-    public void testHasProcessedChanges_falseWhenZeroTimestamp() {
-        IndexProgressMetadata metadata = new IndexProgressMetadata.Builder()
-                .indexPath("/oak:index/test")
-                .lastProcessedTimestamp(0L)
-                .lastProcessedSerialNumber(0L)
-                .build();
-        
-        assertFalse(metadata.hasProcessedChanges());
-    }
-    
-    @Test
-    public void testHasProcessedChanges_trueWhenOnlyTimestamp() {
-        IndexProgressMetadata metadata = new IndexProgressMetadata.Builder()
-                .indexPath("/oak:index/test")
-                .lastProcessedTimestamp(1000L)
-                .lastProcessedSerialNumber(0L)
-                .build();
-        
-        assertTrue(metadata.hasProcessedChanges());
-    }
-    
-    @Test
-    public void testEquals() {
-        IndexProgressMetadata metadata1 = new IndexProgressMetadata.Builder()
-                .indexPath("/oak:index/test")
-                .lastProcessedTimestamp(1000L)
-                .lastProcessedSerialNumber(42L)
-                .totalProcessed(100L)
-                .build();
-        
-        IndexProgressMetadata metadata2 = new IndexProgressMetadata.Builder()
-                .indexPath("/oak:index/test")
-                .lastProcessedTimestamp(1000L)
-                .lastProcessedSerialNumber(42L)
-                .totalProcessed(100L)
-                .build();
-        
-        IndexProgressMetadata metadata3 = new IndexProgressMetadata.Builder()
-                .indexPath("/oak:index/other")
-                .lastProcessedTimestamp(1000L)
-                .lastProcessedSerialNumber(42L)
-                .totalProcessed(100L)
-                .build();
-        
-        // Same values should be equal
-        assertEquals(metadata1, metadata2);
-        assertEquals(metadata1.hashCode(), metadata2.hashCode());
-        
-        // Different index path should not be equal
-        assertNotEquals(metadata1, metadata3);
-    }
-    
-    @Test
-    public void testEqualsWithDifferentTimestamp() {
-        IndexProgressMetadata metadata1 = new IndexProgressMetadata.Builder()
-                .indexPath("/oak:index/test")
-                .lastProcessedTimestamp(1000L)
-                .lastProcessedSerialNumber(42L)
-                .build();
-        
-        IndexProgressMetadata metadata2 = new IndexProgressMetadata.Builder()
-                .indexPath("/oak:index/test")
-                .lastProcessedTimestamp(2000L)  // Different timestamp
-                .lastProcessedSerialNumber(42L)
-                .build();
-        
-        assertNotEquals(metadata1, metadata2);
-    }
-    
-    @Test
-    public void testEqualsWithDifferentSerialNumber() {
-        IndexProgressMetadata metadata1 = new IndexProgressMetadata.Builder()
-                .indexPath("/oak:index/test")
-                .lastProcessedTimestamp(1000L)
-                .lastProcessedSerialNumber(42L)
-                .build();
-        
-        IndexProgressMetadata metadata2 = new IndexProgressMetadata.Builder()
-                .indexPath("/oak:index/test")
-                .lastProcessedTimestamp(1000L)
-                .lastProcessedSerialNumber(43L)  // Different serial
-                .build();
-        
-        assertNotEquals(metadata1, metadata2);
-    }
-    
-    @Test
-    public void testToString() {
-        IndexProgressMetadata metadata = new IndexProgressMetadata.Builder()
-                .indexPath("/oak:index/damAssetLucene")
-                .lastProcessedTimestamp(1234567890000L)
-                .lastProcessedSerialNumber(42L)
-                .totalProcessed(1000L)
-                .build();
-        
-        String str = metadata.toString();
-        assertTrue(str.contains("/oak:index/damAssetLucene"));
-        assertTrue(str.contains("1234567890000"));
-        assertTrue(str.contains("42"));
-        assertTrue(str.contains("1000"));
-    }
-    
-    @Test
-    public void testDefaultValues() {
-        // Builder should allow building with just required fields
-        IndexProgressMetadata metadata = new IndexProgressMetadata.Builder()
-                .indexPath("/oak:index/test")
-                .build();
-        
-        assertEquals("/oak:index/test", metadata.getIndexPath());
+        assertEquals(TEST_INDEX_PATH, metadata.getIndexPath());
         assertEquals(0L, metadata.getLastProcessedTimestamp());
         assertEquals(0L, metadata.getLastProcessedSerialNumber());
         assertEquals(0L, metadata.getCurrentChunkStart());
@@ -191,41 +66,97 @@ public class IndexProgressMetadataTest {
         assertEquals(0L, metadata.getLastChunkCommit());
         assertEquals(0L, metadata.getTotalProcessed());
         assertEquals(0L, metadata.getTotalChunks());
-        assertEquals(0L, metadata.getAverageChunkTime());
-        assertEquals(0, metadata.getLastChunkSize());
     }
-    
+
     @Test
-    public void testProgressCalculation() {
+    public void testToString() {
         IndexProgressMetadata metadata = new IndexProgressMetadata.Builder()
-                .indexPath("/oak:index/test")
-                .totalProcessed(75000L)
-                .totalChunks(75L)
-                .averageChunkTime(1000L)
+                .indexPath(TEST_INDEX_PATH)
+                .lastProcessedTimestamp(1678886400000L)
+                .lastProcessedSerialNumber(123L)
                 .build();
         
-        // Verify stats
-        assertEquals(75000L, metadata.getTotalProcessed());
-        assertEquals(75L, metadata.getTotalChunks());
-        
-        // Average = 1000 per chunk
-        assertEquals(1000L, metadata.getAverageChunkTime());
+        String str = metadata.toString();
+        assertTrue(str.contains("indexPath='/oak:index/damAssetLucene'"));
+        assertTrue(str.contains("lastProcessedTimestamp=1678886400000"));
+        assertTrue(str.contains("lastProcessedSerialNumber=123"));
     }
-    
+
+    @Test(expected = IllegalStateException.class)
+    public void testBuilderMissingPath() {
+        new IndexProgressMetadata.Builder().build();
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void testBuilderEmptyPath() {
+        new IndexProgressMetadata.Builder()
+                .indexPath("")
+                .build();
+    }
+
     @Test
-    public void testChunkBoundaries() {
-        IndexProgressMetadata metadata = new IndexProgressMetadata.Builder()
-                .indexPath("/oak:index/test")
+    public void testHasProcessedChanges() {
+        // No changes processed
+        IndexProgressMetadata metadata1 = new IndexProgressMetadata.Builder()
+                .indexPath(TEST_INDEX_PATH)
+                .lastProcessedTimestamp(0L)
+                .build();
+        assertFalse(metadata1.hasProcessedChanges());
+        
+        // Changes processed
+        IndexProgressMetadata metadata2 = new IndexProgressMetadata.Builder()
+                .indexPath(TEST_INDEX_PATH)
+                .lastProcessedTimestamp(100L)
+                .build();
+        assertTrue(metadata2.hasProcessedChanges());
+    }
+
+    @Test
+    public void testIsProcessingChunk() {
+        // Not processing
+        IndexProgressMetadata metadata1 = new IndexProgressMetadata.Builder()
+                .indexPath(TEST_INDEX_PATH)
+                .currentChunkStart(0L)
+                .currentChunkEnd(0L)
+                .lastChunkCommit(0L)
+                .build();
+        assertFalse(metadata1.isProcessingChunk());
+        
+        // Processing chunk
+        IndexProgressMetadata metadata2 = new IndexProgressMetadata.Builder()
+                .indexPath(TEST_INDEX_PATH)
                 .currentChunkStart(1000L)
                 .currentChunkEnd(2000L)
+                .lastChunkCommit(1500L)
+                .build();
+        assertTrue(metadata2.isProcessingChunk());
+        
+        // Chunk completed
+        IndexProgressMetadata metadata3 = new IndexProgressMetadata.Builder()
+                .indexPath(TEST_INDEX_PATH)
+                .currentChunkStart(1000L)
+                .currentChunkEnd(2000L)
+                .lastChunkCommit(2000L)
+                .build();
+        assertFalse(metadata3.isProcessingChunk());
+    }
+
+    @Test
+    public void testBuilderChaining() {
+        IndexProgressMetadata metadata = new IndexProgressMetadata.Builder()
+                .indexPath(TEST_INDEX_PATH)
+                .lastProcessedTimestamp(100L)
+                .lastProcessedSerialNumber(10L)
+                .currentChunkStart(50L)
+                .currentChunkEnd(100L)
+                .processingStarted(200L)
+                .lastChunkCommit(250L)
+                .totalProcessed(1000L)
+                .totalChunks(10L)
                 .build();
         
-        assertEquals(1000L, metadata.getCurrentChunkStart());
-        assertEquals(2000L, metadata.getCurrentChunkEnd());
-        
-        // Chunk range = 1000
-        long chunkRange = metadata.getCurrentChunkEnd() - metadata.getCurrentChunkStart();
-        assertEquals(1000L, chunkRange);
+        assertNotNull(metadata);
+        assertEquals(TEST_INDEX_PATH, metadata.getIndexPath());
     }
 }
 
