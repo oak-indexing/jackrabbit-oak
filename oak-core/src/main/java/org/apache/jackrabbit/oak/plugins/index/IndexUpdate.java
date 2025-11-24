@@ -303,6 +303,13 @@ public class IndexUpdate implements Editor, PathSource {
                     continue;
                 }
 
+                // Skip indexes that use change tracking in regular async lanes
+                // They will be processed separately by ChangeTrackingAsyncIndexUpdate
+                if (definition.getBoolean("useChangeTracker") && !"async-change-tracker".equals(rootState.async)) {
+                    log.debug("Skipping change-tracking enabled index: {} in lane: {}", name, rootState.async);
+                    continue;
+                }
+
                 boolean shouldReindex = shouldReindex(definition, before, name);
                 String indexPath = getIndexPath(getPath(), name);
                 if (definition.hasProperty(IndexConstants.CORRUPT_PROPERTY_NAME) && !shouldReindex) {
