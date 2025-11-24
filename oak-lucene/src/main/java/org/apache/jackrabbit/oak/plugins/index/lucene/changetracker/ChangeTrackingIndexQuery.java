@@ -56,7 +56,7 @@ import java.util.List;
  *   <li>Efficient range scans (Lucene NumericRangeQuery)</li>
  * </ul>
  */
-public class ChangeTrackingIndexQuery {
+public class ChangeTrackingIndexQuery implements AutoCloseable {
     
     private static final Logger LOG = LoggerFactory.getLogger(ChangeTrackingIndexQuery.class);
     
