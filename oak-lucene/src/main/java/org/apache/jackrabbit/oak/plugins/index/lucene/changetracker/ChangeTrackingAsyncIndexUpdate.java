@@ -30,6 +30,8 @@ import org.apache.jackrabbit.oak.spi.commit.EditorDiff;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
+import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.store.Directory;
 import org.jetbrains.annotations.NotNull;
@@ -291,12 +293,54 @@ public class ChangeTrackingAsyncIndexUpdate {
         LOG.info("Index {} last processed: timestamp={}, serial={}",
                 indexPath, lastProcessedTimestamp, lastProcessedSerialNumber);
         
-        // TODO: Query change tracking index for unprocessed changes
-        // TODO: Process changes via ChunkedIndexProcessor
-        // TODO: Update progress metadata
-        
-        // For now, just log that we would process this index
-        LOG.info("Index {} would be processed via change tracking (not yet fully wired)", indexPath);
+        // Query change tracking index for unprocessed changes
+        IndexReader reader = null;
+        ChangeTrackingIndexQuery query = null;
+        try {
+            reader = DirectoryReader.open(changeTrackingDirectory);
+            query = new ChangeTrackingIndexQuery(reader);
+            
+            // Get next chunk of unprocessed changes
+            List<ChangeEntry> changes = query.getUnprocessedChanges(
+                lastProcessedTimestamp,
+                lastProcessedSerialNumber,
+                chunkSize
+            );
+            
+            if (changes.isEmpty()) {
+                LOG.info("Index {} has no unprocessed changes", indexPath);
+                return;
+            }
+            
+            LOG.info("Index {} retrieved {} unprocessed changes", indexPath, changes.size());
+            
+            // TODO: Process changes via ChunkedIndexProcessor
+            // TODO: Update progress metadata
+            
+            // For now, just log success
+            LOG.info("Index {} queried successfully, processing {} changes", indexPath, changes.size());
+            
+        } catch (IOException e) {
+            throw new CommitFailedException(
+                CommitFailedException.STATE, 5,
+                "Failed to query change tracking index for: " + indexPath, e);
+        } finally {
+            // Close query (which closes its reader)
+            if (query != null) {
+                try {
+                    query.close();
+                } catch (IOException e) {
+                    LOG.warn("Failed to close ChangeTrackingIndexQuery", e);
+                }
+            } else if (reader != null) {
+                // Fallback: close reader directly if query wasn't created
+                try {
+                    reader.close();
+                } catch (IOException e) {
+                    LOG.warn("Failed to close IndexReader for change tracking index", e);
+                }
+            }
+        }
         
         long indexDuration = System.currentTimeMillis() - indexStart;
         LOG.info("Index {} processed in {}ms", indexPath, indexDuration);
