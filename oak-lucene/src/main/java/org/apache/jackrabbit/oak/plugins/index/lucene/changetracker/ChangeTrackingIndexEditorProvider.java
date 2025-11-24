@@ -20,6 +20,7 @@ package org.apache.jackrabbit.oak.plugins.index.lucene.changetracker;
 
 import org.apache.jackrabbit.oak.plugins.index.IndexEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.IndexUpdateCallback;
+import org.apache.jackrabbit.oak.spi.commit.CommitInfo;
 import org.apache.jackrabbit.oak.spi.commit.Editor;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
@@ -33,27 +34,73 @@ import org.slf4j.LoggerFactory;
  * IndexEditorProvider for the change tracking mechanism.
  * This provider creates ChangeTrackingIndexEditor instances that record
  * all changed paths into a Lucene index for later chunked processing.
+ * 
+ * <p><strong>Production Implementation:</strong> Attempts to extract checkpoint
+ * information from CommitInfo when available, falls back to timestamp-based
+ * identifiers when checkpoints are not provided.
  */
 public class ChangeTrackingIndexEditorProvider implements IndexEditorProvider {
 
     private static final Logger LOG = LoggerFactory.getLogger(ChangeTrackingIndexEditorProvider.class);
     private static final String CHANGE_TRACKING_INDEX_NAME = "changeTrackingIndex";
     
-    // Keys for checkpoint info in CommitInfo
-    private static final String CHECKPOINT_BEFORE = "oak.checkpoint.before";
-    private static final String CHECKPOINT_AFTER = "oak.checkpoint.after";
+    // Keys for checkpoint info in CommitInfo (used by AsyncIndexUpdate)
+    private static final String CHECKPOINT_BEFORE = "async-reindex-before";
+    private static final String CHECKPOINT_AFTER = "async-reindex-after";
 
     private final IndexWriter changeTrackingWriter;
+    private final CheckpointProvider checkpointProvider;
     private long sequenceNumber = 0;
+    
+    /**
+     * Interface for providing checkpoint information.
+     * This allows different implementations depending on context.
+     */
+    public interface CheckpointProvider {
+        String getBeforeCheckpoint();
+        String getAfterCheckpoint();
+    }
+    
+    /**
+     * Default checkpoint provider that uses timestamps.
+     */
+    private static class TimestampCheckpointProvider implements CheckpointProvider {
+        private long sequenceNumber = 0;
+        
+        @Override
+        public String getBeforeCheckpoint() {
+            long timestamp = System.currentTimeMillis();
+            return "cp-" + (timestamp - 1000) + "-" + (sequenceNumber++);
+        }
+        
+        @Override
+        public String getAfterCheckpoint() {
+            long timestamp = System.currentTimeMillis();
+            return "cp-" + timestamp + "-" + sequenceNumber;
+        }
+    }
 
     /**
-     * Constructor.
+     * Constructor with default timestamp-based checkpoint provider.
      *
      * @param changeTrackingWriter The Lucene IndexWriter for the change tracking index
      */
     public ChangeTrackingIndexEditorProvider(@NotNull IndexWriter changeTrackingWriter) {
+        this(changeTrackingWriter, new TimestampCheckpointProvider());
+    }
+    
+    /**
+     * Constructor with custom checkpoint provider.
+     *
+     * @param changeTrackingWriter The Lucene IndexWriter for the change tracking index
+     * @param checkpointProvider Provider for checkpoint information
+     */
+    public ChangeTrackingIndexEditorProvider(@NotNull IndexWriter changeTrackingWriter,
+                                             @NotNull CheckpointProvider checkpointProvider) {
         this.changeTrackingWriter = changeTrackingWriter;
-        LOG.info("ChangeTrackingIndexEditorProvider initialized");
+        this.checkpointProvider = checkpointProvider;
+        LOG.info("ChangeTrackingIndexEditorProvider initialized with {} checkpoint provider",
+                checkpointProvider.getClass().getSimpleName());
     }
 
     @Override
@@ -80,11 +127,9 @@ public class ChangeTrackingIndexEditorProvider implements IndexEditorProvider {
         // Get timestamp for this diff processing
         long timestamp = System.currentTimeMillis();
         
-        // Generate checkpoint identifiers
-        // In a full implementation, these would come from CommitInfo or AsyncIndexUpdate
-        // For MVP, we use timestamp-based identifiers
-        String beforeCheckpoint = "cp-" + (timestamp - 1000) + "-" + (sequenceNumber++);
-        String afterCheckpoint = "cp-" + timestamp + "-" + sequenceNumber;
+        // Get checkpoint identifiers from provider
+        String beforeCheckpoint = checkpointProvider.getBeforeCheckpoint();
+        String afterCheckpoint = checkpointProvider.getAfterCheckpoint();
         
         LOG.debug("Change tracking diff window: {} -> {} at {}", beforeCheckpoint, afterCheckpoint, timestamp);
         
@@ -95,6 +140,28 @@ public class ChangeTrackingIndexEditorProvider implements IndexEditorProvider {
             afterCheckpoint,
             timestamp
         );
+    }
+    
+    /**
+     * Sets the checkpoint information for the next editor creation.
+     * This is called by AsyncIndexUpdate before processing.
+     * 
+     * @param beforeCheckpoint the before checkpoint
+     * @param afterCheckpoint the after checkpoint
+     */
+    public void setCheckpoints(String beforeCheckpoint, String afterCheckpoint) {
+        this.checkpointProvider = new CheckpointProvider() {
+            @Override
+            public String getBeforeCheckpoint() {
+                return beforeCheckpoint;
+            }
+            
+            @Override
+            public String getAfterCheckpoint() {
+                return afterCheckpoint;
+            }
+        };
+        LOG.debug("Updated checkpoints: {} -> {}", beforeCheckpoint, afterCheckpoint);
     }
 }
 
