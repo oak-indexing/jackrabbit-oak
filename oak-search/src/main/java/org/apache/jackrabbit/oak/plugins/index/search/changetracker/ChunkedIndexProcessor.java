@@ -201,7 +201,9 @@ public class ChunkedIndexProcessor {
                 if (currentState == null || !currentState.exists()) {
                     // Node was deleted or doesn't exist - remove from index
                     LOG.debug("Node at path {} does not exist, will remove from index", path);
-                    // TODO: Implement deletion logic via editor
+                    // For production: Call editor.childNodeDeleted(name, beforeState) on parent
+                    // This requires tracking the parent path and the before state.
+                    // Current MVP logs the deletion for validation.
                     processedPaths.add(path);
                     continue;
                 }
@@ -245,14 +247,22 @@ public class ChunkedIndexProcessor {
                            IndexDefinition indexDefinition,
                            FulltextIndexEditorContext editorContext) {
         
-        // TODO: Implement delegation to FulltextIndexEditor
-        // This requires:
-        // 1. Create editor for this node
-        // 2. Call EditorDiff.process() with EMPTY_NODE as before state (forces re-index)
-        // 3. Collect generated Lucene documents
-        // 4. Add to index writer
+        // Production implementation approach:
+        // 1. Extract parent path and node name from full path
+        // 2. Get parent editor: editorContext.getEditor(parentPath) 
+        // 3. Create child editor: parentEditor.childNodeAdded(name, nodeState) or childNodeChanged()
+        // 4. Process properties: editor.propertyAdded/Changed() for each property
+        // 5. Commit: editorContext.commitChanges()
+        //
+        // This reuses Oak's FulltextIndexEditor which handles:
+        // - Index rules, property definitions, functions, aggregations, relative paths
+        // - Analyzer configuration, boost values, stored fields
+        // - Lucene document generation and indexing
+        //
+        // Current MVP logs the operation for validation. Full implementation needs
+        // LuceneIndexEditorContext integration (complex Oak internals).
         
-        LOG.debug("Indexing node at path: {}", path);
+        LOG.debug("Indexing node at path: {} (simplified processing)", path);
     }
     
     /**
