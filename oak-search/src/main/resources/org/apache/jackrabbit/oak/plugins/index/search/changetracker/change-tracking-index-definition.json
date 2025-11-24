@@ -1,0 +1,76 @@
+{
+  "jcr:primaryType": "oak:QueryIndexDefinition",
+  "type": "lucene",
+  "async": "async-change-tracker",
+  "compatVersion": 2,
+  "codec": "Lucene46",
+  "refresh": false,
+  "evaluatePathRestrictions": true,
+  "name": "changeTrackingIndex",
+  "indexPath": "/oak:index/changeTrackingIndex",
+  
+  "indexRules": {
+    "jcr:primaryType": "nt:unstructured",
+    "nt:base": {
+      "jcr:primaryType": "nt:unstructured",
+      "properties": {
+        "jcr:primaryType": "nt:unstructured",
+        
+        "ct:path": {
+          "jcr:primaryType": "nt:unstructured",
+          "name": "ct:path",
+          "propertyIndex": true,
+          "analyzed": false,
+          "nodeScopeIndex": false,
+          "type": "String",
+          "useInExcerpt": false
+        },
+        
+        "ct:checkpoint1": {
+          "jcr:primaryType": "nt:unstructured",
+          "name": "ct:checkpoint1",
+          "propertyIndex": true,
+          "analyzed": false,
+          "nodeScopeIndex": false,
+          "ordered": true,
+          "type": "String",
+          "useInExcerpt": false
+        },
+        
+        "ct:checkpoint2": {
+          "jcr:primaryType": "nt:unstructured",
+          "name": "ct:checkpoint2",
+          "propertyIndex": true,
+          "analyzed": false,
+          "nodeScopeIndex": false,
+          "ordered": true,
+          "type": "String",
+          "useInExcerpt": false
+        },
+        
+        "ct:diffProcessingTime": {
+          "jcr:primaryType": "nt:unstructured",
+          "name": "ct:diffProcessingTime",
+          "propertyIndex": true,
+          "analyzed": false,
+          "nodeScopeIndex": false,
+          "ordered": true,
+          "type": "Long",
+          "useInExcerpt": false
+        },
+        
+        "ct:serialNumber": {
+          "jcr:primaryType": "nt:unstructured",
+          "name": "ct:serialNumber",
+          "propertyIndex": true,
+          "analyzed": false,
+          "nodeScopeIndex": false,
+          "ordered": true,
+          "type": "Long",
+          "useInExcerpt": false
+        }
+      }
+    }
+  }
+}
+
