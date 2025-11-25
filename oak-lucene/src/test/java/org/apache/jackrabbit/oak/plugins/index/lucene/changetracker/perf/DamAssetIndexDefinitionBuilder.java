@@ -160,6 +160,21 @@ public class DamAssetIndexDefinitionBuilder {
         dcTitle.setProperty("propertyIndex", true);
         dcTitle.setProperty("useInSpellcheck", true);
         
+        // Property: jcr:title (analyzed, fulltext) - for query testing
+        Tree jcrTitle = properties.addChild("jcrTitle");
+        jcrTitle.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        jcrTitle.setProperty("name", "jcr:content/metadata/jcr:title");
+        jcrTitle.setProperty("analyzed", true);
+        jcrTitle.setProperty("nodeScopeIndex", true);
+        jcrTitle.setProperty("propertyIndex", true);
+        jcrTitle.setProperty("useInSpellcheck", true);
+        
+        // Property: dc:creator (property index) - for aggregation testing
+        Tree dcCreator = properties.addChild("dcCreator");
+        dcCreator.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        dcCreator.setProperty("name", "jcr:content/metadata/dc:creator");
+        dcCreator.setProperty("propertyIndex", true);
+        
         // Property: dc:format (property index)
         Tree dcFormat = properties.addChild("dcFormat");
         dcFormat.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);

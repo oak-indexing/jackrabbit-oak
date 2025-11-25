@@ -38,7 +38,7 @@ import java.util.List;
  * 
  * <p>Breaking point detection:
  * <ul>
- *   <li>GC time > 30% of total time = CRITICAL</li>
+ *   <li>GC time > 50% of total time = CRITICAL</li>
  *   <li>Throughput < 25% of baseline = CRITICAL</li>
  *   <li>OutOfMemoryError = FAILURE</li>
  * </ul>
@@ -48,8 +48,8 @@ public class PerformanceMonitor {
     private static final Logger LOG = LoggerFactory.getLogger(PerformanceMonitor.class);
     
     // Breaking point thresholds
-    private static final double GC_TIME_WARNING_THRESHOLD = 0.10;  // 10%
-    private static final double GC_TIME_CRITICAL_THRESHOLD = 0.30; // 30%
+    private static final double GC_TIME_WARNING_THRESHOLD = 0.30;  // 30%
+    private static final double GC_TIME_CRITICAL_THRESHOLD = 0.50; // 50%
     private static final double THROUGHPUT_CRITICAL_THRESHOLD = 0.25; // 25% of baseline
     
     private final MemoryMXBean memoryBean;

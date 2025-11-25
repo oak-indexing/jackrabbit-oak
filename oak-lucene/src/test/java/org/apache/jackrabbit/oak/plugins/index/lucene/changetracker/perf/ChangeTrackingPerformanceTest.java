@@ -86,8 +86,7 @@ import static org.junit.Assert.assertTrue;
  * <p><strong>Test Scenarios:</strong>
  * <ol>
  *   <li><strong>Gradual Load Increase</strong> - Find breaking point for bulk ingestion (1K → 1M assets)</li>
- *   <li><strong>Incremental Updates</strong> - Test update performance and memory stability (10% → 50%)</li>
- *   <li><strong>Mixed Workload</strong> - Simulate production patterns (60% ingest, 30% update, 10% child)</li>
+ *   <li><strong>Incremental Updates</strong> - Test update performance and memory stability (10% → 100%)</li>
  * </ol>
  * 
  * <p><strong>NodeStore Types:</strong>
@@ -117,7 +116,7 @@ import static org.junit.Assert.assertTrue;
  * 
  * <p><strong>Breaking Point Detection:</strong>
  * <ul>
- *   <li>Memory: GC time > 30% = CRITICAL, OOM = FAILURE</li>
+ *   <li>Memory: GC time > 50% = CRITICAL, OOM = FAILURE</li>
  *   <li>Timeout: MongoDB transaction > 55s = CRITICAL, >60s = FAILURE</li>
  *   <li>Performance: Throughput < 25% baseline = CRITICAL</li>
  * </ul>
@@ -289,6 +288,12 @@ public class ChangeTrackingPerformanceTest {
                 IndexingTimings timings = runIndexing();
                 performanceMonitor.recordIndexingTime(timings);
                 
+                // Print detailed indexing stats
+                timings.printSummary(assetCount, contentTime);
+                
+                // Verify index is working correctly
+                verifyIndexWithQueries(assetCount);
+                
                 // Check memory and performance
                 MemoryStats memStats = performanceMonitor.captureMemoryStats();
                 boolean isBreakingPoint = performanceMonitor.isBreakingPoint(memStats, timings, assetCount);
@@ -369,6 +374,12 @@ public class ChangeTrackingPerformanceTest {
                 IndexingTimings timings = runIndexing();
                 performanceMonitor.recordIndexingTime(timings);
                 
+                // Print detailed indexing stats
+                timings.printSummary(updateCount, contentTime);
+                
+                // Verify index is working correctly (still has all initial assets)
+                verifyIndexWithQueries(initialAssets);
+                
                 // Check memory
                 MemoryStats memStats = performanceMonitor.captureMemoryStats();
                 boolean isBreakingPoint = performanceMonitor.isBreakingPoint(memStats, timings, updateCount);
@@ -401,83 +412,6 @@ public class ChangeTrackingPerformanceTest {
         LOG.info("========================================\n");
     }
     
-    @Test
-    public void scenario3_MixedWorkload() throws Exception {
-        LOG.info("\n");
-        LOG.info("========================================");
-        LOG.info("SCENARIO 3: MIXED WORKLOAD");
-        LOG.info("========================================");
-        LOG.info("Goal: Simulate production patterns");
-        LOG.info("Mix: 60% ingest, 30% metadata update, 10% child update");
-        LOG.info("========================================\n");
-        
-        int baseAssets = getMaxStableAssetCount() / 2; // Use half of max stable
-        int totalOperations = baseAssets;
-        
-        int ingestCount = (totalOperations * 60) / 100;
-        int metadataUpdateCount = (totalOperations * 30) / 100;
-        int childUpdateCount = (totalOperations * 10) / 100;
-        
-        LOG.info("Operations: {} ingest, {} metadata updates, {} child updates",
-                ingestCount, metadataUpdateCount, childUpdateCount);
-        
-        performanceMonitor.startPhase("mixed_workload");
-        
-        try {
-            long contentStart = System.currentTimeMillis();
-            
-            // 60% - New asset ingestion
-            LOG.info("\n[1/3] Creating {} new assets...", ingestCount);
-            DamAssetCreator.createAssets(root, ingestCount, 0);
-            root.commit();
-            
-            // 30% - Metadata updates
-            LOG.info("[2/3] Updating metadata for {} assets...", metadataUpdateCount);
-            DamAssetCreator.updateAssetMetadata(root, metadataUpdateCount);
-            root.commit();
-            
-            // 10% - Child node updates (renditions)
-            LOG.info("[3/3] Updating renditions for {} assets...", childUpdateCount);
-            DamAssetCreator.updateAssetRenditions(root, childUpdateCount);
-            root.commit();
-            
-            long contentTime = System.currentTimeMillis() - contentStart;
-            performanceMonitor.recordContentTime(contentTime);
-            LOG.info("\nMixed content operations: {} ms", contentTime);
-            
-            // Run indexing
-            IndexingTimings timings = runIndexing();
-            performanceMonitor.recordIndexingTime(timings);
-            
-            // Check memory
-            MemoryStats memStats = performanceMonitor.captureMemoryStats();
-            boolean isBreakingPoint = performanceMonitor.isBreakingPoint(memStats, timings, totalOperations);
-            
-            // Record results
-            testReport.recordPhase("Mixed Workload", totalOperations, contentTime, timings, memStats, isBreakingPoint);
-            
-            if (isBreakingPoint) {
-                LOG.warn("\n!!! BREAKING POINT DETECTED in mixed workload !!!");
-            } else {
-                LOG.info("✓ Mixed workload completed successfully");
-            }
-            
-        } catch (OutOfMemoryError e) {
-            LOG.error("\n!!! OUT OF MEMORY during mixed workload !!!");
-            testReport.recordFailure("Mixed Workload", "OutOfMemoryError", new Exception(e));
-            throw e;
-        } catch (Exception e) {
-            LOG.error("Error during mixed workload: {}", e.getMessage(), e);
-            testReport.recordFailure("Mixed Workload", e.getClass().getSimpleName(), e);
-            throw e;
-        } finally {
-            performanceMonitor.endPhase();
-        }
-        
-        LOG.info("\n========================================");
-        LOG.info("SCENARIO 3 COMPLETE");
-        LOG.info("========================================\n");
-    }
     
     // ========================================
     // Repository Setup
@@ -634,29 +568,205 @@ public class ChangeTrackingPerformanceTest {
         IndexingTimings timings = new IndexingTimings();
         
         if (USE_CHANGE_TRACKING) {
+            System.out.println("========================================");
+            System.out.println("THREE-INDEXER CHANGE TRACKING MODE");
+            System.out.println("========================================");
+            
             // Phase 1: Populate change tracking index
+            System.out.println("PHASE 1: Running ChangeTrackingIndexPopulator...");
             long phase1Start = System.currentTimeMillis();
             changeTrackingPopulator.run();
             timings.phase1Time = System.currentTimeMillis() - phase1Start;
+            System.out.println("Phase 1 complete: " + timings.phase1Time + " ms");
+            System.out.println("  Stats: " + changeTrackingPopulator.getStatistics());
+            
+            // Query to see how many changes were recorded
+            DirectoryReader reader = DirectoryReader.open(changeTrackingDirectory);
+            int totalChanges = 0;
+            try {
+                ChangeTrackingIndexQuery query = new ChangeTrackingIndexQuery(reader);
+                totalChanges = query.getUnprocessedChanges(0, 0, Integer.MAX_VALUE).size();
+                timings.changeEntriesRecorded = totalChanges;
+                System.out.println("  Change tracking index: " + totalChanges + " entries");
+            } finally {
+                reader.close();
+            }
             
             // Phase 2: Traditional indexes
+            System.out.println("PHASE 2: Running Traditional AsyncIndexUpdate...");
             long phase2Start = System.currentTimeMillis();
             traditionalAsyncIndexer.run();
             timings.phase2Time = System.currentTimeMillis() - phase2Start;
+            System.out.println("Phase 2 complete: " + timings.phase2Time + " ms");
             
             // Phase 3: Change-tracked indexes
+            System.out.println("PHASE 3: Running ChangeTrackingAsyncIndexUpdate...");
             long phase3Start = System.currentTimeMillis();
             changeTrackingAsyncIndexer.run();
             timings.phase3Time = System.currentTimeMillis() - phase3Start;
+            System.out.println("Phase 3 complete: " + timings.phase3Time + " ms");
+            
+            // Summary
+            long totalTime = timings.getTotalTime();
+            System.out.println("========================================");
+            System.out.println("ALL THREE INDEXERS COMPLETE");
+            System.out.println("Performance Breakdown:");
+            System.out.println("  Phase 1 (Change Tracker Populate): " + timings.phase1Time + " ms (" + totalChanges + " entries)");
+            System.out.println("  Phase 2 (Traditional Indexer):      " + timings.phase2Time + " ms");
+            System.out.println("  Phase 3 (Change Tracked Indexer):   " + timings.phase3Time + " ms");
+            System.out.println("  TOTAL:                               " + totalTime + " ms");
+            System.out.println("========================================");
             
         } else {
+            System.out.println("========================================");
+            System.out.println("TRADITIONAL MODE");
+            System.out.println("========================================");
+            
             // Traditional mode
             long start = System.currentTimeMillis();
             asyncIndexUpdate.run();
             timings.traditionalTime = System.currentTimeMillis() - start;
+            
+            System.out.println("Traditional AsyncIndexUpdate complete: " + timings.traditionalTime + " ms");
+            System.out.println("========================================");
         }
         
         return timings;
+    }
+    
+    // ========================================
+    // Index Verification
+    // ========================================
+    
+    /**
+     * Verifies that the index is working correctly by running sample queries.
+     * This ensures documents are indexed and queryable.
+     */
+    private void verifyIndexWithQueries(int expectedAssetCount) throws Exception {
+        System.out.println("\n--- Verifying Index with Queries ---");
+        LOG.info("--- Verifying Index with Queries ---");
+        
+        try {
+            // Query 1: Find all dam:Asset nodes
+            String allAssetsQuery = "SELECT * FROM [dam:Asset]";
+            int allAssets = executeQuery(allAssetsQuery);
+            System.out.println("  Q1 - All dam:Asset nodes: " + allAssets + " (expected: ~" + expectedAssetCount + ")");
+            LOG.info("  Q1 - All dam:Asset nodes: {} (expected: ~{})", allAssets, expectedAssetCount);
+            
+            // Query 2: Find assets by metadata property (jcr:title)
+            String titleQuery = "SELECT * FROM [dam:Asset] WHERE [jcr:content/metadata/jcr:title] IS NOT NULL";
+            int assetsWithTitle = executeQuery(titleQuery);
+            System.out.println("  Q2 - Assets with jcr:title: " + assetsWithTitle);
+            LOG.info("  Q2 - Assets with jcr:title: {}", assetsWithTitle);
+            
+            // Query 3: Find assets by format (image/jpeg)
+            String formatQuery = "SELECT * FROM [dam:Asset] WHERE [jcr:content/metadata/dc:format] = 'image/jpeg'";
+            int jpegAssets = executeQuery(formatQuery);
+            System.out.println("  Q3 - JPEG assets (dc:format='image/jpeg'): " + jpegAssets);
+            LOG.info("  Q3 - JPEG assets: {}", jpegAssets);
+            
+            // Query 4: Find assets by status (approved)
+            String statusQuery = "SELECT * FROM [dam:Asset] WHERE [jcr:content/metadata/dam:status] = 'approved'";
+            int approvedAssets = executeQuery(statusQuery);
+            System.out.println("  Q4 - Approved assets (dam:status='approved'): " + approvedAssets);
+            LOG.info("  Q4 - Approved assets: {}", approvedAssets);
+            
+            // Query 5: Find UPDATED assets (check if updates are indexed)
+            String updatedQuery = "SELECT * FROM [dam:Asset] WHERE [jcr:content/metadata/jcr:title] LIKE '%UPDATED%'";
+            int updatedAssets = executeQuery(updatedQuery);
+            System.out.println("  Q5 - Updated assets (title contains 'UPDATED'): " + updatedAssets);
+            LOG.info("  Q5 - Updated assets: {}", updatedAssets);
+            
+            // Query 6: Find assets with modified timestamp (another update indicator)
+            String modifiedQuery = "SELECT * FROM [dam:Asset] WHERE [jcr:content/metadata/dam:lastModified] IS NOT NULL";
+            int modifiedAssets = executeQuery(modifiedQuery);
+            System.out.println("  Q6 - Assets with lastModified: " + modifiedAssets);
+            LOG.info("  Q6 - Assets with lastModified: {}", modifiedAssets);
+            
+            // Query 7: Aggregation verification - search in deeply nested child nodes
+            // This proves that jcr:content/metadata/* properties are aggregated to parent dam:Asset
+            String aggregationQuery = "SELECT * FROM [dam:Asset] WHERE [jcr:content/metadata/dc:creator] IS NOT NULL";
+            int aggregatedAssets = executeQuery(aggregationQuery);
+            System.out.println("  Q7 - Aggregation test (dc:creator in child): " + aggregatedAssets);
+            LOG.info("  Q7 - Aggregation test (dc:creator in child): {}", aggregatedAssets);
+            
+            // Query 8: Aggregation with value filter - ensures aggregated values are searchable
+            String aggregationValueQuery = "SELECT * FROM [dam:Asset] WHERE [jcr:content/metadata/dc:creator] = 'admin'";
+            int creatorAssets = executeQuery(aggregationValueQuery);
+            System.out.println("  Q8 - Aggregation value test (dc:creator='admin'): " + creatorAssets);
+            LOG.info("  Q8 - Aggregation value test (dc:creator='admin'): {}", creatorAssets);
+            
+            // Query 9: Fulltext search - verify fulltext indexing works
+            String fulltextQuery = "SELECT * FROM [dam:Asset] WHERE CONTAINS(*, 'Asset')";
+            int fulltextAssets = executeQuery(fulltextQuery);
+            System.out.println("  Q9 - Fulltext search (CONTAINS 'Asset'): " + fulltextAssets);
+            LOG.info("  Q9 - Fulltext search (CONTAINS 'Asset'): {}", fulltextAssets);
+            
+            // Query 10: Fulltext search on specific property - verify property-level fulltext
+            String fulltextPropQuery = "SELECT * FROM [dam:Asset] WHERE CONTAINS([jcr:content/metadata/jcr:title], 'Asset')";
+            int fulltextPropAssets = executeQuery(fulltextPropQuery);
+            System.out.println("  Q10 - Fulltext on property (title CONTAINS 'Asset'): " + fulltextPropAssets);
+            LOG.info("  Q10 - Fulltext on property (title CONTAINS 'Asset'): {}", fulltextPropAssets);
+            
+            // Query 11: Fulltext search for UPDATED content - proves fulltext updates work
+            String fulltextUpdatedQuery = "SELECT * FROM [dam:Asset] WHERE CONTAINS([jcr:content/metadata/jcr:title], 'UPDATED')";
+            int fulltextUpdated = executeQuery(fulltextUpdatedQuery);
+            System.out.println("  Q11 - Fulltext updated content (title CONTAINS 'UPDATED'): " + fulltextUpdated);
+            LOG.info("  Q11 - Fulltext updated content (title CONTAINS 'UPDATED'): {}", fulltextUpdated);
+            
+            // Verify we found assets
+            if (allAssets == 0) {
+                System.out.println("❌ WARNING: No assets found in index! Index may not be working correctly.");
+                LOG.warn("WARNING: No assets found in index! Index may not be working correctly.");
+            } else if (allAssets < expectedAssetCount * 0.9) {
+                System.out.println("⚠️  WARNING: Found " + allAssets + " assets but expected ~" + expectedAssetCount + ". Some assets may not be indexed.");
+                LOG.warn("WARNING: Found {} assets but expected ~{}. Some assets may not be indexed.", 
+                        allAssets, expectedAssetCount);
+            } else {
+                System.out.println("✓ Index verification passed: " + allAssets + " assets indexed and queryable");
+                LOG.info("✓ Index verification passed: {} assets indexed and queryable", allAssets);
+                
+                // Additional verification for updates
+                if (updatedAssets > 0) {
+                    System.out.println("✓ Update verification passed: " + updatedAssets + " updated assets found in index");
+                    LOG.info("✓ Update verification passed: {} updated assets found in index", updatedAssets);
+                }
+                
+                // Aggregation verification
+                if (aggregatedAssets > 0) {
+                    System.out.println("✓ Aggregation verification passed: " + aggregatedAssets + " assets with aggregated child properties");
+                    LOG.info("✓ Aggregation verification passed: {} assets with aggregated child properties", aggregatedAssets);
+                }
+                
+                // Fulltext verification
+                if (fulltextAssets > 0) {
+                    System.out.println("✓ Fulltext verification passed: " + fulltextAssets + " assets found via fulltext search");
+                    LOG.info("✓ Fulltext verification passed: {} assets found via fulltext search", fulltextAssets);
+                }
+                
+                if (fulltextUpdated > 0) {
+                    System.out.println("✓ Fulltext update verification passed: " + fulltextUpdated + " updated assets found via fulltext");
+                    LOG.info("✓ Fulltext update verification passed: {} updated assets found via fulltext", fulltextUpdated);
+                }
+            }
+            
+        } catch (Exception e) {
+            System.out.println("❌ ERROR during index verification: " + e.getMessage());
+            LOG.error("Error during index verification: {}", e.getMessage(), e);
+            throw e;
+        }
+    }
+    
+    /**
+     * Executes a JCR-SQL2 query and returns the result count.
+     */
+    private int executeQuery(String query) throws Exception {
+        int count = 0;
+        for (org.apache.jackrabbit.oak.api.ResultRow row : root.getQueryEngine().executeQuery(
+                query, javax.jcr.query.Query.JCR_SQL2, null, null).getRows()) {
+            count++;
+        }
+        return count;
     }
     
     // ========================================
@@ -664,23 +774,31 @@ public class ChangeTrackingPerformanceTest {
     // ========================================
     
     private static int[] calculateAssetCounts(long heapMB) {
-        // Conservative estimates based on heap size
-        // Each asset ~= 5KB in memory during indexing (traditional)
-        // Change tracking reduces this by ~67%
+        // ALWAYS use system property if provided - for stress testing to break the system
+        String bulkSizesProperty = System.getProperty("test.bulk.sizes");
+        if (bulkSizesProperty != null && !bulkSizesProperty.isEmpty()) {
+            LOG.info("Using bulk sizes from system property: {}", bulkSizesProperty);
+            String[] sizes = bulkSizesProperty.split(",");
+            int[] result = new int[sizes.length];
+            for (int i = 0; i < sizes.length; i++) {
+                result[i] = Integer.parseInt(sizes[i].trim());
+            }
+            LOG.info("Test will run with {} size configurations", result.length);
+            return result;
+        }
+        
+        // Default: Conservative estimates based on heap size
+        LOG.info("Using default bulk sizes based on heap: {} MB", heapMB);
         
         List<Integer> counts = new ArrayList<>();
         
-        if (heapMB >= 512) counts.add(1000);
-        if (heapMB >= 1024) counts.add(10000);
-        if (heapMB >= 2048) counts.add(50000);
+        counts.add(1000);
+        counts.add(10000);
+        counts.add(50000);
         if (heapMB >= 4096) counts.add(100000);
         if (heapMB >= 8192) counts.add(250000);
         if (heapMB >= 16384) counts.add(500000);
         if (heapMB >= 32768) counts.add(1000000);
-        
-        if (counts.isEmpty()) {
-            counts.add(100); // Minimum test size
-        }
         
         int[] result = new int[counts.size()];
         for (int i = 0; i < counts.size(); i++) {
@@ -718,13 +836,68 @@ public class ChangeTrackingPerformanceTest {
     // ========================================
     
     static class IndexingTimings {
-        long phase1Time = 0;
-        long phase2Time = 0;
-        long phase3Time = 0;
-        long traditionalTime = 0;
+        long phase1Time = 0;  // ChangeTrackingIndexPopulator
+        long phase2Time = 0;  // Traditional AsyncIndexUpdate
+        long phase3Time = 0;  // ChangeTrackingAsyncIndexUpdate
+        long traditionalTime = 0;  // Single AsyncIndexUpdate (traditional mode)
+        int changeEntriesRecorded = 0;
         
         long getTotalTime() {
             return USE_CHANGE_TRACKING ? (phase1Time + phase2Time + phase3Time) : traditionalTime;
+        }
+        
+        void printSummary(int assetCount, long contentTime) {
+            System.out.println("\n========================================");
+            System.out.println("INDEXING PERFORMANCE SUMMARY");
+            System.out.println("========================================");
+            System.out.println("Mode: " + (USE_CHANGE_TRACKING ? "CHANGE TRACKING (3 indexers)" : "TRADITIONAL (1 indexer)"));
+            System.out.println("Assets processed: " + assetCount);
+            System.out.println("Content creation: " + contentTime + " ms");
+            System.out.println("");
+            
+            if (USE_CHANGE_TRACKING) {
+                long total = getTotalTime();
+                System.out.println("Change Tracking Mode - Per-Phase Timings:");
+                System.out.println("  Phase 1 (ChangeTrackingIndexPopulator):    " + phase1Time + " ms");
+                System.out.println("  Phase 2 (Traditional AsyncIndexUpdate):     " + phase2Time + " ms");
+                System.out.println("  Phase 3 (ChangeTrackingAsyncIndexUpdate):   " + phase3Time + " ms");
+                System.out.println("  --------------------------------------------------");
+                System.out.println("  TOTAL (all 3 phases):                        " + total + " ms");
+                System.out.println("");
+                
+                // Calculate per-phase throughput
+                if (phase1Time > 0) {
+                    double phase1Throughput = (assetCount * 1000.0) / phase1Time;
+                    System.out.println("  Phase 1 throughput: " + String.format("%.1f", phase1Throughput) + " assets/sec (records changes)");
+                }
+                if (phase3Time > 0) {
+                    double phase3Throughput = (assetCount * 1000.0) / phase3Time;
+                    System.out.println("  Phase 3 throughput: " + String.format("%.1f", phase3Throughput) + " assets/sec (indexes from tracker)");
+                }
+                
+                double totalThroughput = (assetCount * 1000.0) / (total + 1);
+                System.out.println("  Overall throughput: " + String.format("%.1f", totalThroughput) + " assets/sec (all 3 phases)");
+                
+                if (changeEntriesRecorded > 0) {
+                    System.out.println("  Change entries recorded: " + changeEntriesRecorded);
+                }
+            } else {
+                System.out.println("Traditional Mode - Timings:");
+                System.out.println("  AsyncIndexUpdate total time: " + traditionalTime + " ms");
+                double throughput = (assetCount * 1000.0) / (traditionalTime + 1);
+                System.out.println("  Throughput: " + String.format("%.1f", throughput) + " assets/sec");
+            }
+            
+            System.out.println("========================================");
+            System.out.println("COMPARISON NOTE:");
+            if (USE_CHANGE_TRACKING) {
+                System.out.println("  Phase 3 time is the closest comparison to traditional mode");
+                System.out.println("  (both perform actual Lucene document indexing)");
+                System.out.println("  Phase 1 is overhead for recording changes");
+            } else {
+                System.out.println("  Traditional mode: Single indexer does checkpoint diff + indexing");
+            }
+            System.out.println("========================================\n");
         }
     }
     

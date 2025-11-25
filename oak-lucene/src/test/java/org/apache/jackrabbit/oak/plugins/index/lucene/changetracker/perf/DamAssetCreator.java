@@ -137,13 +137,18 @@ public class DamAssetCreator {
             
             Tree metadata = asset.getChild("jcr:content").getChild("metadata");
             if (metadata.exists()) {
+                // Update title to mark as updated (for query verification)
+                String currentTitle = metadata.getProperty("jcr:title") != null ? 
+                    metadata.getProperty("jcr:title").getValue(Type.STRING) : "Asset";
+                metadata.setProperty("jcr:title", currentTitle + " UPDATED");
+                
                 // Update status
                 String newStatus = STATUSES[RANDOM.nextInt(STATUSES.length)];
                 metadata.setProperty("dam:status", newStatus);
                 
                 // Update timestamp
                 Calendar updateCal = Calendar.getInstance();
-                metadata.setProperty("jcr:lastModified", ISO8601.format(updateCal));
+                metadata.setProperty("dam:lastModified", ISO8601.format(updateCal));
                 
                 // Update tags (add one more tag)
                 String[] currentTags = getPropertyArray(metadata, "cq:tags");
@@ -219,8 +224,10 @@ public class DamAssetCreator {
         
         // Set metadata properties [include2 - metadata/*]
         metadata.setProperty("dc:title", "Asset " + String.format("%06d", assetNum));
+        metadata.setProperty("jcr:title", "Asset " + String.format("%06d", assetNum));  // For query testing
         metadata.setProperty("dc:format", FORMATS[assetNum % FORMATS.length]);
         metadata.setProperty("dam:status", STATUSES[assetNum % STATUSES.length]);
+        metadata.setProperty("dc:creator", "admin");  // For aggregation testing
         
         // Multi-value tags (2-3 tags per asset)
         int tagCount = 2 + (assetNum % 2);
