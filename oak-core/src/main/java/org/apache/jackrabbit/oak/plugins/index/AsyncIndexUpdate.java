@@ -804,8 +804,14 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
 
             markFailingIndexesAsCorrupt(builder);
 
-            CommitInfo info = new CommitInfo(CommitInfo.OAK_UNKNOWN, CommitInfo.OAK_UNKNOWN,
-                    Map.of(IndexConstants.CHECKPOINT_CREATION_TIME, afterTime));
+            // Create CommitInfo with both before and after checkpoint information
+            Map<String, Object> commitAttributes = new java.util.HashMap<>();
+            commitAttributes.put(IndexConstants.CHECKPOINT_CREATION_TIME, afterTime);
+            if (beforeCheckpoint != null) {
+                commitAttributes.put(IndexConstants.BEFORE_CHECKPOINT_ID, beforeCheckpoint);
+            }
+            CommitInfo info = new CommitInfo(CommitInfo.OAK_UNKNOWN, CommitInfo.OAK_UNKNOWN, commitAttributes);
+            
             indexUpdate =
                     new IndexUpdate(provider, name, after, builder, callback, callback, info, corruptIndexHandler)
                             .withMissingProviderStrategy(missingStrategy);

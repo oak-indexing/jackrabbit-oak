@@ -21,9 +21,12 @@ import org.apache.jackrabbit.oak.plugins.index.IndexEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadataManager;
 import org.apache.jackrabbit.oak.spi.commit.CommitInfo;
 import org.apache.jackrabbit.oak.spi.commit.EmptyHook;
+import org.apache.jackrabbit.oak.spi.state.ChildNodeEntry;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
+import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.stats.StatisticsProvider;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
@@ -253,10 +256,9 @@ public class ChangeTrackingIndexPopulator implements Runnable {
             LOG.debug("Starting change tracking index population cycle");
             long startTime = System.currentTimeMillis();
             
-            // Note: We no longer track checkpoints directly here as AsyncIndexStats methods
-            // are not accessible. The AsyncIndexUpdate internally manages its checkpoints.
-            
-            // Run AsyncIndexUpdate - this will diff and populate the change tracking index
+            // Run AsyncIndexUpdate - this will diff checkpoint1 → checkpoint2
+            // AsyncIndexUpdate will pass checkpoint1 ID through CommitInfo
+            // ChangeTrackingIndexEditorProvider will extract the timestamp from checkpoint1
             asyncIndexUpdate.run();
             
             // Track the last processed checkpoint via lastProcessedCheckpoint field
@@ -383,5 +385,6 @@ public class ChangeTrackingIndexPopulator implements Runnable {
         initialized = false;
         initialize();
     }
+    
 }
 

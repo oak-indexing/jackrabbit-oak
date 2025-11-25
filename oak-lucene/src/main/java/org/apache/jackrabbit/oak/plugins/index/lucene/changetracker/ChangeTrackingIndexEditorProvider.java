@@ -18,10 +18,16 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.lucene.changetracker;
 
+import org.apache.jackrabbit.oak.api.PropertyState;
+import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.plugins.index.ContextAwareCallback;
+import org.apache.jackrabbit.oak.plugins.index.IndexConstants;
 import org.apache.jackrabbit.oak.plugins.index.IndexEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.IndexUpdateCallback;
+import org.apache.jackrabbit.oak.plugins.index.IndexingContext;
 import org.apache.jackrabbit.oak.spi.commit.CommitInfo;
 import org.apache.jackrabbit.oak.spi.commit.Editor;
+import org.apache.jackrabbit.oak.spi.state.ChildNodeEntry;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.lucene.index.IndexWriter;
@@ -35,9 +41,13 @@ import org.slf4j.LoggerFactory;
  * This provider creates ChangeTrackingIndexEditor instances that record
  * all changed paths into a Lucene index for later chunked processing.
  * 
- * <p><strong>Simplified Design:</strong> Since we only store paths (not content), 
- * we don't need checkpoint information. The editor only needs a timestamp for
- * ordering and retention purposes.
+ * <p><strong>Timestamp Strategy:</strong> Uses checkpoint1's (beforeCheckpoint) creation timestamp
+ * to tag change entries. The checkpoint1 ID is passed through CommitInfo by AsyncIndexUpdate,
+ * and this provider extracts the timestamp from the checkpoint.
+ * 
+ * <p>This provides accurate traceability: diffProcessingTime represents the repository state
+ * FROM which changes are being recorded, making it clear which checkpoint's diff produced
+ * these changes.
  */
 public class ChangeTrackingIndexEditorProvider implements IndexEditorProvider {
 
@@ -77,17 +87,100 @@ public class ChangeTrackingIndexEditorProvider implements IndexEditorProvider {
 
         LOG.info("Creating ChangeTrackingIndexEditor for change tracking index");
 
-        // Get timestamp for this diff processing - used for ordering and retention
-        long diffProcessingTime = System.currentTimeMillis();
+        // Get CommitInfo from callback (must be ContextAwareCallback)
+        if (!(callback instanceof ContextAwareCallback)) {
+            LOG.warn("Callback is not ContextAwareCallback, using current time");
+            return new ChangeTrackingIndexEditor(changeTrackingWriter, System.currentTimeMillis());
+        }
         
-        LOG.debug("Change tracking diff at timestamp: {}", diffProcessingTime);
+        IndexingContext context = ((ContextAwareCallback) callback).getIndexingContext();
+        CommitInfo info = context.getCommitInfo();
+        
+        // Extract checkpoint1 (beforeCheckpoint) ID from CommitInfo
+        // AsyncIndexUpdate passes this via IndexConstants.BEFORE_CHECKPOINT_ID
+        String checkpoint1Id = (String) info.getInfo().get(IndexConstants.BEFORE_CHECKPOINT_ID);
+        
+        long diffProcessingTime;
+        if (checkpoint1Id != null) {
+            // Extract timestamp from checkpoint1
+            diffProcessingTime = extractCheckpointTimestamp(root, checkpoint1Id);
+            if (diffProcessingTime > 0) {
+                LOG.debug("Change tracking diff FROM checkpoint1: {} (timestamp: {})", 
+                         checkpoint1Id, diffProcessingTime);
+            } else {
+                LOG.warn("Could not extract timestamp from checkpoint1: {}, using current time", 
+                        checkpoint1Id);
+                diffProcessingTime = System.currentTimeMillis();
+            }
+        } else {
+            // Initial indexing - no checkpoint1 exists yet
+            LOG.debug("No checkpoint1 found (initial indexing), using current time");
+            diffProcessingTime = System.currentTimeMillis();
+        }
         
         // Create and return the change tracking editor
-        // Note: No checkpoint info needed since we only store paths, not content
+        // diffProcessingTime = checkpoint1's timestamp (the "before" state in the diff)
         return new ChangeTrackingIndexEditor(
             changeTrackingWriter,
             diffProcessingTime
         );
+    }
+    
+    /**
+     * Extracts the creation timestamp from a checkpoint.
+     * Handles different NodeStore implementations (Segment, Document, Memory).
+     * 
+     * @param root the root NodeState
+     * @param checkpointId the checkpoint ID
+     * @return the checkpoint creation timestamp, or 0 if not found
+     */
+    private long extractCheckpointTimestamp(NodeState root, String checkpointId) {
+        try {
+            NodeState checkpointsNode = root.getChildNode("checkpoints");
+            
+            if (!checkpointsNode.exists()) {
+                LOG.debug("No checkpoints node found");
+                return 0;
+            }
+            
+            // Iterate through all checkpoints to find the matching one
+            for (ChildNodeEntry entry : checkpointsNode.getChildNodeEntries()) {
+                if (entry.getName().equals(checkpointId)) {
+                    NodeState checkpoint = entry.getNodeState();
+                    
+                    // Try "created" property (SegmentNodeStore style)
+                    PropertyState createdProp = checkpoint.getProperty("created");
+                    if (createdProp != null) {
+                        return createdProp.getValue(Type.LONG);
+                    }
+                    
+                    // Try extracting from the checkpoint ID itself
+                    // DocumentNodeStore uses revision strings that contain timestamps
+                    // Format: "r<timestamp>-<counter>-<clusterId>"
+                    if (checkpointId.startsWith("r")) {
+                        String[] parts = checkpointId.substring(1).split("-");
+                        if (parts.length >= 1) {
+                            try {
+                                // Convert hex timestamp to long
+                                return Long.parseLong(parts[0], 16);
+                            } catch (NumberFormatException e) {
+                                LOG.debug("Could not parse timestamp from revision: {}", checkpointId);
+                            }
+                        }
+                    }
+                    
+                    LOG.debug("No timestamp found in checkpoint: {}", checkpointId);
+                    return 0;
+                }
+            }
+            
+            LOG.debug("Checkpoint not found: {}", checkpointId);
+            return 0;
+            
+        } catch (Exception e) {
+            LOG.warn("Error extracting checkpoint timestamp for {}", checkpointId, e);
+            return 0;
+        }
     }
 }
 

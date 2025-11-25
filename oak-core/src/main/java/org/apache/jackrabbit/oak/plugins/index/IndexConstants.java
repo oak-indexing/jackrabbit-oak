@@ -115,6 +115,16 @@ public interface IndexConstants {
     String CHECKPOINT_CREATION_TIME = "indexingCheckpointTime";
     
     /**
+     * CommitInfo attribute name which refers to the "before" checkpoint ID
+     * in an async indexing cycle. This is the checkpoint representing the
+     * last indexed state (checkpoint1) from which changes are being diffed.
+     * 
+     * This allows IndexEditorProvider implementations to access the before
+     * checkpoint information for accurate change tracking.
+     */
+    String BEFORE_CHECKPOINT_ID = "indexingBeforeCheckpoint";
+    
+    /**
      * The index tag hint (when using "option(index tagged x, y)", this is IN("x", "y"))
      */
     String INDEX_TAG_OPTION = ":indexTag";
