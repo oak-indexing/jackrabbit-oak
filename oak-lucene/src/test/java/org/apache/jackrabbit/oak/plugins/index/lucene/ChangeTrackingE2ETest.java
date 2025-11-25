@@ -95,9 +95,9 @@ public class ChangeTrackingE2ETest {
     // Test control flag
     private static final boolean USE_CHANGE_TRACKING = Boolean.getBoolean("useChangeTracking");
     
-    // Test data sizes
-    private static final int BULK_LOAD_SIZE = 100;  // Start with 100 nodes
-    private static final int UPDATE_SIZE = 20;
+    // Test data sizes - increased for better performance comparison
+    private static final int BULK_LOAD_SIZE = 100000;  // 100K nodes for bulk load
+    private static final int UPDATE_SIZE = 30000;  // 30K nodes for updates
     
     // Performance metrics
     /**
@@ -132,53 +132,104 @@ public class ChangeTrackingE2ETest {
         }
         
         void printSummary() {
-            LOG.info("\n========================================");
-            LOG.info("PERFORMANCE SUMMARY");
-            LOG.info("========================================");
-            LOG.info("Mode: {}", USE_CHANGE_TRACKING ? "CHANGE TRACKING (3 indexers)" : "TRADITIONAL (1 indexer)");
-            LOG.info("Total nodes processed: {}", totalNodesProcessed);
-            LOG.info("Total content time: {} ms", totalContentTime);
-            LOG.info("");
+            String summary = "\n========================================\n" +
+                           "PERFORMANCE SUMMARY\n" +
+                           "========================================\n" +
+                           "Mode: " + (USE_CHANGE_TRACKING ? "CHANGE TRACKING (3 indexers)" : "TRADITIONAL (1 indexer)") + "\n" +
+                           "Total nodes processed: " + totalNodesProcessed + "\n" +
+                           "Total content time: " + totalContentTime + " ms\n\n";
             
             if (USE_CHANGE_TRACKING) {
-                LOG.info("Change Tracking Mode - Per-Phase Timings:");
-                LOG.info("  Phase 1 (ChangeTrackingIndexPopulator):    {} ms", totalPhase1Time);
-                LOG.info("  Phase 2 (Traditional AsyncIndexUpdate):     {} ms", totalPhase2Time);
-                LOG.info("  Phase 3 (ChangeTrackingAsyncIndexUpdate):   {} ms", totalPhase3Time);
-                LOG.info("  --------------------------------------------------");
                 long total = totalPhase1Time + totalPhase2Time + totalPhase3Time;
-                LOG.info("  TOTAL (all 3 phases):                        {} ms", total);
-                LOG.info("");
+                summary += "Change Tracking Mode - Per-Phase Timings:\n" +
+                          "  Phase 1 (ChangeTrackingIndexPopulator):    " + totalPhase1Time + " ms\n" +
+                          "  Phase 2 (Traditional AsyncIndexUpdate):     " + totalPhase2Time + " ms\n" +
+                          "  Phase 3 (ChangeTrackingAsyncIndexUpdate):   " + totalPhase3Time + " ms\n" +
+                          "  --------------------------------------------------\n" +
+                          "  TOTAL (all 3 phases):                        " + total + " ms\n\n";
                 
                 // Calculate per-phase throughput
                 if (totalPhase1Time > 0) {
                     double phase1Throughput = (totalNodesProcessed * 1000.0) / totalPhase1Time;
-                    LOG.info("  Phase 1 throughput: {} nodes/sec (records changes)", String.format("%.1f", phase1Throughput));
+                    summary += "  Phase 1 throughput: " + String.format("%.1f", phase1Throughput) + " nodes/sec (records changes)\n";
                 }
                 if (totalPhase3Time > 0) {
                     double phase3Throughput = (totalNodesProcessed * 1000.0) / totalPhase3Time;
-                    LOG.info("  Phase 3 throughput: {} nodes/sec (indexes from tracker)", String.format("%.1f", phase3Throughput));
+                    summary += "  Phase 3 throughput: " + String.format("%.1f", phase3Throughput) + " nodes/sec (indexes from tracker)\n";
                 }
                 
                 double totalThroughput = (totalNodesProcessed * 1000.0) / (total + 1);
-                LOG.info("  Overall throughput: {} nodes/sec (all 3 phases)", String.format("%.1f", totalThroughput));
+                summary += "  Overall throughput: " + String.format("%.1f", totalThroughput) + " nodes/sec (all 3 phases)\n";
             } else {
-                LOG.info("Traditional Mode - Timings:");
-                LOG.info("  AsyncIndexUpdate total time: {} ms", totalTraditionalTime);
+                summary += "Traditional Mode - Timings:\n" +
+                          "  AsyncIndexUpdate total time: " + totalTraditionalTime + " ms\n";
                 double throughput = (totalNodesProcessed * 1000.0) / (totalTraditionalTime + 1);
-                LOG.info("  Throughput: {} nodes/sec", String.format("%.1f", throughput));
+                summary += "  Throughput: " + String.format("%.1f", throughput) + " nodes/sec\n";
             }
             
-            LOG.info("========================================");
-            LOG.info("COMPARISON NOTE:");
+            summary += "\n========================================\n" +
+                      "COMPARISON NOTE:\n";
             if (USE_CHANGE_TRACKING) {
-                LOG.info("  Phase 3 time is the closest comparison to traditional mode");
-                LOG.info("  (both perform actual Lucene document indexing)");
-                LOG.info("  Phase 1 is overhead for recording changes");
+                summary += "  Phase 3 time is the closest comparison to traditional mode\n" +
+                          "  (both perform actual Lucene document indexing)\n" +
+                          "  Phase 1 is overhead for recording changes\n";
             } else {
-                LOG.info("  Traditional mode: Single indexer does checkpoint diff + indexing");
+                summary += "  Traditional mode: Single indexer does checkpoint diff + indexing\n";
             }
-            LOG.info("========================================\n");
+            summary += "========================================\n";
+            
+            // Print to both LOG and System.out (System.out gets captured by surefire)
+            LOG.info(summary);
+            System.out.println(summary);
+            
+            // Write to file for report generation
+            writePerformanceReport();
+        }
+        
+        private void writePerformanceReport() {
+            try {
+                String filename = USE_CHANGE_TRACKING ? 
+                    "/tmp/changetracking_performance.txt" : "/tmp/traditional_performance.txt";
+                java.io.PrintWriter writer = new java.io.PrintWriter(new java.io.FileWriter(filename));
+                
+                writer.println("MODE=" + (USE_CHANGE_TRACKING ? "CHANGE_TRACKING" : "TRADITIONAL"));
+                writer.println("TOTAL_NODES=" + totalNodesProcessed);
+                writer.println("CONTENT_TIME_MS=" + totalContentTime);
+                
+                if (USE_CHANGE_TRACKING) {
+                    writer.println("PHASE1_TIME_MS=" + totalPhase1Time);
+                    writer.println("PHASE2_TIME_MS=" + totalPhase2Time);
+                    writer.println("PHASE3_TIME_MS=" + totalPhase3Time);
+                    long total = totalPhase1Time + totalPhase2Time + totalPhase3Time;
+                    writer.println("TOTAL_INDEXING_MS=" + total);
+                    
+                    if (total > 0) {
+                        double overallThroughput = (totalNodesProcessed * 1000.0) / total;
+                        writer.println("OVERALL_THROUGHPUT=" + String.format("%.1f", overallThroughput));
+                    }
+                    if (totalPhase1Time > 0) {
+                        double phase1Throughput = (totalNodesProcessed * 1000.0) / totalPhase1Time;
+                        writer.println("PHASE1_THROUGHPUT=" + String.format("%.1f", phase1Throughput));
+                    }
+                    if (totalPhase3Time > 0) {
+                        double phase3Throughput = (totalNodesProcessed * 1000.0) / totalPhase3Time;
+                        writer.println("PHASE3_THROUGHPUT=" + String.format("%.1f", phase3Throughput));
+                    }
+                } else {
+                    writer.println("TRADITIONAL_TIME_MS=" + totalTraditionalTime);
+                    writer.println("TOTAL_INDEXING_MS=" + totalTraditionalTime);
+                    
+                    if (totalTraditionalTime > 0) {
+                        double throughput = (totalNodesProcessed * 1000.0) / totalTraditionalTime;
+                        writer.println("TRADITIONAL_THROUGHPUT=" + String.format("%.1f", throughput));
+                    }
+                }
+                
+                writer.close();
+                LOG.info("Performance data written to: {}", filename);
+            } catch (Exception e) {
+                LOG.warn("Failed to write performance report: {}", e.getMessage());
+            }
         }
     }
     
