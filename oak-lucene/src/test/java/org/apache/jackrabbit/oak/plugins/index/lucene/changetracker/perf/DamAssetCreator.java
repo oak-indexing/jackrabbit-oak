@@ -142,7 +142,8 @@ public class DamAssetCreator {
                 metadata.setProperty("dam:status", newStatus);
                 
                 // Update timestamp
-                metadata.setProperty("jcr:lastModified", new Date());
+                Calendar updateCal = Calendar.getInstance();
+                metadata.setProperty("jcr:lastModified", ISO8601.format(updateCal));
                 
                 // Update tags (add one more tag)
                 String[] currentTags = getPropertyArray(metadata, "cq:tags");
