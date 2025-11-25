@@ -131,16 +131,18 @@ public class ChangeTrackingIndexEditor implements Editor {
     @Override
     @Nullable
     public Editor childNodeAdded(String name, NodeState after) throws CommitFailedException {
-        // Child added - record this path and traverse children
-        recordChange();
+        // Child added - record child path and traverse children
+        String childPath = buildChildPath(name);
+        recordChangeAtPath(childPath);
         return childEditor(name);
     }
     
     @Override
     @Nullable
     public Editor childNodeChanged(String name, NodeState before, NodeState after) throws CommitFailedException {
-        // Child changed - record this path and traverse children
-        recordChange();
+        // Child changed - record child path and traverse children
+        String childPath = buildChildPath(name);
+        recordChangeAtPath(childPath);
         return childEditor(name);
     }
     

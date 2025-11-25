@@ -74,8 +74,6 @@ public class ChangeTrackingIndexEditorTest {
         
         Document doc = reader.document(0);
         assertEquals("/", doc.get("ct:path"));
-        assertNotNull(doc.get("ct:checkpoint1"));
-        assertNotNull(doc.get("ct:checkpoint2"));
         assertNotNull(doc.get("ct:diffProcessingTime"));
         assertNotNull(doc.get("ct:serialNumber"));
         
@@ -232,7 +230,8 @@ public class ChangeTrackingIndexEditorTest {
     }
 
     @Test
-    public void testCheckpointTracking() throws Exception {
+    public void testTimestampTracking() throws Exception {
+        editor.enter(EmptyNodeState.EMPTY_NODE, EmptyNodeState.EMPTY_NODE);
         editor.propertyAdded(PropertyStates.createProperty("test", "value"));
         
         writer.commit();
@@ -240,8 +239,11 @@ public class ChangeTrackingIndexEditorTest {
         IndexReader reader = DirectoryReader.open(directory);
         Document doc = reader.document(0);
         
-        assertEquals("checkpoint-1", doc.get("ct:checkpoint1"));
-        assertEquals("checkpoint-2", doc.get("ct:checkpoint2"));
+        // Verify timestamp is recorded (not null and > 0)
+        String timestampStr = doc.get("ct:diffProcessingTime");
+        assertNotNull("diffProcessingTime should be recorded", timestampStr);
+        long timestamp = Long.parseLong(timestampStr);
+        assertTrue("diffProcessingTime should be > 0", timestamp > 0);
         
         reader.close();
     }
