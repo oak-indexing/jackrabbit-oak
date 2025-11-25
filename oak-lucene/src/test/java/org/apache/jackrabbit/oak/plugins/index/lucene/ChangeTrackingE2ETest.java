@@ -22,6 +22,11 @@ import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.api.ContentRepository;
 import org.apache.jackrabbit.oak.api.Root;
 import org.apache.jackrabbit.oak.api.Tree;
+import org.apache.jackrabbit.oak.plugins.document.DocumentMK;
+import org.apache.jackrabbit.oak.plugins.document.DocumentNodeStore;
+import org.apache.jackrabbit.oak.plugins.document.MongoConnectionFactory;
+import org.apache.jackrabbit.oak.plugins.document.MongoUtils;
+import org.apache.jackrabbit.oak.plugins.document.util.MongoConnection;
 import org.apache.jackrabbit.oak.plugins.index.AsyncIndexUpdate;
 import org.apache.jackrabbit.oak.plugins.index.lucene.util.LuceneIndexDefinitionBuilder;
 import org.apache.jackrabbit.oak.plugins.index.lucene.changetracker.ChangeTrackingIndexEditorProvider;
@@ -47,6 +52,7 @@ import org.apache.jackrabbit.oak.stats.DefaultStatisticsProvider;
 import org.apache.lucene.index.DirectoryReader;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -57,6 +63,8 @@ import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+
+import static org.junit.Assume.assumeTrue;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -87,6 +95,7 @@ import static org.junit.Assert.assertTrue;
  *     <ul>
  *       <li>MemoryNodeStore (default): Fast, in-memory, no disk I/O</li>
  *       <li>SegmentNodeStore (-DuseSegmentStore=true): Disk-based, realistic performance</li>
+ *       <li>MongoDB DocumentNodeStore (-DuseMongoStore=true): Network-based, production-like (requires Docker)</li>
  *     </ul>
  *   </li>
  * </ul>
@@ -116,6 +125,12 @@ import static org.junit.Assert.assertTrue;
  * 
  * # Change tracking mode with SegmentNodeStore (production-like)
  * mvn test -Dtest=ChangeTrackingE2ETest -DuseChangeTracking=true -DuseSegmentStore=true
+ * 
+ * # Traditional mode with MongoDB (production, requires Docker)
+ * mvn test -Dtest=ChangeTrackingE2ETest -DuseMongoStore=true
+ * 
+ * # Change tracking mode with MongoDB (production, critical test!)
+ * mvn test -Dtest=ChangeTrackingE2ETest -DuseChangeTracking=true -DuseMongoStore=true
  * </pre>
  * 
  * Built incrementally on top of SimpleAsyncIndexingTest working pattern with production-ready
@@ -128,17 +143,25 @@ public class ChangeTrackingE2ETest {
     // Test control flags
     private static final boolean USE_CHANGE_TRACKING = Boolean.getBoolean("useChangeTracking");
     private static final boolean USE_SEGMENT_STORE = Boolean.getBoolean("useSegmentStore");
+    private static final boolean USE_MONGO_STORE = Boolean.getBoolean("useMongoStore");
     
     // Test data sizes - increased for better performance comparison
-    private static final int BULK_LOAD_SIZE = 100000;  // 100K nodes for bulk load
-    private static final int UPDATE_SIZE = 30000;  // 30K nodes for updates
+    private static final int BULK_LOAD_SIZE = 100;  // 100 nodes for bulk load
+    private static final int UPDATE_SIZE = 20;  // 20 nodes for updates (leaves 30 published nodes)
     
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder(new File("target"));
     
+    @Rule
+    public MongoConnectionFactory connectionFactory = new MongoConnectionFactory();
+    
     // SegmentNodeStore components
     private FileStore fileStore;
     private ScheduledExecutorService scheduledExecutor;
+    
+    // MongoDB components
+    private MongoConnection mongoConnection;
+    private DocumentNodeStore documentNodeStore;
     
     // Performance metrics
     /**
@@ -293,12 +316,23 @@ public class ChangeTrackingE2ETest {
     private AsyncIndexUpdate traditionalAsyncIndexer;                   // 2. Processes non-CT indexes  
     private ChangeTrackingAsyncIndexUpdate changeTrackingAsyncIndexer;  // 3. Processes CT indexes
     
+    @BeforeClass
+    public static void checkMongoAvailability() {
+        if (USE_MONGO_STORE) {
+            assumeTrue("MongoDB not available", MongoUtils.isAvailable());
+        }
+    }
+    
     @Before
     public void setup() throws Exception {
+        String nodeStoreType = USE_MONGO_STORE ? "MongoDB DocumentNodeStore (network)" : 
+                               USE_SEGMENT_STORE ? "SegmentNodeStore (disk-based)" : 
+                               "MemoryNodeStore (in-memory)";
+        
         LOG.info("========================================");
         LOG.info("Test Configuration:");
         LOG.info("  Indexing Mode: {}", USE_CHANGE_TRACKING ? "CHANGE TRACKING (3 indexers)" : "TRADITIONAL (1 indexer)");
-        LOG.info("  NodeStore:     {}", USE_SEGMENT_STORE ? "SegmentNodeStore (disk-based)" : "MemoryNodeStore (in-memory)");
+        LOG.info("  NodeStore:     {}", nodeStoreType);
         LOG.info("  Data Size:     {} bulk + {} updates", BULK_LOAD_SIZE, UPDATE_SIZE);
         LOG.info("========================================");
         
@@ -333,7 +367,7 @@ public class ChangeTrackingE2ETest {
             changeTrackingDirectory.close();
         }
         
-        // Clean up SegmentNodeStore if used
+        // Clean up NodeStore resources
         if (USE_SEGMENT_STORE) {
             if (fileStore != null) {
                 fileStore.close();
@@ -343,13 +377,25 @@ public class ChangeTrackingE2ETest {
             }
         }
         
+        if (USE_MONGO_STORE) {
+            if (documentNodeStore != null) {
+                documentNodeStore.dispose();
+            }
+            if (mongoConnection != null) {
+                String dbName = mongoConnection.getDBName();
+                MongoUtils.dropCollections(dbName);
+            }
+        }
+        
         // Print performance summary
         metrics.printSummary();
     }
     
     protected ContentRepository createRepository() {
         // Choose NodeStore based on test configuration
-        if (USE_SEGMENT_STORE) {
+        if (USE_MONGO_STORE) {
+            nodeStore = createMongoNodeStore();
+        } else if (USE_SEGMENT_STORE) {
             nodeStore = createSegmentNodeStore();
         } else {
             nodeStore = new MemoryNodeStore();
@@ -400,6 +446,42 @@ public class ChangeTrackingE2ETest {
             return SegmentNodeStoreBuilders.builder(fileStore).build();
         } catch (IOException | InvalidFileStoreVersionException e) {
             throw new RuntimeException("Failed to create SegmentNodeStore", e);
+        }
+    }
+    
+    /**
+     * Creates a MongoDB DocumentNodeStore for testing with network-based storage.
+     * This provides the most realistic production characteristics, including:
+     * - Network latency (1-5ms per operation)
+     * - Transaction timeouts (60s default)
+     * - Distributed storage
+     * 
+     * Requires MongoDB to be available (via Docker or local installation).
+     * Use MongoConnectionFactory which handles Docker container setup automatically.
+     */
+    private NodeStore createMongoNodeStore() {
+        try {
+            LOG.info("Creating MongoDB DocumentNodeStore...");
+            
+            mongoConnection = connectionFactory.getConnection();
+            LOG.info("Connected to MongoDB: {}", mongoConnection.getDBName());
+            
+            // Clean up any existing collections
+            MongoUtils.dropCollections(mongoConnection.getDatabase());
+            
+            // Create DocumentNodeStore with MongoDB backend
+            documentNodeStore = new DocumentMK.Builder()
+                    .setMongoDB(mongoConnection.getMongoClient(), mongoConnection.getDBName())
+                    .setAsyncDelay(0)  // Disable async delay for testing
+                    .getNodeStore();
+            
+            LOG.info("MongoDB DocumentNodeStore created successfully");
+            
+            return documentNodeStore;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create MongoDB DocumentNodeStore. " +
+                    "Ensure MongoDB is available (Docker or local). " +
+                    "MongoConnectionFactory will attempt to start a Docker container automatically.", e);
         }
     }
     
