@@ -100,27 +100,84 @@ public class ChangeTrackingE2ETest {
     private static final int UPDATE_SIZE = 20;
     
     // Performance metrics
+    /**
+     * Holds timing information for indexing operations.
+     */
+    private static class IndexingTimings {
+        long phase1Time = 0;  // ChangeTrackingIndexPopulator
+        long phase2Time = 0;  // Traditional AsyncIndexUpdate
+        long phase3Time = 0;  // ChangeTrackingAsyncIndexUpdate
+        long traditionalTime = 0;  // Single AsyncIndexUpdate (traditional mode)
+        
+        long getTotalTime() {
+            return USE_CHANGE_TRACKING ? (phase1Time + phase2Time + phase3Time) : traditionalTime;
+        }
+    }
+    
     private static class PerformanceMetrics {
         long totalContentTime = 0;
-        long totalIndexTime = 0;
+        long totalPhase1Time = 0;  // Populator
+        long totalPhase2Time = 0;  // Traditional indexer
+        long totalPhase3Time = 0;  // Change tracked indexer
+        long totalTraditionalTime = 0;  // Single traditional indexer
         int totalNodesProcessed = 0;
         
-        void record(int nodes, long contentTime, long indexTime) {
+        void record(int nodes, long contentTime, IndexingTimings timings) {
             totalNodesProcessed += nodes;
             totalContentTime += contentTime;
-            totalIndexTime += indexTime;
+            totalPhase1Time += timings.phase1Time;
+            totalPhase2Time += timings.phase2Time;
+            totalPhase3Time += timings.phase3Time;
+            totalTraditionalTime += timings.traditionalTime;
         }
         
         void printSummary() {
             LOG.info("\n========================================");
             LOG.info("PERFORMANCE SUMMARY");
             LOG.info("========================================");
+            LOG.info("Mode: {}", USE_CHANGE_TRACKING ? "CHANGE TRACKING (3 indexers)" : "TRADITIONAL (1 indexer)");
             LOG.info("Total nodes processed: {}", totalNodesProcessed);
             LOG.info("Total content time: {} ms", totalContentTime);
-            LOG.info("Total index time: {} ms", totalIndexTime);
-            double totalThroughput = (totalNodesProcessed * 1000.0) / (totalIndexTime + 1);
-            LOG.info("Average indexing throughput: {} nodes/sec", String.format("%.1f", totalThroughput));
-            LOG.info("Mode: {}", USE_CHANGE_TRACKING ? "CHANGE TRACKING" : "TRADITIONAL");
+            LOG.info("");
+            
+            if (USE_CHANGE_TRACKING) {
+                LOG.info("Change Tracking Mode - Per-Phase Timings:");
+                LOG.info("  Phase 1 (ChangeTrackingIndexPopulator):    {} ms", totalPhase1Time);
+                LOG.info("  Phase 2 (Traditional AsyncIndexUpdate):     {} ms", totalPhase2Time);
+                LOG.info("  Phase 3 (ChangeTrackingAsyncIndexUpdate):   {} ms", totalPhase3Time);
+                LOG.info("  --------------------------------------------------");
+                long total = totalPhase1Time + totalPhase2Time + totalPhase3Time;
+                LOG.info("  TOTAL (all 3 phases):                        {} ms", total);
+                LOG.info("");
+                
+                // Calculate per-phase throughput
+                if (totalPhase1Time > 0) {
+                    double phase1Throughput = (totalNodesProcessed * 1000.0) / totalPhase1Time;
+                    LOG.info("  Phase 1 throughput: {} nodes/sec (records changes)", String.format("%.1f", phase1Throughput));
+                }
+                if (totalPhase3Time > 0) {
+                    double phase3Throughput = (totalNodesProcessed * 1000.0) / totalPhase3Time;
+                    LOG.info("  Phase 3 throughput: {} nodes/sec (indexes from tracker)", String.format("%.1f", phase3Throughput));
+                }
+                
+                double totalThroughput = (totalNodesProcessed * 1000.0) / (total + 1);
+                LOG.info("  Overall throughput: {} nodes/sec (all 3 phases)", String.format("%.1f", totalThroughput));
+            } else {
+                LOG.info("Traditional Mode - Timings:");
+                LOG.info("  AsyncIndexUpdate total time: {} ms", totalTraditionalTime);
+                double throughput = (totalNodesProcessed * 1000.0) / (totalTraditionalTime + 1);
+                LOG.info("  Throughput: {} nodes/sec", String.format("%.1f", throughput));
+            }
+            
+            LOG.info("========================================");
+            LOG.info("COMPARISON NOTE:");
+            if (USE_CHANGE_TRACKING) {
+                LOG.info("  Phase 3 time is the closest comparison to traditional mode");
+                LOG.info("  (both perform actual Lucene document indexing)");
+                LOG.info("  Phase 1 is overhead for recording changes");
+            } else {
+                LOG.info("  Traditional mode: Single indexer does checkpoint diff + indexing");
+            }
             LOG.info("========================================\n");
         }
     }
@@ -305,20 +362,37 @@ public class ChangeTrackingE2ETest {
         LOG.info("Content creation: {} ms ({} ms/node)", contentTime, contentTime / BULK_LOAD_SIZE);
         
         // Run async indexing
-        long indexStart = System.currentTimeMillis();
-        runAsyncIndexing();
-        long indexTime = System.currentTimeMillis() - indexStart;
-        double throughput = (BULK_LOAD_SIZE * 1000.0) / indexTime;
-        LOG.info("Indexing: {} ms ({} nodes/sec)", indexTime, String.format("%.1f", throughput));
+        IndexingTimings timings = runAsyncIndexing();
+        long totalIndexTime = timings.getTotalTime();
+        double throughput = (BULK_LOAD_SIZE * 1000.0) / totalIndexTime;
+        
+        if (USE_CHANGE_TRACKING) {
+            LOG.info("Total indexing time (all 3 indexers): {} ms ({} nodes/sec)", 
+                    totalIndexTime, String.format("%.1f", throughput));
+            // Phase 3 is most comparable to traditional
+            if (timings.phase3Time > 0) {
+                double phase3Throughput = (BULK_LOAD_SIZE * 1000.0) / timings.phase3Time;
+                LOG.info("  (Phase 3 only: {} ms, {} nodes/sec - comparable to traditional)", 
+                        timings.phase3Time, String.format("%.1f", phase3Throughput));
+            }
+        } else {
+            LOG.info("Indexing time (traditional): {} ms ({} nodes/sec)", 
+                    totalIndexTime, String.format("%.1f", throughput));
+        }
         
         // Verify indexed content via queries
         verifyBulkLoad();
         
-        metrics.record(BULK_LOAD_SIZE, contentTime, indexTime);
+        metrics.record(BULK_LOAD_SIZE, contentTime, timings);
         
         LOG.info("✓ Test 1 completed: {} nodes indexed successfully", BULK_LOAD_SIZE);
-        LOG.info("  Total time: {} ms (content={} ms, index={} ms)", 
-                contentTime + indexTime, contentTime, indexTime);
+        if (USE_CHANGE_TRACKING) {
+            LOG.info("  Mode: CHANGE TRACKING (3 indexers)");
+        } else {
+            LOG.info("  Mode: TRADITIONAL (1 indexer)");
+        }
+        LOG.info("  Total time: {} ms (content={} ms, indexing={} ms)", 
+                contentTime + totalIndexTime, contentTime, totalIndexTime);
     }
     
     @Test
@@ -353,12 +427,23 @@ public class ChangeTrackingE2ETest {
         LOG.info("Content update: {} nodes modified in {} ms", updated, contentTime);
         
         // Run async indexing
-        long indexStart = System.currentTimeMillis();
-        runAsyncIndexing();
-        long indexTime = System.currentTimeMillis() - indexStart;
-        double throughput = (updated * 1000.0) / indexTime;
-        LOG.info("Incremental indexing: {} ms ({} nodes/sec)", 
-                indexTime, String.format("%.1f", throughput));
+        IndexingTimings timings = runAsyncIndexing();
+        long totalIndexTime = timings.getTotalTime();
+        double throughput = (updated * 1000.0) / totalIndexTime;
+        
+        if (USE_CHANGE_TRACKING) {
+            LOG.info("Total incremental indexing (all 3 indexers): {} ms ({} nodes/sec)", 
+                    totalIndexTime, String.format("%.1f", throughput));
+            // Phase 3 is most comparable to traditional
+            if (timings.phase3Time > 0) {
+                double phase3Throughput = (updated * 1000.0) / timings.phase3Time;
+                LOG.info("  (Phase 3 only: {} ms, {} nodes/sec - comparable to traditional)", 
+                        timings.phase3Time, String.format("%.1f", phase3Throughput));
+            }
+        } else {
+            LOG.info("Incremental indexing (traditional): {} ms ({} nodes/sec)", 
+                    totalIndexTime, String.format("%.1f", throughput));
+        }
         
         // Capture AFTER state
         int afterPublished = executeQuery("SELECT * FROM [nt:base] WHERE [status] = 'published'");
@@ -383,11 +468,11 @@ public class ChangeTrackingE2ETest {
         int totalDocs = BULK_LOAD_SIZE; // Same total, just updated
         verifyLuceneIndexStructure(totalDocs);
         
-        metrics.record(UPDATE_SIZE, contentTime, indexTime);
+        metrics.record(UPDATE_SIZE, contentTime, timings);
         
         LOG.info("✓ Test 2 completed: {} nodes updated and re-indexed successfully", UPDATE_SIZE);
-        LOG.info("  Update metrics: content={} ms, index={} ms, throughput={} nodes/sec",
-                contentTime, indexTime, String.format("%.1f", throughput));
+        LOG.info("  Update metrics: content={} ms, total indexing={} ms, throughput={} nodes/sec",
+                contentTime, totalIndexTime, String.format("%.1f", throughput));
     }
     
     @Test
@@ -454,10 +539,8 @@ public class ChangeTrackingE2ETest {
         root.commit();
         
         // Index the content
-        long indexStart = System.currentTimeMillis();
-        runAsyncIndexing();
-        long indexTime = System.currentTimeMillis() - indexStart;
-        LOG.info("Initial indexing: {} ms", indexTime);
+        IndexingTimings initialTimings = runAsyncIndexing();
+        LOG.info("Initial indexing: {} ms", initialTimings.getTotalTime());
         
         // Query for aggregated content (query parent nodes by child properties)
         int beforeSize100 = executeQuery("SELECT * FROM [nt:base] WHERE [size] = 100");
@@ -479,9 +562,7 @@ public class ChangeTrackingE2ETest {
         long contentTime = System.currentTimeMillis() - start;
         
         // Re-index - should pick up aggregated changes
-        indexStart = System.currentTimeMillis();
-        runAsyncIndexing();
-        indexTime = System.currentTimeMillis() - indexStart;
+        IndexingTimings timings = runAsyncIndexing();
         
         // Query again - parent nodes should reflect child updates
         int afterSize100 = executeQuery("SELECT * FROM [nt:base] WHERE [size] = 100");
@@ -499,10 +580,11 @@ public class ChangeTrackingE2ETest {
         assertTrue("size=100 count should decrease (20 updated to 200)", afterSize100 < beforeSize100);
         assertTrue("size=200 count should increase (20 updated from 100)", afterSize200 > beforeSize200);
         
-        metrics.record(20, contentTime, indexTime);
+        metrics.record(20, contentTime, timings);
         
         LOG.info("✓ Test 5 completed: 20 aggregated jcr:content nodes updated");
-        LOG.info("  Aggregation test: content={} ms, index={} ms", contentTime, indexTime);
+        LOG.info("  Aggregation test: content={} ms, total indexing={} ms", 
+                contentTime, timings.getTotalTime());
     }
     
     private void verifyBulkLoad() throws Exception {
@@ -732,52 +814,72 @@ public class ChangeTrackingE2ETest {
      *   </li>
      * </ol>
      */
-    private void runAsyncIndexing() throws Exception {
+    private IndexingTimings runAsyncIndexing() throws Exception {
+        IndexingTimings timings = new IndexingTimings();
+        
         if (USE_CHANGE_TRACKING) {
-            LOG.debug("========================================");
-            LOG.debug("THREE-INDEXER CHANGE TRACKING MODE");
-            LOG.debug("========================================");
+            LOG.info("========================================");
+            LOG.info("THREE-INDEXER CHANGE TRACKING MODE");
+            LOG.info("========================================");
             
             // Phase 1: Populate change tracking index
-            LOG.debug("PHASE 1: Running ChangeTrackingIndexPopulator...");
+            LOG.info("PHASE 1: Running ChangeTrackingIndexPopulator...");
+            long phase1Start = System.currentTimeMillis();
             changeTrackingPopulator.run();
-            LOG.debug("Phase 1 complete: Change tracking index populated");
-            LOG.debug("  Stats: {}", changeTrackingPopulator.getStatistics());
+            timings.phase1Time = System.currentTimeMillis() - phase1Start;
+            LOG.info("Phase 1 complete: {} ms", timings.phase1Time);
+            LOG.info("  Stats: {}", changeTrackingPopulator.getStatistics());
             
             // Query to see how many changes were recorded
             DirectoryReader reader = DirectoryReader.open(changeTrackingDirectory);
+            int totalChanges = 0;
             try {
                 ChangeTrackingIndexQuery query = new ChangeTrackingIndexQuery(reader);
-                int totalChanges = query.getUnprocessedChanges(0, 0, Integer.MAX_VALUE).size();
-                LOG.debug("  Change tracking index: {} entries", totalChanges);
+                totalChanges = query.getUnprocessedChanges(0, 0, Integer.MAX_VALUE).size();
+                LOG.info("  Change tracking index: {} entries", totalChanges);
             } finally {
                 reader.close();
             }
             
             // Phase 2: Process traditional indexes (none in this test, but would run)
-            LOG.debug("PHASE 2: Running Traditional AsyncIndexUpdate...");
+            LOG.info("PHASE 2: Running Traditional AsyncIndexUpdate...");
+            long phase2Start = System.currentTimeMillis();
             traditionalAsyncIndexer.run();
-            LOG.debug("Phase 2 complete: Traditional indexes processed");
+            timings.phase2Time = System.currentTimeMillis() - phase2Start;
+            LOG.info("Phase 2 complete: {} ms", timings.phase2Time);
             
             // Phase 3: Process change-tracked indexes
-            LOG.debug("PHASE 3: Running ChangeTrackingAsyncIndexUpdate...");
+            LOG.info("PHASE 3: Running ChangeTrackingAsyncIndexUpdate...");
+            long phase3Start = System.currentTimeMillis();
             changeTrackingAsyncIndexer.run();
-            LOG.debug("Phase 3 complete: Change-tracked indexes processed");
+            timings.phase3Time = System.currentTimeMillis() - phase3Start;
+            LOG.info("Phase 3 complete: {} ms", timings.phase3Time);
             
-            LOG.debug("========================================");
-            LOG.debug("ALL THREE INDEXERS COMPLETE");
-            LOG.debug("========================================");
+            // Summary
+            long totalTime = timings.getTotalTime();
+            LOG.info("========================================");
+            LOG.info("ALL THREE INDEXERS COMPLETE");
+            LOG.info("Performance Breakdown:");
+            LOG.info("  Phase 1 (Change Tracker Populate): {} ms ({} entries)", timings.phase1Time, totalChanges);
+            LOG.info("  Phase 2 (Traditional Indexer):      {} ms", timings.phase2Time);
+            LOG.info("  Phase 3 (Change Tracked Indexer):   {} ms", timings.phase3Time);
+            LOG.info("  TOTAL:                               {} ms", totalTime);
+            LOG.info("========================================");
         } else {
-            LOG.debug("========================================");
-            LOG.debug("TRADITIONAL MODE");
-            LOG.debug("========================================");
+            LOG.info("========================================");
+            LOG.info("TRADITIONAL MODE");
+            LOG.info("========================================");
             
             // Traditional: Just run async indexing
+            long start = System.currentTimeMillis();
             asyncIndexUpdate.run();
+            timings.traditionalTime = System.currentTimeMillis() - start;
             
-            LOG.debug("Traditional AsyncIndexUpdate complete");
-            LOG.debug("========================================");
+            LOG.info("Traditional AsyncIndexUpdate complete: {} ms", timings.traditionalTime);
+            LOG.info("========================================");
         }
+        
+        return timings;
     }
     
     private void processChangesFromTrackingIndex() throws Exception {
