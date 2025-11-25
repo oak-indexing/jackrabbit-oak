@@ -1,0 +1,29 @@
+/*
+ * DAM Node Type Definitions for Performance Testing
+ * 
+ * Simplified version of AEM DAM node types for testing purposes.
+ */
+
+<dam = 'http://www.day.com/dam/1.0'>
+<jcr = 'http://www.jcp.org/jcr/1.0'>
+<nt = 'http://www.jcp.org/jcr/nt/1.0'>
+<mix = 'http://www.jcp.org/jcr/mix/1.0'>
+
+/*
+ * DAM Asset - represents a digital asset (image, video, document, etc.)
+ */
+[dam:Asset] > nt:hierarchyNode
+  - * (undefined) multiple
+  - * (undefined)
+  + * (nt:base) = nt:base version
+  + jcr:content (dam:AssetContent) = dam:AssetContent primary
+
+/*
+ * DAM Asset Content - contains the actual asset content and metadata
+ */
+[dam:AssetContent] > nt:unstructured
+  - * (undefined) multiple
+  - * (undefined)
+  + metadata (nt:unstructured) = nt:unstructured
+  + renditions (nt:folder) = nt:folder
+
