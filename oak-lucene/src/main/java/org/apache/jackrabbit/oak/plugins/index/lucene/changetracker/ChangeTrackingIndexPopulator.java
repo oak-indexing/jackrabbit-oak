@@ -145,6 +145,10 @@ public class ChangeTrackingIndexPopulator implements Runnable {
         IndexWriterConfig config = new IndexWriterConfig(Version.LUCENE_47, new StandardAnalyzer(Version.LUCENE_47));
         this.changeTrackingWriter = new IndexWriter(changeTrackingDirectory, config);
         
+        // Commit empty index to create initial index structure
+        // This allows DirectoryReader to be opened even when no documents exist yet
+        this.changeTrackingWriter.commit();
+        
         // Create the editor provider that will record changes
         this.editorProvider = new ChangeTrackingIndexEditorProvider(changeTrackingWriter);
         
