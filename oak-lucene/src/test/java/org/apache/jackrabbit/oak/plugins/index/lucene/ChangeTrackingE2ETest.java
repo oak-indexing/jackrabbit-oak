@@ -16,6 +16,7 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.lucene;
 
+import org.apache.commons.io.FileUtils;
 import org.apache.jackrabbit.oak.InitialContent;
 import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.api.ContentRepository;
@@ -34,18 +35,28 @@ import org.apache.jackrabbit.oak.plugins.index.property.PropertyIndexEditorProvi
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadataManager;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
+import org.apache.jackrabbit.oak.segment.SegmentNodeStoreBuilders;
+import org.apache.jackrabbit.oak.segment.file.FileStore;
+import org.apache.jackrabbit.oak.segment.file.FileStoreBuilder;
+import org.apache.jackrabbit.oak.segment.file.InvalidFileStoreVersionException;
 import org.apache.jackrabbit.oak.spi.query.QueryIndexProvider;
 import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.apache.jackrabbit.oak.spi.commit.Observer;
+import org.apache.jackrabbit.oak.stats.DefaultStatisticsProvider;
 import org.apache.lucene.index.DirectoryReader;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.IOException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -71,7 +82,13 @@ import static org.junit.Assert.assertTrue;
  * <p><strong>Test Modes:</strong>
  * <ul>
  *   <li><strong>Traditional Mode</strong> (default): Uses only AsyncIndexUpdate, no change tracking</li>
- *   <li><strong>Change Tracking Mode</strong> (-DuseChangeTracking=true): Uses only ChangeTrackingAsyncIndexUpdate</li>
+ *   <li><strong>Change Tracking Mode</strong> (-DuseChangeTracking=true): Uses 3-indexer architecture</li>
+ *   <li><strong>NodeStore Selection</strong>:
+ *     <ul>
+ *       <li>MemoryNodeStore (default): Fast, in-memory, no disk I/O</li>
+ *       <li>SegmentNodeStore (-DuseSegmentStore=true): Disk-based, realistic performance</li>
+ *     </ul>
+ *   </li>
  * </ul>
  * 
  * <p>Note: This test runs each mode in isolation for comparison. In production, both would run concurrently.
@@ -83,7 +100,23 @@ import static org.junit.Assert.assertTrue;
  *   <li>Category queries</li>
  *   <li>Aggregations (jcr:content child node updates)</li>
  *   <li>Performance metrics and comparison</li>
+ *   <li>Configurable NodeStore (Memory vs Segment)</li>
  * </ul>
+ * 
+ * <p><strong>Usage Examples:</strong>
+ * <pre>
+ * # Traditional mode with MemoryNodeStore (fastest)
+ * mvn test -Dtest=ChangeTrackingE2ETest
+ * 
+ * # Change tracking mode with MemoryNodeStore
+ * mvn test -Dtest=ChangeTrackingE2ETest -DuseChangeTracking=true
+ * 
+ * # Traditional mode with SegmentNodeStore (realistic)
+ * mvn test -Dtest=ChangeTrackingE2ETest -DuseSegmentStore=true
+ * 
+ * # Change tracking mode with SegmentNodeStore (production-like)
+ * mvn test -Dtest=ChangeTrackingE2ETest -DuseChangeTracking=true -DuseSegmentStore=true
+ * </pre>
  * 
  * Built incrementally on top of SimpleAsyncIndexingTest working pattern with production-ready
  * implementations of LuceneChunkedIndexProcessor and ChangeTrackingAsyncIndexUpdate.
@@ -92,12 +125,20 @@ public class ChangeTrackingE2ETest {
     
     private static final Logger LOG = LoggerFactory.getLogger(ChangeTrackingE2ETest.class);
     
-    // Test control flag
+    // Test control flags
     private static final boolean USE_CHANGE_TRACKING = Boolean.getBoolean("useChangeTracking");
+    private static final boolean USE_SEGMENT_STORE = Boolean.getBoolean("useSegmentStore");
     
     // Test data sizes - increased for better performance comparison
     private static final int BULK_LOAD_SIZE = 100000;  // 100K nodes for bulk load
     private static final int UPDATE_SIZE = 30000;  // 30K nodes for updates
+    
+    @Rule
+    public TemporaryFolder temporaryFolder = new TemporaryFolder(new File("target"));
+    
+    // SegmentNodeStore components
+    private FileStore fileStore;
+    private ScheduledExecutorService scheduledExecutor;
     
     // Performance metrics
     /**
@@ -255,7 +296,10 @@ public class ChangeTrackingE2ETest {
     @Before
     public void setup() throws Exception {
         LOG.info("========================================");
-        LOG.info("Test Mode: {}", USE_CHANGE_TRACKING ? "CHANGE TRACKING (NEW)" : "TRADITIONAL (OLD)");
+        LOG.info("Test Configuration:");
+        LOG.info("  Indexing Mode: {}", USE_CHANGE_TRACKING ? "CHANGE TRACKING (3 indexers)" : "TRADITIONAL (1 indexer)");
+        LOG.info("  NodeStore:     {}", USE_SEGMENT_STORE ? "SegmentNodeStore (disk-based)" : "MemoryNodeStore (in-memory)");
+        LOG.info("  Data Size:     {} bulk + {} updates", BULK_LOAD_SIZE, UPDATE_SIZE);
         LOG.info("========================================");
         
         repository = createRepository();
@@ -289,12 +333,27 @@ public class ChangeTrackingE2ETest {
             changeTrackingDirectory.close();
         }
         
+        // Clean up SegmentNodeStore if used
+        if (USE_SEGMENT_STORE) {
+            if (fileStore != null) {
+                fileStore.close();
+            }
+            if (scheduledExecutor != null) {
+                scheduledExecutor.shutdown();
+            }
+        }
+        
         // Print performance summary
         metrics.printSummary();
     }
     
     protected ContentRepository createRepository() {
-        nodeStore = new MemoryNodeStore();
+        // Choose NodeStore based on test configuration
+        if (USE_SEGMENT_STORE) {
+            nodeStore = createSegmentNodeStore();
+        } else {
+            nodeStore = new MemoryNodeStore();
+        }
         luceneEditorProvider = new LuceneIndexEditorProvider();
         luceneIndexProvider = new LuceneIndexProvider();
         
@@ -318,6 +377,30 @@ public class ChangeTrackingE2ETest {
                 .with(new PropertyIndexEditorProvider())
                 .with(new NodeTypeIndexProvider())
                 .createContentRepository();
+    }
+    
+    /**
+     * Creates a SegmentNodeStore for testing with disk-based storage.
+     * This provides more realistic performance characteristics than MemoryNodeStore.
+     */
+    private NodeStore createSegmentNodeStore() {
+        try {
+            File segmentDir = temporaryFolder.newFolder("segmentstore");
+            LOG.info("Creating SegmentNodeStore at: {}", segmentDir.getAbsolutePath());
+            
+            scheduledExecutor = Executors.newSingleThreadScheduledExecutor();
+            DefaultStatisticsProvider statisticsProvider = new DefaultStatisticsProvider(scheduledExecutor);
+            
+            fileStore = FileStoreBuilder.fileStoreBuilder(segmentDir)
+                    .withStatisticsProvider(statisticsProvider)
+                    .withMaxFileSize(256)  // Small segments for testing
+                    .withMemoryMapping(false)  // Disable memory mapping for test
+                    .build();
+            
+            return SegmentNodeStoreBuilders.builder(fileStore).build();
+        } catch (IOException | InvalidFileStoreVersionException e) {
+            throw new RuntimeException("Failed to create SegmentNodeStore", e);
+        }
     }
     
     /**
