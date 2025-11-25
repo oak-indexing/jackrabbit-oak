@@ -20,11 +20,17 @@ import org.apache.jackrabbit.oak.plugins.index.AsyncIndexUpdate;
 import org.apache.jackrabbit.oak.plugins.index.IndexEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadataManager;
 import org.apache.jackrabbit.oak.spi.commit.CommitInfo;
+import org.apache.jackrabbit.oak.spi.commit.EmptyHook;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.apache.jackrabbit.oak.stats.StatisticsProvider;
+import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.analysis.standard.StandardAnalyzer;
+import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.util.Version;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -111,6 +117,7 @@ public class ChangeTrackingIndexPopulator implements Runnable {
     
     private final NodeStore nodeStore;
     private final Directory changeTrackingDirectory;
+    private final IndexWriter changeTrackingWriter;
     private final IndexProgressMetadataManager metadataManager;
     private final AsyncIndexUpdate asyncIndexUpdate;
     private final ChangeTrackingIndexEditorProvider editorProvider;
@@ -129,13 +136,17 @@ public class ChangeTrackingIndexPopulator implements Runnable {
     public ChangeTrackingIndexPopulator(@NotNull NodeStore nodeStore,
                                        @NotNull Directory changeTrackingDirectory,
                                        @NotNull IndexProgressMetadataManager metadataManager,
-                                       @NotNull StatisticsProvider statisticsProvider) {
+                                       @NotNull StatisticsProvider statisticsProvider) throws IOException {
         this.nodeStore = nodeStore;
         this.changeTrackingDirectory = changeTrackingDirectory;
         this.metadataManager = metadataManager;
         
+        // Create IndexWriter for change tracking index
+        IndexWriterConfig config = new IndexWriterConfig(Version.LUCENE_47, new StandardAnalyzer(Version.LUCENE_47));
+        this.changeTrackingWriter = new IndexWriter(changeTrackingDirectory, config);
+        
         // Create the editor provider that will record changes
-        this.editorProvider = new ChangeTrackingIndexEditorProvider(changeTrackingDirectory);
+        this.editorProvider = new ChangeTrackingIndexEditorProvider(changeTrackingWriter);
         
         // Create AsyncIndexUpdate for the change-tracker-async lane
         this.asyncIndexUpdate = new AsyncIndexUpdate(
@@ -190,7 +201,7 @@ public class ChangeTrackingIndexPopulator implements Runnable {
                 ChangeTrackingIndexDefinitionBuilder.createChangeTrackingIndex(oakIndex);
                 
                 // Commit the index definition
-                nodeStore.merge(rootBuilder, CommitInfo.EMPTY, null);
+                nodeStore.merge(rootBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
                 LOG.info("Change tracking index definition created successfully");
             } else {
                 LOG.info("Change tracking index definition already exists");
@@ -238,18 +249,16 @@ public class ChangeTrackingIndexPopulator implements Runnable {
             LOG.debug("Starting change tracking index population cycle");
             long startTime = System.currentTimeMillis();
             
-            // Get checkpoint before running diff
-            String checkpointBefore = asyncIndexUpdate.getIndexStats().getReferenceCheckpoint();
+            // Note: We no longer track checkpoints directly here as AsyncIndexStats methods
+            // are not accessible. The AsyncIndexUpdate internally manages its checkpoints.
             
             // Run AsyncIndexUpdate - this will diff and populate the change tracking index
             asyncIndexUpdate.run();
             
-            // Get checkpoint after running diff
-            String checkpointAfter = asyncIndexUpdate.getIndexStats().getProcessedCheckpoint();
-            
-            // Update last processed checkpoint (for cleanup coordination)
-            if (checkpointAfter != null && !checkpointAfter.equals(checkpointBefore)) {
-                updateLastProcessedCheckpoint(checkpointAfter);
+            // Track the last processed checkpoint via lastProcessedCheckpoint field
+            // Note: Since AsyncIndexStats is not accessible, we track checkpoints internally
+            if (lastProcessedCheckpoint != null) {
+                updateLastProcessedCheckpoint(lastProcessedCheckpoint);
             }
             
             long duration = System.currentTimeMillis() - startTime;

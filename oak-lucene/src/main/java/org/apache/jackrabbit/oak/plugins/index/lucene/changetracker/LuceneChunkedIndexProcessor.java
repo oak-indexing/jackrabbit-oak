@@ -19,6 +19,7 @@ package org.apache.jackrabbit.oak.plugins.index.lucene.changetracker;
 import org.apache.jackrabbit.oak.api.CommitFailedException;
 import org.apache.jackrabbit.oak.plugins.index.search.Aggregate;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
+import org.apache.jackrabbit.oak.plugins.index.search.PropertyDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.ChangeEntry;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadata;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadataManager;
@@ -37,6 +38,7 @@ import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.jcr.PropertyType;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -446,7 +448,7 @@ public class LuceneChunkedIndexProcessor {
         }
         
         // Step 3: Check if node should be indexed (rule conditions)
-        if (!rule.indexesNode(node)) {
+        if (!rule.appliesTo(node)) {
             LOG.trace("Node at {} does not match indexing rule conditions", path);
             return null;
         }
@@ -459,7 +461,7 @@ public class LuceneChunkedIndexProcessor {
         
         // Step 5: Index properties according to property definitions
         boolean hasIndexedContent = false;
-        for (IndexDefinition.PropertyDefinition propDef : rule.getNamedPropertyDefinitions()) {
+        for (PropertyDefinition propDef : rule.getProperties()) {
             try {
                 boolean indexed = indexProperty(doc, node, propDef, path);
                 if (indexed) {
@@ -498,17 +500,18 @@ public class LuceneChunkedIndexProcessor {
      * @param nodePath the node path (for logging/debugging)
      * @return true if the property was indexed, false otherwise
      */
-    private boolean indexProperty(Document doc, NodeState node, IndexDefinition.PropertyDefinition propDef,
+    private boolean indexProperty(Document doc, NodeState node, PropertyDefinition propDef,
                                   String nodePath) {
         org.apache.jackrabbit.oak.api.PropertyState prop;
         
         // Handle relative properties (e.g., jcr:content/jcr:data for nt:file)
-        if (propDef.relative) {
-            NodeState relativeNode = getNodeAtRelativePath(node, propDef.getRelativePath());
+        if (propDef.relative && propDef.ancestors != null && propDef.ancestors.length > 0) {
+            String relativePath = String.join("/", propDef.ancestors);
+            NodeState relativeNode = getNodeAtRelativePath(node, relativePath);
             if (relativeNode == null || !relativeNode.exists()) {
                 return false;
             }
-            prop = relativeNode.getProperty(propDef.name);
+            prop = relativeNode.getProperty(propDef.nonRelativeName != null ? propDef.nonRelativeName : propDef.name);
         } else {
             // Direct property
             prop = node.getProperty(propDef.name);
@@ -531,7 +534,7 @@ public class LuceneChunkedIndexProcessor {
      * @return true if property was added
      */
     private boolean addPropertyToDocument(Document doc, org.apache.jackrabbit.oak.api.PropertyState prop,
-                                          IndexDefinition.PropertyDefinition propDef) {
+                                          PropertyDefinition propDef) {
         Field.Store store = propDef.stored ? Field.Store.YES : Field.Store.NO;
         boolean added = false;
         
@@ -583,7 +586,7 @@ public class LuceneChunkedIndexProcessor {
      * @return the Lucene field, or null if property can't be indexed
      */
     private Field createFieldForProperty(org.apache.jackrabbit.oak.api.PropertyState prop,
-                                        IndexDefinition.PropertyDefinition propDef,
+                                        PropertyDefinition propDef,
                                         Field.Store store,
                                         int index) {
         int propType = prop.getType().tag();
@@ -601,7 +604,7 @@ public class LuceneChunkedIndexProcessor {
             } else {
                 // Not analyzed - use appropriate field type based on property type
                 switch (propType) {
-                    case org.apache.jackrabbit.oak.api.Type.TAG_LONG:
+                    case PropertyType.LONG:
                         Long longValue = index >= 0 ?
                             prop.getValue(org.apache.jackrabbit.oak.api.Type.LONG, index) :
                             prop.getValue(org.apache.jackrabbit.oak.api.Type.LONG);
@@ -610,7 +613,7 @@ public class LuceneChunkedIndexProcessor {
                         }
                         break;
                         
-                    case org.apache.jackrabbit.oak.api.Type.TAG_DOUBLE:
+                    case PropertyType.DOUBLE:
                         Double doubleValue = index >= 0 ?
                             prop.getValue(org.apache.jackrabbit.oak.api.Type.DOUBLE, index) :
                             prop.getValue(org.apache.jackrabbit.oak.api.Type.DOUBLE);
@@ -619,7 +622,7 @@ public class LuceneChunkedIndexProcessor {
                         }
                         break;
                         
-                    case org.apache.jackrabbit.oak.api.Type.TAG_DATE:
+                    case PropertyType.DATE:
                         // Convert date to long (milliseconds) for range queries
                         String dateStr = index >= 0 ?
                             prop.getValue(org.apache.jackrabbit.oak.api.Type.DATE, index) :
@@ -632,7 +635,7 @@ public class LuceneChunkedIndexProcessor {
                         }
                         break;
                         
-                    case org.apache.jackrabbit.oak.api.Type.TAG_BINARY:
+                    case PropertyType.BINARY:
                         // Binary properties: extract text if configured
                         // For now, skip binary indexing (requires text extraction setup)
                         LOG.trace("Binary property {} skipped (text extraction not configured)", propDef.name);
@@ -693,18 +696,19 @@ public class LuceneChunkedIndexProcessor {
     private String collectNodeScopedText(NodeState node, IndexDefinition.IndexingRule rule) {
         StringBuilder fulltext = new StringBuilder();
         
-        for (IndexDefinition.PropertyDefinition propDef : rule.getNamedPropertyDefinitions()) {
+        for (PropertyDefinition propDef : rule.getProperties()) {
             if (!propDef.analyzed || propDef.nodeScopeIndex == false) {
                 continue;  // Only include analyzed properties in node-scoped index
             }
             
             org.apache.jackrabbit.oak.api.PropertyState prop;
-            if (propDef.relative) {
-                NodeState relativeNode = getNodeAtRelativePath(node, propDef.getRelativePath());
+            if (propDef.relative && propDef.ancestors != null && propDef.ancestors.length > 0) {
+                String relativePath = String.join("/", propDef.ancestors);
+                NodeState relativeNode = getNodeAtRelativePath(node, relativePath);
                 if (relativeNode == null || !relativeNode.exists()) {
                     continue;
                 }
-                prop = relativeNode.getProperty(propDef.name);
+                prop = relativeNode.getProperty(propDef.nonRelativeName != null ? propDef.nonRelativeName : propDef.name);
             } else {
                 prop = node.getProperty(propDef.name);
             }

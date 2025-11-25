@@ -74,6 +74,12 @@ public class ChunkedIndexProcessor {
     public ChunkedIndexProcessor(@NotNull NodeStore nodeStore,
                                   @NotNull IndexProgressMetadataManager metadataManager,
                                   int chunkSize) {
+        if (nodeStore == null) {
+            throw new NullPointerException("nodeStore cannot be null");
+        }
+        if (metadataManager == null) {
+            throw new NullPointerException("metadataManager cannot be null");
+        }
         this.nodeStore = nodeStore;
         this.metadataManager = metadataManager;
         this.chunkSize = chunkSize;

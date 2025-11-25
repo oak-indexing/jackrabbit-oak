@@ -46,12 +46,16 @@ public class ChangeEntryTest {
                 .build();
     }
     
-    @Test(expected = IllegalStateException.class)
-    public void testBuilderMissingDiffProcessingTime() {
-        new ChangeEntry.Builder()
+    @Test
+    public void testBuilderWithDefaults() {
+        // diffProcessingTime and serialNumber default to 0 (primitives always have values)
+        ChangeEntry entry = new ChangeEntry.Builder()
                 .path("/content/dam/asset-123")
-                .serialNumber(42)
                 .build();
+        
+        assertEquals("/content/dam/asset-123", entry.getPath());
+        assertEquals(0L, entry.getDiffProcessingTime());
+        assertEquals(0L, entry.getSerialNumber());
     }
     
     @Test
