@@ -37,17 +37,24 @@ import java.io.IOException;
  * Editor that writes change tracking entries to a dedicated Lucene index.
  * 
  * <p>This editor is invoked during the async diff process and records the path
- * of every changed node along with the checkpoint range and timestamp.
+ * of every changed node along with timestamp and serial number for ordering.
  * 
  * <p>The change tracking index enables chunked processing of repository changes
  * without needing to re-diff the entire tree for each index update cycle.
  * 
  * <p><strong>Key Features:</strong>
  * <ul>
- *   <li>Lightweight - only tracks paths, not full node state</li>
+ *   <li>Lightweight - only tracks paths, not full node state or checkpoints</li>
  *   <li>Serial number generation for unique ordering</li>
- *   <li>Checkpoint range tracking for analysis</li>
+ *   <li>Timestamp-based ordering and retention</li>
  *   <li>Fast writes using Lucene</li>
+ * </ul>
+ * 
+ * <p><strong>Design Note:</strong> We do NOT store checkpoint IDs because:
+ * <ul>
+ *   <li>Change entries don't contain node content, just paths</li>
+ *   <li>Checkpoints are managed at the processing level, not entry level</li>
+ *   <li>Storing checkpoints would complicate cleanup and add unnecessary data</li>
  * </ul>
  */
 public class ChangeTrackingIndexEditor implements Editor {
@@ -56,15 +63,11 @@ public class ChangeTrackingIndexEditor implements Editor {
     
     // Field names in the Lucene index
     private static final String FIELD_PATH = "ct:path";
-    private static final String FIELD_CHECKPOINT1 = "ct:checkpoint1";
-    private static final String FIELD_CHECKPOINT2 = "ct:checkpoint2";
     private static final String FIELD_DIFF_PROCESSING_TIME = "ct:diffProcessingTime";
     private static final String FIELD_SERIAL_NUMBER = "ct:serialNumber";
     
     private final IndexWriter indexWriter;
     private final String currentPath;
-    private final String checkpoint1;
-    private final String checkpoint2;
     private final long diffProcessingTime;
     
     // Serial number management (shared across all editors in this diff run)
@@ -76,15 +79,11 @@ public class ChangeTrackingIndexEditor implements Editor {
      * Creates the root change tracking editor for a diff run.
      * 
      * @param indexWriter the Lucene index writer for the change tracking index
-     * @param checkpoint1 the first checkpoint in this diff range
-     * @param checkpoint2 the last checkpoint in this diff range
      * @param diffProcessingTime the millisecond timestamp for this diff run
      */
     public ChangeTrackingIndexEditor(@NotNull IndexWriter indexWriter,
-                                      @NotNull String checkpoint1,
-                                      @NotNull String checkpoint2,
                                       long diffProcessingTime) {
-        this(indexWriter, "/", checkpoint1, checkpoint2, diffProcessingTime, 
+        this(indexWriter, "/", diffProcessingTime, 
              new SerialNumberGenerator(diffProcessingTime));
     }
     
@@ -93,14 +92,10 @@ public class ChangeTrackingIndexEditor implements Editor {
      */
     private ChangeTrackingIndexEditor(@NotNull IndexWriter indexWriter,
                                        @NotNull String currentPath,
-                                       @NotNull String checkpoint1,
-                                       @NotNull String checkpoint2,
                                        long diffProcessingTime,
                                        @NotNull SerialNumberGenerator serialNumberGenerator) {
         this.indexWriter = indexWriter;
         this.currentPath = currentPath;
-        this.checkpoint1 = checkpoint1;
-        this.checkpoint2 = checkpoint2;
         this.diffProcessingTime = diffProcessingTime;
         this.serialNumberGenerator = serialNumberGenerator;
     }
@@ -176,16 +171,10 @@ public class ChangeTrackingIndexEditor implements Editor {
             
             Document doc = new Document();
             
-            // ct:path - for lookup and deduplication
+            // ct:path - the changed path
             doc.add(new StringField(FIELD_PATH, path, Field.Store.YES));
             
-            // ct:checkpoint1 - first checkpoint in diff range (for analysis)
-            doc.add(new StringField(FIELD_CHECKPOINT1, checkpoint1, Field.Store.YES));
-            
-            // ct:checkpoint2 - last checkpoint in diff range (for analysis)
-            doc.add(new StringField(FIELD_CHECKPOINT2, checkpoint2, Field.Store.YES));
-            
-            // ct:diffProcessingTime - for ordering and queries (Lucene 4.7 uses LongField)
+            // ct:diffProcessingTime - for ordering and retention (Lucene 4.7 uses LongField)
             doc.add(new LongField(FIELD_DIFF_PROCESSING_TIME, diffProcessingTime, Field.Store.YES));
             
             // ct:serialNumber - for unique ordering within same timestamp (Lucene 4.7 uses LongField)
@@ -211,7 +200,7 @@ public class ChangeTrackingIndexEditor implements Editor {
     private Editor childEditor(String name) {
         String childPath = buildChildPath(name);
         return new ChangeTrackingIndexEditor(
-            indexWriter, childPath, checkpoint1, checkpoint2, 
+            indexWriter, childPath, 
             diffProcessingTime, serialNumberGenerator);
     }
     

@@ -388,5 +388,165 @@ public class IndexProgressMetadataManager {
         // Replace any remaining special characters
         return name.replaceAll("[^a-zA-Z0-9_-]", "_");
     }
+    
+    /**
+     * Gets the minimum last processed timestamp across all registered indexes.
+     * This is used for cleanup coordination - entries older than this timestamp
+     * (minus retention buffer) can be safely deleted.
+     * 
+     * <p>This addresses LIMITATION 8.1 - Cleanup Integration Issues.
+     * 
+     * @return the minimum timestamp, or 0 if no indexes are registered
+     */
+    public long getMinimumLastProcessedTimestamp() {
+        try {
+            NodeState root = nodeStore.getRoot();
+            NodeState indexesNode = getNodeAtPath(root, indexesMetadataPath);
+            
+            if (!indexesNode.exists()) {
+                LOG.debug("No indexes metadata found");
+                return 0;
+            }
+            
+            long minTimestamp = Long.MAX_VALUE;
+            boolean foundAny = false;
+            
+            // Iterate through all index metadata nodes
+            for (String indexName : indexesNode.getChildNodeNames()) {
+                NodeState indexMetadata = indexesNode.getChildNode(indexName);
+                
+                PropertyState timestampProp = indexMetadata.getProperty(PROP_LAST_PROCESSED_TIMESTAMP);
+                if (timestampProp != null) {
+                    long timestamp = timestampProp.getValue(Type.LONG);
+                    if (timestamp > 0) {
+                        minTimestamp = Math.min(minTimestamp, timestamp);
+                        foundAny = true;
+                    }
+                }
+            }
+            
+            long result = foundAny ? minTimestamp : 0;
+            LOG.debug("Minimum last processed timestamp across all indexes: {}", result);
+            return result;
+            
+        } catch (Exception e) {
+            LOG.error("Error getting minimum last processed timestamp", e);
+            return 0;
+        }
+    }
+    
+    /**
+     * Gets all registered indexes (indexes that have metadata).
+     * 
+     * @return list of index paths, or empty list if none
+     */
+    public List<String> getRegisteredIndexes() {
+        try {
+            NodeState root = nodeStore.getRoot();
+            NodeState indexesNode = getNodeAtPath(root, indexesMetadataPath);
+            
+            if (!indexesNode.exists()) {
+                return Collections.emptyList();
+            }
+            
+            List<String> indexes = new ArrayList<>();
+            for (String indexName : indexesNode.getChildNodeNames()) {
+                NodeState indexMetadata = indexesNode.getChildNode(indexName);
+                PropertyState pathProp = indexMetadata.getProperty(PROP_INDEX_PATH);
+                if (pathProp != null) {
+                    indexes.add(pathProp.getValue(Type.STRING));
+                }
+            }
+            
+            LOG.debug("Found {} registered indexes", indexes.size());
+            return indexes;
+            
+        } catch (Exception e) {
+            LOG.error("Error getting registered indexes", e);
+            return Collections.emptyList();
+        }
+    }
+    
+    /**
+     * Gets the last processed checkpoint by the change tracker.
+     * This is used for cleanup coordination.
+     * 
+     * @return the last processed checkpoint, or null if none
+     */
+    @Nullable
+    public String getChangeTrackerLastProcessedCheckpoint() {
+        try {
+            NodeState root = nodeStore.getRoot();
+            NodeState changeTracker = getNodeAtPath(root, CHANGE_TRACKER_PATH);
+            
+            if (!changeTracker.exists()) {
+                return null;
+            }
+            
+            PropertyState prop = changeTracker.getProperty(PROP_LAST_PROCESSED_CHECKPOINT);
+            return prop != null ? prop.getValue(Type.STRING) : null;
+            
+        } catch (Exception e) {
+            LOG.error("Error getting change tracker last processed checkpoint", e);
+            return null;
+        }
+    }
+    
+    /**
+     * Gets the last diff processing time by the change tracker.
+     * This is used for cleanup coordination.
+     * 
+     * @return the last diff processing time in milliseconds, or 0 if none
+     */
+    public long getChangeTrackerLastDiffProcessingTime() {
+        try {
+            NodeState root = nodeStore.getRoot();
+            NodeState changeTracker = getNodeAtPath(root, CHANGE_TRACKER_PATH);
+            
+            if (!changeTracker.exists()) {
+                return 0;
+            }
+            
+            PropertyState prop = changeTracker.getProperty(PROP_LAST_DIFF_PROCESSING_TIME);
+            return prop != null ? prop.getValue(Type.LONG) : 0;
+            
+        } catch (Exception e) {
+            LOG.error("Error getting change tracker last diff processing time", e);
+            return 0;
+        }
+    }
+    
+    /**
+     * Calculates the safe deletion timestamp for cleanup.
+     * 
+     * <p>Entries older than this timestamp can be safely deleted from the
+     * change tracking index without affecting any registered indexes.
+     * 
+     * <p>Formula: MIN(lastProcessedTimestamp across all indexes) - retentionBufferMs
+     * 
+     * @param retentionBufferMs buffer time in milliseconds (safety margin)
+     * @return safe deletion timestamp, or 0 if cleanup should not proceed
+     */
+    public long getSafeDeletionTimestamp(long retentionBufferMs) {
+        long minTimestamp = getMinimumLastProcessedTimestamp();
+        
+        if (minTimestamp == 0) {
+            LOG.debug("No indexes have processed any changes yet - cannot determine safe deletion timestamp");
+            return 0;
+        }
+        
+        long safeDeletionTimestamp = minTimestamp - retentionBufferMs;
+        
+        // Ensure we don't return a negative timestamp
+        if (safeDeletionTimestamp < 0) {
+            LOG.warn("Calculated safe deletion timestamp is negative - returning 0");
+            return 0;
+        }
+        
+        LOG.info("Safe deletion timestamp: {} (minTimestamp={}, retentionBuffer={}ms)",
+                safeDeletionTimestamp, minTimestamp, retentionBufferMs);
+        
+        return safeDeletionTimestamp;
+    }
 }
 

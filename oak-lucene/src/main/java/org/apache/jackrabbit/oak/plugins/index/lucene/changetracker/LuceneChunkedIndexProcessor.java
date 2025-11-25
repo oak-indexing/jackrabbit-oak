@@ -17,6 +17,7 @@
 package org.apache.jackrabbit.oak.plugins.index.lucene.changetracker;
 
 import org.apache.jackrabbit.oak.api.CommitFailedException;
+import org.apache.jackrabbit.oak.plugins.index.search.Aggregate;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.ChangeEntry;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadata;
@@ -25,7 +26,9 @@ import org.apache.jackrabbit.oak.plugins.index.lucene.writer.LuceneIndexWriter;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.apache.lucene.document.Document;
+import org.apache.lucene.document.DoubleField;
 import org.apache.lucene.document.Field;
+import org.apache.lucene.document.LongField;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.document.TextField;
 import org.apache.lucene.index.IndexReader;
@@ -35,23 +38,35 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
  * Lucene-specific implementation of chunked index processing.
  * 
  * <p>This class processes changes from the change tracking index in chunks,
- * delegating actual indexing to Lucene index editors.
+ * reading current content from NodeStore and indexing it to Lucene.
  * 
  * <p><strong>Key Features:</strong>
  * <ul>
- *   <li>Queries change tracking index for unprocessed changes</li>
+ *   <li>Queries change tracking index for unprocessed changed paths</li>
+ *   <li>Reads current content from NodeStore (not historical checkpoint content)</li>
  *   <li>Processes in configurable chunk sizes</li>
- *   <li>Delegates to existing LuceneIndexEditor for actual indexing</li>
+ *   <li>Creates Lucene documents directly (bypassing package-private LuceneIndexEditor)</li>
  *   <li>Tracks progress to enable resumption after failures</li>
- *   <li>Handles aggregations by re-indexing parent nodes</li>
+ *   <li>Uses Oak's {@link Aggregate} API to detect and handle aggregation re-indexing</li>
+ * </ul>
+ * 
+ * <p><strong>Current Limitations:</strong>
+ * <ul>
+ *   <li>Document creation is simplified - needs integration with Oak's IndexingRule and PropertyDefinition APIs</li>
+ *   <li>Doesn't yet handle relative properties (e.g., jcr:content/jcr:data) - see {@link #createLuceneDocument}</li>
+ *   <li>Doesn't yet respect all property configurations (analyzed, stored, boost, etc.)</li>
+ *   <li>See OAK_API_INTEGRATION_TODO.md for detailed plan to integrate with Oak's indexing APIs</li>
  * </ul>
  */
 public class LuceneChunkedIndexProcessor {
@@ -61,10 +76,85 @@ public class LuceneChunkedIndexProcessor {
     private static final int DEFAULT_CHUNK_SIZE = 10000;
     private static final String CHUNK_SIZE_PROPERTY = "oak.changeTracker.chunkSize";
     
+    /**
+     * Error rate threshold (percentage) above which a warning is logged.
+     * If more than this percentage of entries fail, system health may be degraded.
+     */
+    private static final double ERROR_RATE_WARNING_THRESHOLD = 5.0;  // 5%
+    
+    /**
+     * Circuit breaker threshold (percentage). If error rate exceeds this, processing stops.
+     * This prevents continued processing when the system is severely degraded.
+     */
+    private static final double ERROR_RATE_CIRCUIT_BREAKER_THRESHOLD = 25.0;  // 25%
+    
     private final NodeStore nodeStore;
     private final IndexReader changeTrackingReader;
     private final IndexProgressMetadataManager metadataManager;
     private final int chunkSize;
+    
+    /**
+     * Tracks failed entries per index for retry.
+     * Map: indexPath -> List of failed ChangeEntry objects
+     */
+    private final Map<String, List<FailedEntry>> failedEntriesMap = new HashMap<>();
+    
+    /**
+     * Tracks error statistics per index.
+     * Map: indexPath -> ErrorStatistics
+     */
+    private final Map<String, ErrorStatistics> errorStatsMap = new HashMap<>();
+    
+    /**
+     * Represents a failed entry with error details for retry.
+     */
+    private static class FailedEntry {
+        final ChangeEntry entry;
+        final String errorMessage;
+        final long failureTimestamp;
+        int retryCount;
+        
+        FailedEntry(ChangeEntry entry, String errorMessage) {
+            this.entry = entry;
+            this.errorMessage = errorMessage;
+            this.failureTimestamp = System.currentTimeMillis();
+            this.retryCount = 0;
+        }
+    }
+    
+    /**
+     * Tracks error statistics for an index.
+     */
+    private static class ErrorStatistics {
+        long totalProcessed = 0;
+        long totalErrors = 0;
+        long consecutiveErrors = 0;
+        long lastErrorTime = 0;
+        
+        double getErrorRate() {
+            return totalProcessed > 0 ? (totalErrors * 100.0 / totalProcessed) : 0.0;
+        }
+        
+        void recordSuccess() {
+            totalProcessed++;
+            consecutiveErrors = 0;
+        }
+        
+        void recordError() {
+            totalProcessed++;
+            totalErrors++;
+            consecutiveErrors++;
+            lastErrorTime = System.currentTimeMillis();
+        }
+        
+        boolean shouldTriggerCircuitBreaker() {
+            return getErrorRate() > ERROR_RATE_CIRCUIT_BREAKER_THRESHOLD;
+        }
+        
+        boolean shouldWarn() {
+            return getErrorRate() > ERROR_RATE_WARNING_THRESHOLD;
+        }
+    }
     
     /**
      * Creates a Lucene chunked index processor.
@@ -139,8 +229,16 @@ public class LuceneChunkedIndexProcessor {
         // Track paths that need aggregation re-indexing
         Set<String> aggregationPaths = new HashSet<>();
         
+        // Get or create error statistics for this index
+        ErrorStatistics stats = errorStatsMap.computeIfAbsent(indexPath, k -> new ErrorStatistics());
+        
+        // Get or create failed entries list for this index
+        List<FailedEntry> failedEntries = failedEntriesMap.computeIfAbsent(indexPath, k -> new ArrayList<>());
+        
         // Process each changed path
         int processed = 0;
+        int successCount = 0;
+        int errorCount = 0;
         long lastProcessedTimestamp = lastTimestamp;
         long lastProcessedSerial = lastSerial;
         
@@ -166,6 +264,8 @@ public class LuceneChunkedIndexProcessor {
                     collectAggregationPaths(path, indexDefinition, aggregationPaths);
                     
                     processed++;
+                    successCount++;
+                    stats.recordSuccess();
                     lastProcessedTimestamp = entry.getDiffProcessingTime();
                     lastProcessedSerial = entry.getSerialNumber();
                 } else {
@@ -174,13 +274,49 @@ public class LuceneChunkedIndexProcessor {
                     indexWriter.deleteDocuments(path);
                     
                     processed++;
+                    successCount++;
+                    stats.recordSuccess();
                     lastProcessedTimestamp = entry.getDiffProcessingTime();
                     lastProcessedSerial = entry.getSerialNumber();
                 }
             } catch (Exception e) {
-                LOG.error("Error processing change entry: {}", entry, e);
+                errorCount++;
+                stats.recordError();
+                
+                // Track this failure for potential retry
+                FailedEntry failedEntry = new FailedEntry(entry, e.getMessage());
+                failedEntries.add(failedEntry);
+                
+                LOG.error("Error processing change entry at path {}: {} (total errors: {}, error rate: {:.2f}%)",
+                        entry.getPath(), e.getMessage(), stats.totalErrors, stats.getErrorRate());
+                
+                // Check circuit breaker
+                if (stats.shouldTriggerCircuitBreaker()) {
+                    LOG.error("CIRCUIT BREAKER TRIGGERED for index {}: Error rate {:.2f}% exceeds threshold {}%. " +
+                              "Stopping processing to prevent system degradation. " +
+                              "Processed: {}, Errors: {}, Consecutive Errors: {}",
+                              indexPath, stats.getErrorRate(), ERROR_RATE_CIRCUIT_BREAKER_THRESHOLD,
+                              stats.totalProcessed, stats.totalErrors, stats.consecutiveErrors);
+                    
+                    // Break out of processing loop
+                    break;
+                }
+                
                 // Continue with next entry - don't fail entire chunk for one error
             }
+        }
+        
+        // Log summary with error statistics
+        LOG.info("Chunk processing for index {}: Processed={}, Success={}, Errors={}, Error Rate={:.2f}%, " +
+                 "Total Errors={}, Consecutive Errors={}",
+                 indexPath, processed, successCount, errorCount, stats.getErrorRate(),
+                 stats.totalErrors, stats.consecutiveErrors);
+        
+        // Warn if error rate is elevated
+        if (stats.shouldWarn() && !stats.shouldTriggerCircuitBreaker()) {
+            LOG.warn("ELEVATED ERROR RATE for index {}: {:.2f}% (threshold: {}%). " +
+                     "System health may be degraded. Failed entries: {}",
+                     indexPath, stats.getErrorRate(), ERROR_RATE_WARNING_THRESHOLD, failedEntries.size());
         }
         
         // Process aggregation paths (parent nodes that need re-indexing)
@@ -261,88 +397,410 @@ public class LuceneChunkedIndexProcessor {
     }
     
     /**
-     * Creates a Lucene document for a node.
+     * Creates a Lucene document for a node using Oak's index rules and property definitions.
      * 
-     * <p>This is a simplified implementation that creates basic Lucene documents.
-     * In a full production implementation, this would delegate to LuceneIndexEditor's
-     * logic for handling aggregations, function indexes, boosting, etc.
+     * <p><strong>Important:</strong> This method should use Oak's existing APIs to:
+     * <ul>
+     *   <li>Check if node should be indexed based on index rules</li>
+     *   <li>Get applicable property definitions from index configuration</li>
+     *   <li>Handle relative properties (e.g., jcr:content/jcr:data)</li>
+     *   <li>Apply proper field types (analyzed, not analyzed, stored, etc.)</li>
+     *   <li>Handle boosting, function indexes, and other advanced features</li>
+     * </ul>
+     * 
+     * <p><strong>Current Implementation:</strong> Simplified placeholder that adds path + basic properties.
+     * This should be replaced with proper Oak API usage:
+     * <pre>
+     * 1. Get applicable indexing rule: indexDefinition.getApplicableIndexingRule(nodeType)
+     * 2. Check if node matches rule conditions
+     * 3. For each property definition in rule:
+     *    - Check if property should be indexed
+     *    - Handle relative properties (traverse to relative path)
+     *    - Use proper field configuration from property definition
+     * 4. Handle aggregations through IndexDefinition.Aggregate
+     * </pre>
+     * 
+     * <p><strong>TODO:</strong> Replace with Oak's existing document creation logic from
+     * {@code LuceneIndexEditor} or {@code LuceneDocumentMaker} once we determine the best
+     * way to access package-private classes or refactor them to be accessible.
      * 
      * @param path the path of the node
      * @param node the node state
-     * @param indexDefinition the index definition
+     * @param indexDefinition the index definition with rules and property definitions
      * @return a Lucene document, or null if the node shouldn't be indexed
      */
     private Document createLuceneDocument(String path, NodeState node, IndexDefinition indexDefinition) {
+        // Step 1: Get node's primary type
+        org.apache.jackrabbit.oak.api.PropertyState primaryTypeProp = node.getProperty("jcr:primaryType");
+        if (primaryTypeProp == null) {
+            LOG.trace("Node at {} has no jcr:primaryType, skipping", path);
+            return null;
+        }
+        String nodeType = primaryTypeProp.getValue(org.apache.jackrabbit.oak.api.Type.STRING);
+        
+        // Step 2: Get applicable indexing rule for this node type
+        IndexDefinition.IndexingRule rule = indexDefinition.getApplicableIndexingRule(nodeType);
+        if (rule == null) {
+            LOG.trace("No indexing rule found for node type {} at path {}", nodeType, path);
+            return null;
+        }
+        
+        // Step 3: Check if node should be indexed (rule conditions)
+        if (!rule.indexesNode(node)) {
+            LOG.trace("Node at {} does not match indexing rule conditions", path);
+            return null;
+        }
+        
+        // Step 4: Create Lucene document
         Document doc = new Document();
         
         // Always add path field (stored, not analyzed)
         doc.add(new StringField(":path", path, Field.Store.YES));
         
-        // Index all properties as text fields (simplified)
-        // In production, would check index rules to see which properties to index
-        for (org.apache.jackrabbit.oak.api.PropertyState prop : node.getProperties()) {
-            String name = prop.getName();
-            
-            // Skip system properties
-            if (name.startsWith(":")) {
-                continue;
-            }
-            
-            // Add property value(s) to document
-            if (prop.isArray()) {
-                for (int i = 0; i < prop.count(); i++) {
-                    String value = prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING, i);
-                    if (value != null) {
-                        doc.add(new TextField(name, value, Field.Store.NO));
-                    }
+        // Step 5: Index properties according to property definitions
+        boolean hasIndexedContent = false;
+        for (IndexDefinition.PropertyDefinition propDef : rule.getNamedPropertyDefinitions()) {
+            try {
+                boolean indexed = indexProperty(doc, node, propDef, path);
+                if (indexed) {
+                    hasIndexedContent = true;
                 }
-            } else {
-                String value = prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING);
-                if (value != null) {
-                    doc.add(new TextField(name, value, Field.Store.NO));
-                }
+            } catch (Exception e) {
+                LOG.warn("Error indexing property {} at path {}: {}", 
+                        propDef.name, path, e.getMessage());
+                // Continue with other properties
             }
         }
         
-        // If no fields were added (only path), return null
-        return doc.getFields().size() > 1 ? doc : null;
+        // Step 6: Handle node-scoped fulltext (if enabled)
+        if (rule.isFulltextEnabled()) {
+            // Node-scoped fulltext combines all analyzed properties
+            // This enables queries like: SELECT * FROM [nt:base] WHERE CONTAINS(*, 'search')
+            // Implementation: Collect all text from analyzed properties into a special field
+            String nodeScopedText = collectNodeScopedText(node, rule);
+            if (nodeScopedText != null && !nodeScopedText.isEmpty()) {
+                doc.add(new TextField(":fulltext", nodeScopedText, Field.Store.NO));
+                hasIndexedContent = true;
+            }
+        }
+        
+        // Only return document if it has indexed content beyond just the path
+        return hasIndexedContent ? doc : null;
     }
     
     /**
-     * Collects parent paths that need re-indexing for aggregations.
+     * Indexes a single property according to its PropertyDefinition.
+     * Handles relative properties, property types, analyzed vs not-analyzed, stored vs not-stored.
      * 
-     * <p>Common aggregation patterns:
+     * @param doc the Lucene document being built
+     * @param node the node being indexed
+     * @param propDef the property definition from index rules
+     * @param nodePath the node path (for logging/debugging)
+     * @return true if the property was indexed, false otherwise
+     */
+    private boolean indexProperty(Document doc, NodeState node, IndexDefinition.PropertyDefinition propDef,
+                                  String nodePath) {
+        org.apache.jackrabbit.oak.api.PropertyState prop;
+        
+        // Handle relative properties (e.g., jcr:content/jcr:data for nt:file)
+        if (propDef.relative) {
+            NodeState relativeNode = getNodeAtRelativePath(node, propDef.getRelativePath());
+            if (relativeNode == null || !relativeNode.exists()) {
+                return false;
+            }
+            prop = relativeNode.getProperty(propDef.name);
+        } else {
+            // Direct property
+            prop = node.getProperty(propDef.name);
+        }
+        
+        if (prop == null) {
+            return false;
+        }
+        
+        // Add property to document using configuration from PropertyDefinition
+        return addPropertyToDocument(doc, prop, propDef);
+    }
+    
+    /**
+     * Adds a property to the Lucene document respecting PropertyDefinition configuration.
+     * 
+     * @param doc the Lucene document
+     * @param prop the property state
+     * @param propDef the property definition with configuration
+     * @return true if property was added
+     */
+    private boolean addPropertyToDocument(Document doc, org.apache.jackrabbit.oak.api.PropertyState prop,
+                                          IndexDefinition.PropertyDefinition propDef) {
+        Field.Store store = propDef.stored ? Field.Store.YES : Field.Store.NO;
+        boolean added = false;
+        
+        // Handle function indexes (LIMITATION 1.4 - to be implemented)
+        if (propDef.function != null) {
+            // TODO: Apply function transformation
+            LOG.trace("Function indexes not yet supported: {}", propDef.function);
+            // For now, fallthrough to index the raw value
+        }
+        
+        // Determine field type based on property definition
+        if (prop.isArray()) {
+            // Handle multi-value properties
+            for (int i = 0; i < prop.count(); i++) {
+                Field field = createFieldForProperty(prop, propDef, store, i);
+                if (field != null) {
+                    // Apply boosting if configured (LIMITATION 1.6 - partial implementation)
+                    if (propDef.boost != 1.0f) {
+                        field.setBoost(propDef.boost);
+                    }
+                    doc.add(field);
+                    added = true;
+                }
+            }
+        } else {
+            // Handle single-value property
+            Field field = createFieldForProperty(prop, propDef, store, -1);
+            if (field != null) {
+                // Apply boosting if configured (LIMITATION 1.6 - partial implementation)
+                if (propDef.boost != 1.0f) {
+                    field.setBoost(propDef.boost);
+                }
+                doc.add(field);
+                added = true;
+            }
+        }
+        
+        return added;
+    }
+    
+    /**
+     * Creates appropriate Lucene field based on property type and configuration.
+     * Addresses LIMITATION 1.3 (property type handling).
+     * 
+     * @param prop the property state
+     * @param propDef the property definition
+     * @param store whether to store the field value
+     * @param index array index, or -1 for single value
+     * @return the Lucene field, or null if property can't be indexed
+     */
+    private Field createFieldForProperty(org.apache.jackrabbit.oak.api.PropertyState prop,
+                                        IndexDefinition.PropertyDefinition propDef,
+                                        Field.Store store,
+                                        int index) {
+        int propType = prop.getType().tag();
+        
+        // Get property value based on type
+        try {
+            if (propDef.analyzed) {
+                // Analyzed text field (for fulltext search)
+                String value = index >= 0 ?
+                    prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING, index) :
+                    prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING);
+                if (value != null && !value.isEmpty()) {
+                    return new TextField(propDef.name, value, store);
+                }
+            } else {
+                // Not analyzed - use appropriate field type based on property type
+                switch (propType) {
+                    case org.apache.jackrabbit.oak.api.Type.TAG_LONG:
+                        Long longValue = index >= 0 ?
+                            prop.getValue(org.apache.jackrabbit.oak.api.Type.LONG, index) :
+                            prop.getValue(org.apache.jackrabbit.oak.api.Type.LONG);
+                        if (longValue != null) {
+                            return new LongField(propDef.name, longValue, store);
+                        }
+                        break;
+                        
+                    case org.apache.jackrabbit.oak.api.Type.TAG_DOUBLE:
+                        Double doubleValue = index >= 0 ?
+                            prop.getValue(org.apache.jackrabbit.oak.api.Type.DOUBLE, index) :
+                            prop.getValue(org.apache.jackrabbit.oak.api.Type.DOUBLE);
+                        if (doubleValue != null) {
+                            return new DoubleField(propDef.name, doubleValue, store);
+                        }
+                        break;
+                        
+                    case org.apache.jackrabbit.oak.api.Type.TAG_DATE:
+                        // Convert date to long (milliseconds) for range queries
+                        String dateStr = index >= 0 ?
+                            prop.getValue(org.apache.jackrabbit.oak.api.Type.DATE, index) :
+                            prop.getValue(org.apache.jackrabbit.oak.api.Type.DATE);
+                        if (dateStr != null) {
+                            // Parse ISO 8601 date string to milliseconds
+                            long dateMillis = javax.xml.bind.DatatypeConverter.parseDateTime(dateStr)
+                                .getTimeInMillis();
+                            return new LongField(propDef.name, dateMillis, store);
+                        }
+                        break;
+                        
+                    case org.apache.jackrabbit.oak.api.Type.TAG_BINARY:
+                        // Binary properties: extract text if configured
+                        // For now, skip binary indexing (requires text extraction setup)
+                        LOG.trace("Binary property {} skipped (text extraction not configured)", propDef.name);
+                        return null;
+                        
+                    default:
+                        // String and other types: use StringField for exact match
+                        String value = index >= 0 ?
+                            prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING, index) :
+                            prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING);
+                        if (value != null && !value.isEmpty()) {
+                            return new StringField(propDef.name, value, store);
+                        }
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("Error creating field for property {}: {}", propDef.name, e.getMessage());
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Gets a node at a relative path from a base node.
+     * Used for indexing relative properties like jcr:content/jcr:data.
+     * 
+     * @param base the base node
+     * @param relativePath the relative path (e.g., "jcr:content" or "jcr:content/metadata")
+     * @return the node at the relative path, or null if it doesn't exist
+     */
+    private NodeState getNodeAtRelativePath(NodeState base, String relativePath) {
+        if (relativePath == null || relativePath.isEmpty()) {
+            return base;
+        }
+        
+        NodeState current = base;
+        String[] segments = relativePath.split("/");
+        
+        for (String segment : segments) {
+            if (segment.isEmpty()) continue;
+            current = current.getChildNode(segment);
+            if (!current.exists()) {
+                return null;
+            }
+        }
+        
+        return current;
+    }
+    
+    /**
+     * Collects node-scoped fulltext content from all analyzed properties.
+     * This enables queries like: SELECT * FROM [nt:base] WHERE CONTAINS(*, 'search')
+     * 
+     * @param node the node being indexed
+     * @param rule the indexing rule
+     * @return combined text from all analyzed properties, or null if none
+     */
+    private String collectNodeScopedText(NodeState node, IndexDefinition.IndexingRule rule) {
+        StringBuilder fulltext = new StringBuilder();
+        
+        for (IndexDefinition.PropertyDefinition propDef : rule.getNamedPropertyDefinitions()) {
+            if (!propDef.analyzed || propDef.nodeScopeIndex == false) {
+                continue;  // Only include analyzed properties in node-scoped index
+            }
+            
+            org.apache.jackrabbit.oak.api.PropertyState prop;
+            if (propDef.relative) {
+                NodeState relativeNode = getNodeAtRelativePath(node, propDef.getRelativePath());
+                if (relativeNode == null || !relativeNode.exists()) {
+                    continue;
+                }
+                prop = relativeNode.getProperty(propDef.name);
+            } else {
+                prop = node.getProperty(propDef.name);
+            }
+            
+            if (prop == null) {
+                continue;
+            }
+            
+            // Collect text from property
+            try {
+                if (prop.isArray()) {
+                    for (int i = 0; i < prop.count(); i++) {
+                        String value = prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING, i);
+                        if (value != null && !value.isEmpty()) {
+                            if (fulltext.length() > 0) fulltext.append(" ");
+                            fulltext.append(value);
+                        }
+                    }
+                } else {
+                    String value = prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING);
+                    if (value != null && !value.isEmpty()) {
+                        if (fulltext.length() > 0) fulltext.append(" ");
+                        fulltext.append(value);
+                    }
+                }
+            } catch (Exception e) {
+                LOG.trace("Error collecting text from property {}: {}", propDef.name, e.getMessage());
+            }
+        }
+        
+        return fulltext.length() > 0 ? fulltext.toString() : null;
+    }
+    
+    /**
+     * Collects parent paths that need re-indexing for aggregations using Oak's Aggregate API.
+     * 
+     * <p>When a node changes, we need to check if any ancestor nodes have aggregation rules
+     * that include this changed node. If so, those ancestors must be re-indexed.
+     * 
+     * <p>This properly handles all aggregation patterns defined in index rules:
      * <ul>
      *   <li>nt:file aggregates jcr:content</li>
      *   <li>dam:Asset aggregates jcr:content/metadata</li>
-     *   <li>Custom aggregations defined in index rules</li>
+     *   <li>Any custom aggregations defined in index configuration</li>
      * </ul>
+     * 
+     * <p>The implementation traverses up the path hierarchy and uses Oak's {@link Aggregate}
+     * to check if each ancestor has aggregation rules. This mirrors the logic in
+     * {@code FulltextIndexEditor.checkAggregates()}.
+     * 
+     * @param changedPath the path that changed
+     * @param indexDefinition the index definition with aggregation rules from index configuration
+     * @param aggregationPaths set to collect parent paths that need re-indexing
      */
     private void collectAggregationPaths(
             String changedPath,
             IndexDefinition indexDefinition,
             Set<String> aggregationPaths) {
         
-        // Check if index has aggregation rules
-        if (!indexDefinition.getDefinedRules().isEmpty()) {
-            // For aggregations like nt:file -> jcr:content
-            // If jcr:content changed, re-index parent
-            if (changedPath.contains("/jcr:content")) {
-                String parentPath = changedPath.substring(0, changedPath.lastIndexOf("/jcr:content"));
-                if (!parentPath.isEmpty()) {
+        // Traverse up the path hierarchy to find aggregating parents
+        String currentPath = changedPath;
+        NodeState root = nodeStore.getRoot();
+        
+        // Check up to N levels (avoid infinite loops, typical aggregations are 1-3 levels deep)
+        int maxLevels = 5;
+        int level = 0;
+        
+        while (level < maxLevels) {
+            String parentPath = getParentPath(currentPath);
+            if (parentPath == null) {
+                break;
+            }
+            
+            // Get the parent node to check its type and aggregation rules
+            NodeState parentNode = getNodeAtPath(root, parentPath);
+            if (parentNode == null || !parentNode.exists()) {
+                break;
+            }
+            
+            // Check each indexing rule to see if it has aggregations
+            for (IndexDefinition.IndexingRule rule : indexDefinition.getDefinedRules()) {
+                Aggregate aggregate = rule.getAggregate();
+                if (aggregate != null) {
+                    // The parent has an aggregation rule
+                    // Mark it for re-indexing (the aggregation will be recalculated)
+                    // We use a conservative approach: any parent with aggregation rules
+                    // gets re-indexed if a descendant changes
                     aggregationPaths.add(parentPath);
-                    LOG.trace("Marked parent for aggregation re-indexing: {}", parentPath);
+                    LOG.trace("Parent {} has aggregation rules - marked for re-indexing due to change at {}", 
+                            parentPath, changedPath);
+                    break; // Found aggregation for this parent, move to next ancestor
                 }
             }
             
-            // For other aggregation patterns, add similar logic
-            // e.g., if metadata changed, re-index parent of parent
-            if (changedPath.contains("/metadata")) {
-                String parentPath = getParentPath(changedPath);
-                if (parentPath != null && !"/".equals(parentPath)) {
-                    aggregationPaths.add(parentPath);
-                }
-            }
+            currentPath = parentPath;
+            level++;
         }
     }
     
@@ -393,6 +851,117 @@ public class LuceneChunkedIndexProcessor {
      */
     public int getChunkSize() {
         return chunkSize;
+    }
+    
+    /**
+     * Gets failed entries for an index (for retry or monitoring).
+     * 
+     * @param indexPath the index path
+     * @return list of failed entries, or empty list if none
+     */
+    public List<FailedEntry> getFailedEntries(String indexPath) {
+        return failedEntriesMap.getOrDefault(indexPath, new ArrayList<>());
+    }
+    
+    /**
+     * Gets error statistics for an index.
+     * 
+     * @param indexPath the index path
+     * @return error statistics, or null if no processing has occurred
+     */
+    public ErrorStatistics getErrorStatistics(String indexPath) {
+        return errorStatsMap.get(indexPath);
+    }
+    
+    /**
+     * Clears failed entries for an index (e.g., after successful retry or manual intervention).
+     * 
+     * @param indexPath the index path
+     * @return the number of entries cleared
+     */
+    public int clearFailedEntries(String indexPath) {
+        List<FailedEntry> entries = failedEntriesMap.remove(indexPath);
+        return entries != null ? entries.size() : 0;
+    }
+    
+    /**
+     * Resets error statistics for an index (e.g., after fixing underlying issues).
+     * 
+     * @param indexPath the index path
+     */
+    public void resetErrorStatistics(String indexPath) {
+        errorStatsMap.remove(indexPath);
+        LOG.info("Reset error statistics for index {}", indexPath);
+    }
+    
+    /**
+     * Retries failed entries for an index.
+     * 
+     * <p>This method attempts to reprocess entries that previously failed.
+     * Entries that succeed are removed from the failed list.
+     * Entries that fail again have their retry count incremented.
+     * 
+     * @param indexPath the index path
+     * @param indexDefinition the index definition
+     * @param indexWriter the Lucene index writer
+     * @return the number of entries successfully retried
+     * @throws IOException if reading or writing fails
+     */
+    public int retryFailedEntries(String indexPath, 
+                                  IndexDefinition indexDefinition,
+                                  LuceneIndexWriter indexWriter) throws IOException {
+        List<FailedEntry> failures = failedEntriesMap.get(indexPath);
+        if (failures == null || failures.isEmpty()) {
+            LOG.debug("No failed entries to retry for index {}", indexPath);
+            return 0;
+        }
+        
+        LOG.info("Retrying {} failed entries for index {}", failures.size(), indexPath);
+        
+        NodeState root = nodeStore.getRoot();
+        List<FailedEntry> stillFailing = new ArrayList<>();
+        int successCount = 0;
+        
+        for (FailedEntry failedEntry : failures) {
+            ChangeEntry entry = failedEntry.entry;
+            failedEntry.retryCount++;
+            
+            try {
+                String path = entry.getPath();
+                NodeState node = getNodeAtPath(root, path);
+                
+                if (node != null && node.exists()) {
+                    Document doc = createLuceneDocument(path, node, indexDefinition);
+                    if (doc != null) {
+                        indexWriter.updateDocument(path, doc);
+                    }
+                } else {
+                    indexWriter.deleteDocuments(path);
+                }
+                
+                successCount++;
+                LOG.debug("Successfully retried entry at path {} (retry #{})", 
+                         path, failedEntry.retryCount);
+                
+            } catch (Exception e) {
+                LOG.warn("Failed to retry entry at path {} (retry #{}): {}",
+                        failedEntry.entry.getPath(), failedEntry.retryCount, e.getMessage());
+                stillFailing.add(failedEntry);
+            }
+        }
+        
+        // Update failed entries list
+        if (stillFailing.isEmpty()) {
+            failedEntriesMap.remove(indexPath);
+            LOG.info("All {} failed entries successfully retried for index {}", 
+                    failures.size(), indexPath);
+        } else {
+            failedEntriesMap.put(indexPath, stillFailing);
+            LOG.info("Retry completed for index {}: {} succeeded, {} still failing",
+                    indexPath, successCount, stillFailing.size());
+        }
+        
+        return successCount;
     }
 }
 

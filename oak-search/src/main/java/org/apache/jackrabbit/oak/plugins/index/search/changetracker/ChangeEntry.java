@@ -25,10 +25,16 @@ import org.jetbrains.annotations.Nullable;
  * 
  * <p>This lightweight record contains:
  * <ul>
- *   <li>Path of the changed node</li>
- *   <li>Checkpoint range (checkpoint1 to checkpoint2) that updated this node</li>
- *   <li>Timestamp when the diff was processed</li>
- *   <li>Serial number for unique ordering within same timestamp</li>
+ *   <li><strong>Path</strong> - The absolute path of the changed node</li>
+ *   <li><strong>Timestamp</strong> - When the diff was processed (for ordering and retention)</li>
+ *   <li><strong>Serial number</strong> - Unique ordering within same timestamp</li>
+ * </ul>
+ * 
+ * <p><strong>Design Note:</strong> We do NOT store checkpoint IDs in individual entries because:
+ * <ul>
+ *   <li>Change entries don't store node content, just paths</li>
+ *   <li>Checkpoint info is only needed at processing level (which range to process)</li>
+ *   <li>Storing checkpoints would duplicate data and complicate cleanup</li>
  * </ul>
  * 
  * <p>The change tracking index uses these entries to enable chunked processing
@@ -38,8 +44,6 @@ import org.jetbrains.annotations.Nullable;
 public class ChangeEntry {
     
     private final String path;
-    private final String checkpoint1;
-    private final String checkpoint2;
     private final long diffProcessingTime;
     private final long serialNumber;
     
@@ -47,19 +51,13 @@ public class ChangeEntry {
      * Creates a new change entry.
      * 
      * @param path the absolute path of the changed node
-     * @param checkpoint1 the first checkpoint in the diff range that updated this node
-     * @param checkpoint2 the last checkpoint in the diff range that updated this node
      * @param diffProcessingTime the millisecond timestamp when this diff was processed
      * @param serialNumber unique sequence number within the same timestamp
      */
     public ChangeEntry(@NotNull String path,
-                       @NotNull String checkpoint1,
-                       @NotNull String checkpoint2,
                        long diffProcessingTime,
                        long serialNumber) {
         this.path = path;
-        this.checkpoint1 = checkpoint1;
-        this.checkpoint2 = checkpoint2;
         this.diffProcessingTime = diffProcessingTime;
         this.serialNumber = serialNumber;
     }
@@ -70,22 +68,6 @@ public class ChangeEntry {
     @NotNull
     public String getPath() {
         return path;
-    }
-    
-    /**
-     * @return the first checkpoint in the diff range
-     */
-    @NotNull
-    public String getCheckpoint1() {
-        return checkpoint1;
-    }
-    
-    /**
-     * @return the last checkpoint in the diff range
-     */
-    @NotNull
-    public String getCheckpoint2() {
-        return checkpoint2;
     }
     
     /**
@@ -117,8 +99,6 @@ public class ChangeEntry {
     public String toString() {
         return "ChangeEntry{" +
                 "path='" + path + '\'' +
-                ", checkpoint1='" + checkpoint1 + '\'' +
-                ", checkpoint2='" + checkpoint2 + '\'' +
                 ", diffProcessingTime=" + diffProcessingTime +
                 ", serialNumber=" + serialNumber +
                 '}';
@@ -149,23 +129,11 @@ public class ChangeEntry {
      */
     public static class Builder {
         private String path;
-        private String checkpoint1;
-        private String checkpoint2;
         private long diffProcessingTime;
         private long serialNumber;
         
         public Builder path(String path) {
             this.path = path;
-            return this;
-        }
-        
-        public Builder checkpoint1(String checkpoint1) {
-            this.checkpoint1 = checkpoint1;
-            return this;
-        }
-        
-        public Builder checkpoint2(String checkpoint2) {
-            this.checkpoint2 = checkpoint2;
             return this;
         }
         
@@ -183,13 +151,7 @@ public class ChangeEntry {
             if (path == null || path.isEmpty()) {
                 throw new IllegalStateException("path is required");
             }
-            if (checkpoint1 == null || checkpoint1.isEmpty()) {
-                throw new IllegalStateException("checkpoint1 is required");
-            }
-            if (checkpoint2 == null || checkpoint2.isEmpty()) {
-                throw new IllegalStateException("checkpoint2 is required");
-            }
-            return new ChangeEntry(path, checkpoint1, checkpoint2, diffProcessingTime, serialNumber);
+            return new ChangeEntry(path, diffProcessingTime, serialNumber);
         }
     }
 }

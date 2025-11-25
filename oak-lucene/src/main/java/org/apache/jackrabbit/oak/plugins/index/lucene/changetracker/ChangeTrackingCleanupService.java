@@ -94,6 +94,9 @@ public class ChangeTrackingCleanupService {
     /**
      * Runs the cleanup process.
      * 
+     * <p>This addresses LIMITATION 8.1 - Cleanup Integration Issues by using
+     * coordinated safe deletion timestamp across all registered indexes.
+     * 
      * @return the number of entries deleted
      * @throws IOException if cleanup fails
      */
@@ -107,28 +110,51 @@ public class ChangeTrackingCleanupService {
             return 0;
         }
         
-        // Find minimum processed timestamp across all indexes
-        long minTimestamp = findMinimumProcessedTimestamp(indexes);
-        if (minTimestamp == 0) {
-            LOG.info("No indexes have processed any changes yet, skipping cleanup");
+        LOG.info("Found {} registered indexes for cleanup coordination", indexes.size());
+        
+        // Get safe deletion timestamp using coordinated approach (LIMITATION 8.1)
+        // This ensures no index is still processing entries we're about to delete
+        long safeDeletionTimestamp = metadataManager.getSafeDeletionTimestamp(retentionBufferMs);
+        
+        if (safeDeletionTimestamp == 0) {
+            LOG.info("No indexes have processed any changes yet, or safe deletion timestamp is invalid - skipping cleanup");
             return 0;
         }
         
-        // Calculate cutoff timestamp (minimum - retention buffer)
-        long cutoffTimestamp = minTimestamp - retentionBufferMs;
-        if (cutoffTimestamp <= 0) {
-            LOG.info("Cutoff timestamp is in the past, skipping cleanup");
-            return 0;
+        LOG.info("Cleaning up entries older than safe deletion timestamp: {} (retention buffer: {}ms)",
+                safeDeletionTimestamp, retentionBufferMs);
+        
+        // Log per-index status for debugging
+        if (LOG.isDebugEnabled()) {
+            logIndexStatus(indexes);
         }
         
-        LOG.info("Cleaning up entries older than timestamp: {} (min: {}, buffer: {}ms)",
-                cutoffTimestamp, minTimestamp, retentionBufferMs);
+        // Delete entries older than safe deletion timestamp
+        int deleted = deleteEntriesOlderThan(safeDeletionTimestamp);
         
-        // Delete entries older than cutoff
-        int deleted = deleteEntriesOlderThan(cutoffTimestamp);
-        
-        LOG.info("Cleanup complete: deleted {} entries", deleted);
+        LOG.info("Cleanup complete: deleted {} entries (safe deletion timestamp: {})",
+                deleted, safeDeletionTimestamp);
         return deleted;
+    }
+    
+    /**
+     * Logs the status of each registered index for debugging.
+     * 
+     * @param indexes the list of registered indexes
+     */
+    private void logIndexStatus(List<String> indexes) {
+        LOG.debug("Index status for cleanup coordination:");
+        for (String indexPath : indexes) {
+            IndexProgressMetadata progress = metadataManager.getIndexProgress(indexPath);
+            if (progress != null) {
+                LOG.debug("  Index: {}, LastProcessedTimestamp: {}, ProcessedChanges: {}",
+                        indexPath,
+                        progress.getLastProcessedTimestamp(),
+                        progress.hasProcessedChanges());
+            } else {
+                LOG.debug("  Index: {}, No progress metadata found", indexPath);
+            }
+        }
     }
     
     /**

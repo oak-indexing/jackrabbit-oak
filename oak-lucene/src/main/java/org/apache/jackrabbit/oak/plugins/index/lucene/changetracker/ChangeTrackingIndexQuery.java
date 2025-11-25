@@ -61,8 +61,6 @@ public class ChangeTrackingIndexQuery implements AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(ChangeTrackingIndexQuery.class);
     
     private static final String FIELD_PATH = "ct:path";
-    private static final String FIELD_CHECKPOINT1 = "ct:checkpoint1";
-    private static final String FIELD_CHECKPOINT2 = "ct:checkpoint2";
     private static final String FIELD_DIFF_PROCESSING_TIME = "ct:diffProcessingTime";
     private static final String FIELD_SERIAL_NUMBER = "ct:serialNumber";
     
@@ -243,23 +241,18 @@ public class ChangeTrackingIndexQuery implements AutoCloseable {
     private ChangeEntry parseDocument(Document doc) {
         try {
             String path = doc.get(FIELD_PATH);
-            String checkpoint1 = doc.get(FIELD_CHECKPOINT1);
-            String checkpoint2 = doc.get(FIELD_CHECKPOINT2);
             
             // Get stored fields for numeric values
             Number timestampNum = doc.getField(FIELD_DIFF_PROCESSING_TIME).numericValue();
             Number serialNum = doc.getField(FIELD_SERIAL_NUMBER).numericValue();
             
-            if (path == null || checkpoint1 == null || checkpoint2 == null ||
-                timestampNum == null || serialNum == null) {
+            if (path == null || timestampNum == null || serialNum == null) {
                 LOG.warn("Incomplete document found in change tracking index");
                 return null;
             }
             
             return new ChangeEntry(
                 path,
-                checkpoint1,
-                checkpoint2,
                 timestampNum.longValue(),
                 serialNum.longValue()
             );

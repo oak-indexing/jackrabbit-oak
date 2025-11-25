@@ -1,0 +1,45 @@
+{
+  "jcr:primaryType": "oak:QueryIndexDefinition",
+  "compatVersion": 2,
+  "type": "lucene",
+  "async": "change-tracker-async",
+  "codec": "Lucene46",
+  "includedPaths": ["/"],
+  "evaluatePathRestrictions": true,
+  "indexRules": {
+    "jcr:primaryType": "nt:unstructured",
+    "nt:base": {
+      "jcr:primaryType": "nt:unstructured",
+      "properties": {
+        "jcr:primaryType": "nt:unstructured",
+        "ct:path": {
+          "jcr:primaryType": "nt:unstructured",
+          "name": "ct:path",
+          "propertyIndex": true,
+          "analyzed": false,
+          "ordered": false,
+          "stored": true
+        },
+        "ct:diffProcessingTime": {
+          "jcr:primaryType": "nt:unstructured",
+          "name": "ct:diffProcessingTime",
+          "propertyIndex": true,
+          "type": "Long",
+          "analyzed": false,
+          "ordered": true,
+          "stored": true
+        },
+        "ct:serialNumber": {
+          "jcr:primaryType": "nt:unstructured",
+          "name": "ct:serialNumber",
+          "propertyIndex": true,
+          "type": "Long",
+          "analyzed": false,
+          "ordered": true,
+          "stored": true
+        }
+      }
+    }
+  }
+}
+
