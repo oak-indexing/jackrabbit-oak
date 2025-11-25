@@ -239,13 +239,13 @@ public class ChangeTrackingIndexPopulator implements Runnable {
             long startTime = System.currentTimeMillis();
             
             // Get checkpoint before running diff
-            String checkpointBefore = asyncIndexUpdate.getCheckpoint();
+            String checkpointBefore = asyncIndexUpdate.getIndexStats().getReferenceCheckpoint();
             
             // Run AsyncIndexUpdate - this will diff and populate the change tracking index
             asyncIndexUpdate.run();
             
             // Get checkpoint after running diff
-            String checkpointAfter = asyncIndexUpdate.getCheckpoint();
+            String checkpointAfter = asyncIndexUpdate.getIndexStats().getProcessedCheckpoint();
             
             // Update last processed checkpoint (for cleanup coordination)
             if (checkpointAfter != null && !checkpointAfter.equals(checkpointBefore)) {

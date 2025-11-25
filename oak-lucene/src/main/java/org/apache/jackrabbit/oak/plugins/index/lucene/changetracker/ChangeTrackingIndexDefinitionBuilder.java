@@ -80,7 +80,7 @@ public class ChangeTrackingIndexDefinitionBuilder {
         index.setProperty("evaluatePathRestrictions", true);
         
         // Include all paths
-        index.setProperty("includedPaths", com.google.common.collect.Lists.newArrayList("/"), Type.STRINGS);
+        index.setProperty("includedPaths", java.util.Collections.singletonList("/"), Type.STRINGS);
         
         // Create index rules
         NodeBuilder indexRules = index.child("indexRules");

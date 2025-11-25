@@ -401,9 +401,9 @@ public class IndexProgressMetadataManager {
     public long getMinimumLastProcessedTimestamp() {
         try {
             NodeState root = nodeStore.getRoot();
-            NodeState indexesNode = getNodeAtPath(root, indexesMetadataPath);
+            NodeState indexesNode = getNode(root, indexesMetadataPath);
             
-            if (!indexesNode.exists()) {
+            if (indexesNode == null || !indexesNode.exists()) {
                 LOG.debug("No indexes metadata found");
                 return 0;
             }
@@ -436,38 +436,6 @@ public class IndexProgressMetadataManager {
     }
     
     /**
-     * Gets all registered indexes (indexes that have metadata).
-     * 
-     * @return list of index paths, or empty list if none
-     */
-    public List<String> getRegisteredIndexes() {
-        try {
-            NodeState root = nodeStore.getRoot();
-            NodeState indexesNode = getNodeAtPath(root, indexesMetadataPath);
-            
-            if (!indexesNode.exists()) {
-                return Collections.emptyList();
-            }
-            
-            List<String> indexes = new ArrayList<>();
-            for (String indexName : indexesNode.getChildNodeNames()) {
-                NodeState indexMetadata = indexesNode.getChildNode(indexName);
-                PropertyState pathProp = indexMetadata.getProperty(PROP_INDEX_PATH);
-                if (pathProp != null) {
-                    indexes.add(pathProp.getValue(Type.STRING));
-                }
-            }
-            
-            LOG.debug("Found {} registered indexes", indexes.size());
-            return indexes;
-            
-        } catch (Exception e) {
-            LOG.error("Error getting registered indexes", e);
-            return Collections.emptyList();
-        }
-    }
-    
-    /**
      * Gets the last processed checkpoint by the change tracker.
      * This is used for cleanup coordination.
      * 
@@ -477,9 +445,9 @@ public class IndexProgressMetadataManager {
     public String getChangeTrackerLastProcessedCheckpoint() {
         try {
             NodeState root = nodeStore.getRoot();
-            NodeState changeTracker = getNodeAtPath(root, CHANGE_TRACKER_PATH);
+            NodeState changeTracker = getNode(root, CHANGE_TRACKER_PATH);
             
-            if (!changeTracker.exists()) {
+            if (changeTracker == null || !changeTracker.exists()) {
                 return null;
             }
             
@@ -501,9 +469,9 @@ public class IndexProgressMetadataManager {
     public long getChangeTrackerLastDiffProcessingTime() {
         try {
             NodeState root = nodeStore.getRoot();
-            NodeState changeTracker = getNodeAtPath(root, CHANGE_TRACKER_PATH);
+            NodeState changeTracker = getNode(root, CHANGE_TRACKER_PATH);
             
-            if (!changeTracker.exists()) {
+            if (changeTracker == null || !changeTracker.exists()) {
                 return 0;
             }
             

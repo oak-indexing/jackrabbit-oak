@@ -68,8 +68,6 @@ public class ChangeTrackingIndexQueryTest {
     private void addChangeEntry(String path, long timestamp, long serial) throws Exception {
         Document doc = new Document();
         doc.add(new StringField("ct:path", path, Field.Store.YES));
-        doc.add(new StringField("ct:checkpoint1", "cp1-" + serial, Field.Store.YES));
-        doc.add(new StringField("ct:checkpoint2", "cp2-" + serial, Field.Store.YES));
         doc.add(new LongField("ct:diffProcessingTime", timestamp, Field.Store.YES));
         doc.add(new LongField("ct:serialNumber", serial, Field.Store.YES));
         writer.addDocument(doc);
@@ -257,7 +255,7 @@ public class ChangeTrackingIndexQueryTest {
     }
 
     @Test
-    public void testCheckpointTracking() throws Exception {
+    public void testBasicChangeTracking() throws Exception {
         addChangeEntry("/content/node1", 1000L, 0L);
         
         initQuery();
@@ -267,8 +265,9 @@ public class ChangeTrackingIndexQueryTest {
         assertEquals(1, changes.size());
         ChangeEntry entry = changes.get(0);
         
-        assertEquals("cp1-0", entry.getCheckpoint1());
-        assertEquals("cp2-0", entry.getCheckpoint2());
+        assertEquals("/content/node1", entry.getPath());
+        assertEquals(1000L, entry.getDiffProcessingTime());
+        assertEquals(0L, entry.getSerialNumber());
     }
 
     @Test

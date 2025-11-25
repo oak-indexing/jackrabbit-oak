@@ -49,8 +49,7 @@ public class ChangeTrackingIndexEditorTest {
         writer = new IndexWriter(directory, config);
         
         long timestamp = System.currentTimeMillis();
-        editor = new ChangeTrackingIndexEditor(
-                writer, "checkpoint-1", "checkpoint-2", timestamp);
+        editor = new ChangeTrackingIndexEditor(writer, timestamp);
     }
 
     @After

@@ -29,15 +29,11 @@ public class ChangeEntryTest {
     public void testBuilder() {
         ChangeEntry entry = new ChangeEntry.Builder()
                 .path("/content/dam/asset-123")
-                .checkpoint1("checkpoint-abc")
-                .checkpoint2("checkpoint-xyz")
                 .diffProcessingTime(1234567890000L)
                 .serialNumber(42)
                 .build();
         
         assertEquals("/content/dam/asset-123", entry.getPath());
-        assertEquals("checkpoint-abc", entry.getCheckpoint1());
-        assertEquals("checkpoint-xyz", entry.getCheckpoint2());
         assertEquals(1234567890000L, entry.getDiffProcessingTime());
         assertEquals(42, entry.getSerialNumber());
     }
@@ -45,19 +41,15 @@ public class ChangeEntryTest {
     @Test(expected = IllegalStateException.class)
     public void testBuilderMissingPath() {
         new ChangeEntry.Builder()
-                .checkpoint1("checkpoint-abc")
-                .checkpoint2("checkpoint-xyz")
                 .diffProcessingTime(1234567890000L)
                 .serialNumber(42)
                 .build();
     }
     
     @Test(expected = IllegalStateException.class)
-    public void testBuilderMissingCheckpoint1() {
+    public void testBuilderMissingDiffProcessingTime() {
         new ChangeEntry.Builder()
                 .path("/content/dam/asset-123")
-                .checkpoint2("checkpoint-xyz")
-                .diffProcessingTime(1234567890000L)
                 .serialNumber(42)
                 .build();
     }
@@ -66,8 +58,6 @@ public class ChangeEntryTest {
     public void testCompositeKey() {
         ChangeEntry entry = new ChangeEntry.Builder()
                 .path("/content/dam/asset-123")
-                .checkpoint1("checkpoint-abc")
-                .checkpoint2("checkpoint-xyz")
                 .diffProcessingTime(1234567890000L)
                 .serialNumber(42)
                 .build();
@@ -80,24 +70,18 @@ public class ChangeEntryTest {
     public void testEquals() {
         ChangeEntry entry1 = new ChangeEntry.Builder()
                 .path("/content/dam/asset-123")
-                .checkpoint1("checkpoint-abc")
-                .checkpoint2("checkpoint-xyz")
                 .diffProcessingTime(1234567890000L)
                 .serialNumber(42)
                 .build();
         
         ChangeEntry entry2 = new ChangeEntry.Builder()
                 .path("/content/dam/asset-123")
-                .checkpoint1("checkpoint-abc")
-                .checkpoint2("checkpoint-xyz")
                 .diffProcessingTime(1234567890000L)
                 .serialNumber(42)
                 .build();
         
         ChangeEntry entry3 = new ChangeEntry.Builder()
                 .path("/content/dam/asset-456")  // Different path
-                .checkpoint1("checkpoint-abc")
-                .checkpoint2("checkpoint-xyz")
                 .diffProcessingTime(1234567890000L)
                 .serialNumber(42)
                 .build();
@@ -114,16 +98,12 @@ public class ChangeEntryTest {
     public void testEqualsWithDifferentTimestamp() {
         ChangeEntry entry1 = new ChangeEntry.Builder()
                 .path("/content/dam/asset-123")
-                .checkpoint1("checkpoint-abc")
-                .checkpoint2("checkpoint-xyz")
                 .diffProcessingTime(1234567890000L)
                 .serialNumber(42)
                 .build();
         
         ChangeEntry entry2 = new ChangeEntry.Builder()
                 .path("/content/dam/asset-123")
-                .checkpoint1("checkpoint-abc")
-                .checkpoint2("checkpoint-xyz")
                 .diffProcessingTime(1234567891000L)  // Different timestamp
                 .serialNumber(42)
                 .build();
@@ -135,16 +115,12 @@ public class ChangeEntryTest {
     public void testEqualsWithDifferentSerial() {
         ChangeEntry entry1 = new ChangeEntry.Builder()
                 .path("/content/dam/asset-123")
-                .checkpoint1("checkpoint-abc")
-                .checkpoint2("checkpoint-xyz")
                 .diffProcessingTime(1234567890000L)
                 .serialNumber(42)
                 .build();
         
         ChangeEntry entry2 = new ChangeEntry.Builder()
                 .path("/content/dam/asset-123")
-                .checkpoint1("checkpoint-abc")
-                .checkpoint2("checkpoint-xyz")
                 .diffProcessingTime(1234567890000L)
                 .serialNumber(43)  // Different serial
                 .build();
@@ -156,16 +132,12 @@ public class ChangeEntryTest {
     public void testToString() {
         ChangeEntry entry = new ChangeEntry.Builder()
                 .path("/content/dam/asset-123")
-                .checkpoint1("checkpoint-abc")
-                .checkpoint2("checkpoint-xyz")
                 .diffProcessingTime(1234567890000L)
                 .serialNumber(42)
                 .build();
         
         String str = entry.toString();
         assertTrue(str.contains("/content/dam/asset-123"));
-        assertTrue(str.contains("checkpoint-abc"));
-        assertTrue(str.contains("checkpoint-xyz"));
         assertTrue(str.contains("1234567890000"));
         assertTrue(str.contains("42"));
     }

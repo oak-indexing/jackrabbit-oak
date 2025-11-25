@@ -241,10 +241,10 @@ public class ChangeTrackingE2ETest {
         
         // 3. Create Change Tracking AsyncIndexUpdate (processes CT indexes)
         changeTrackingAsyncIndexer = new ChangeTrackingAsyncIndexUpdate(
+            "change-tracker-async",
             nodeStore,
             changeTrackingDirectory,
-            metadataManager,
-            StatisticsProvider.NOOP
+            changeTrackingWriter
         );
         LOG.info("  [3/3] ChangeTrackingAsyncIndexUpdate initialized");
         
@@ -615,7 +615,7 @@ public class ChangeTrackingE2ETest {
         
         try {
             // Create chunked processor with production implementation
-            chunkedProcessor = new LuceneChunkedIndexProcessor(
+            LuceneChunkedIndexProcessor chunkedProcessor = new LuceneChunkedIndexProcessor(
                 nodeStore, 
                 reader, 
                 metadataManager,
