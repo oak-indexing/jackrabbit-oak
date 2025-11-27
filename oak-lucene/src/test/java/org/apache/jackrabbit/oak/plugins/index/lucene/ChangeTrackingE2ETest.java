@@ -22,6 +22,7 @@ import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.api.ContentRepository;
 import org.apache.jackrabbit.oak.api.Root;
 import org.apache.jackrabbit.oak.api.Tree;
+import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.plugins.document.DocumentMK;
 import org.apache.jackrabbit.oak.plugins.document.DocumentNodeStore;
 import org.apache.jackrabbit.oak.plugins.document.MongoConnectionFactory;
@@ -527,12 +528,20 @@ public class ChangeTrackingE2ETest {
     }
     
     private void createIndexDefinition() throws Exception {
-        // Create a comprehensive Lucene index
+        // Create a comprehensive Lucene index with both direct and relative properties
         LuceneIndexDefinitionBuilder idxb = new LuceneIndexDefinitionBuilder();
-        idxb.indexRule("nt:base")
-                .property("title").analyzed().nodeScopeIndex().propertyIndex()
-                .property("status").propertyIndex()
-                .property("category").propertyIndex();
+        
+        LuceneIndexDefinitionBuilder.IndexRule rule = idxb.indexRule("nt:base");
+        
+        // Direct properties
+        rule.property("title").analyzed().nodeScopeIndex().propertyIndex();
+        rule.property("status").propertyIndex();
+        rule.property("category").propertyIndex();
+        
+        // Relative properties with analyzed=true for CONTAINS queries
+        // When analyzed=true on relative property, CONTAINS([relative/path], 'term') returns PARENT node
+        rule.property("jcr:content/metadata/jcr:title").analyzed().nodeScopeIndex().propertyIndex();
+        rule.property("jcr:content/metadata/dc:title").analyzed().nodeScopeIndex().propertyIndex();
         
         Tree testIndex = idxb.build(root.getTree("/oak:index").addChild("testIndex"));
         
@@ -544,7 +553,11 @@ public class ChangeTrackingE2ETest {
         
         root.commit();
         
-        LOG.info("Created index definition: testIndex");
+        LOG.info("Created index definition: testIndex with:");
+        LOG.info("  - Direct properties: title (analyzed+nodeScopeIndex)");
+        LOG.info("  - Relative properties: jcr:content/metadata/jcr:title, jcr:content/metadata/dc:title (analyzed+nodeScopeIndex)");
+        LOG.info("  - This enables: CONTAINS([relative/path], 'term') -> returns parent node");
+        LOG.info("  - This enables: CONTAINS(*, 'term') -> searches all nodeScopeIndex properties");
     }
     
     private void createChangeTrackingIndex() throws Exception {
@@ -693,7 +706,7 @@ public class ChangeTrackingE2ETest {
     
     @Test
     public void test03_FulltextSearch() throws Exception {
-        LOG.info("\n========== TEST 3: Fulltext Search ==========");
+        LOG.info("\n========== TEST 3: Fulltext Search (Direct Properties) ==========");
         
         // The existing index has analyzed=true and nodeScopeIndex=true on title property
         // This enables fulltext search with CONTAINS queries
@@ -738,7 +751,123 @@ public class ChangeTrackingE2ETest {
             LOG.info("✓ LIKE '%Java%' works!");
         }
         
-        LOG.info("✓ Test 3 completed: Fulltext search verified");
+        LOG.info("✓ Test 3 completed: Fulltext search on direct properties verified");
+    }
+    
+    @Test
+    public void test03b_FulltextSearchWithRelativeProperties() throws Exception {
+        System.out.println("\n========== TEST 3b: Fulltext Search with Relative Properties ==========");
+        LOG.info("\n========== TEST 3b: Fulltext Search with Relative Properties ==========");
+        
+        // Create content with nested jcr:content structure
+        // Index has analyzed=true on jcr:content/metadata/jcr:title and dc:title
+        // This allows CONTAINS([jcr:content/metadata/jcr:title], 'term') to return PARENT node
+        Tree assets = root.getTree("/").addChild("testAssets");
+        
+        // Asset 1: Has "Java" in nested metadata
+        Tree asset1 = assets.addChild("asset1");
+        asset1.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        Tree content1 = asset1.addChild("jcr:content");
+        content1.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        Tree metadata1 = content1.addChild("metadata");
+        metadata1.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        metadata1.setProperty("jcr:title", "Java Programming Guide");
+        metadata1.setProperty("dc:title", "Comprehensive Java Tutorial");
+        
+        // Asset 2: Has "Python" in nested metadata
+        Tree asset2 = assets.addChild("asset2");
+        asset2.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        Tree content2 = asset2.addChild("jcr:content");
+        content2.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        Tree metadata2 = content2.addChild("metadata");
+        metadata2.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        metadata2.setProperty("jcr:title", "Python Tutorial");
+        metadata2.setProperty("dc:title", "Python for Beginners");
+        
+        // Asset 3: Has "Java" in nested metadata
+        Tree asset3 = assets.addChild("asset3");
+        asset3.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        Tree content3 = asset3.addChild("jcr:content");
+        content3.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        Tree metadata3 = content3.addChild("metadata");
+        metadata3.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        metadata3.setProperty("jcr:title", "Java Best Practices");
+        metadata3.setProperty("dc:title", "Advanced Java Techniques");
+        
+        root.commit();
+        
+        // Index
+        runAsyncIndexing();
+        
+        System.out.println("\nTesting CONTAINS queries on relative properties...");
+        LOG.info("Testing CONTAINS queries on relative properties...");
+        
+        // Test 1: CONTAINS on relative property jcr:content/metadata/jcr:title
+        // With analyzed=true, this should return PARENT nodes (/testAssets/asset1, /testAssets/asset3)
+        String query1 = "SELECT * FROM [nt:base] WHERE CONTAINS([jcr:content/metadata/jcr:title], 'Java')";
+        int results1 = executeQuery(query1);
+        System.out.println("Q1 - CONTAINS([jcr:content/metadata/jcr:title], 'Java'): " + results1 + " results (expects 2 parent nodes)");
+        LOG.info("Q1 - CONTAINS([jcr:content/metadata/jcr:title], 'Java'): {} results", results1);
+        
+        // Test 2: CONTAINS on relative property jcr:content/metadata/dc:title
+        String query2 = "SELECT * FROM [nt:base] WHERE CONTAINS([jcr:content/metadata/dc:title], 'Java')";
+        int results2 = executeQuery(query2);
+        System.out.println("Q2 - CONTAINS([jcr:content/metadata/dc:title], 'Java'): " + results2 + " results (expects 2 parent nodes)");
+        LOG.info("Q2 - CONTAINS([jcr:content/metadata/dc:title], 'Java'): {} results", results2);
+        
+        // Test 3: Node-scoped CONTAINS - searches all nodeScopeIndex properties
+        // With nodeScopeIndex=true on relative properties, this should work
+        String query3 = "SELECT * FROM [nt:base] WHERE CONTAINS(*, 'Java')";
+        int results3 = executeQuery(query3);
+        System.out.println("Q3 - CONTAINS(*, 'Java'): " + results3 + " results (expects 2 parent nodes)");
+        LOG.info("Q3 - CONTAINS(*, 'Java'): {} results", results3);
+        
+        // Test 4: LIKE on relative property - this always works
+        String query4 = "SELECT * FROM [nt:base] WHERE [jcr:content/metadata/jcr:title] LIKE '%Java%'";
+        int results4 = executeQuery(query4);
+        System.out.println("Q4 - LIKE '%Java%' on relative property: " + results4 + " results (expects 2)");
+        LOG.info("Q4 - LIKE on relative property: {} results", results4);
+        
+        // Test 5: CONTAINS with different term
+        String query5 = "SELECT * FROM [nt:base] WHERE CONTAINS([jcr:content/metadata/jcr:title], 'Python')";
+        int results5 = executeQuery(query5);
+        System.out.println("Q5 - CONTAINS([jcr:content/metadata/jcr:title], 'Python'): " + results5 + " results (expects 1 parent node)");
+        LOG.info("Q5 - CONTAINS([jcr:content/metadata/jcr:title], 'Python'): {} results", results5);
+        
+        // ASSERTIONS
+        System.out.println("\n=== ASSERTIONS ===");
+        
+        // Assert 1: CONTAINS on relative property with analyzed=true returns parent nodes
+        System.out.println("Assertion 1: CONTAINS([jcr:content/metadata/jcr:title], 'Java') returns parent nodes");
+        assertEquals("CONTAINS on relative property should return 2 parent nodes", 2, results1);
+        
+        // Assert 2: CONTAINS on different relative property
+        System.out.println("Assertion 2: CONTAINS([jcr:content/metadata/dc:title], 'Java') returns parent nodes");
+        assertEquals("CONTAINS on dc:title should return 2 parent nodes", 2, results2);
+        
+        // Assert 3: Node-scoped CONTAINS with nodeScopeIndex=true
+        System.out.println("Assertion 3: CONTAINS(*, 'Java') with nodeScopeIndex=true");
+        assertEquals("Node-scoped CONTAINS should return 2 parent nodes", 2, results3);
+        
+        // Assert 4: LIKE on relative property works
+        System.out.println("Assertion 4: LIKE on relative property works");
+        assertEquals("LIKE on relative property should find exactly 2 results", 2, results4);
+        
+        // Assert 5: Different term returns different results
+        System.out.println("Assertion 5: CONTAINS with different term");
+        assertEquals("CONTAINS([jcr:content/metadata/jcr:title], 'Python') should return 1 parent node", 1, results5);
+        
+        // Summary
+        System.out.println("\n=== SUMMARY ===");
+        System.out.println("✓ CONTAINS([relative/path], 'term') with analyzed=true: " + (results1 == 2 ? "WORKS" : "FAILED") + " (" + results1 + " results)");
+        System.out.println("✓ CONTAINS(*, 'term') with nodeScopeIndex=true: " + (results3 == 2 ? "WORKS" : "FAILED") + " (" + results3 + " results)");
+        System.out.println("✓ LIKE on relative property: " + (results4 == 2 ? "WORKS" : "FAILED") + " (" + results4 + " results)");
+        System.out.println("================\n");
+        
+        LOG.info("✓ Test 3b completed: Relative property fulltext search verified");
+        LOG.info("  - CONTAINS([relative/path], 'term') with analyzed=true: returns parent nodes");
+        LOG.info("  - CONTAINS(*, 'term') with nodeScopeIndex=true: searches all indexed properties");
+        LOG.info("  - LIKE on relative properties: always works");
     }
     
     @Test

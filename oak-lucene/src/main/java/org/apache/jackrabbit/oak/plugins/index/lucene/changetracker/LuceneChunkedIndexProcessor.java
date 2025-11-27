@@ -252,14 +252,34 @@ public class LuceneChunkedIndexProcessor {
                 NodeState node = getNodeAtPath(root, path);
                 
                 if (node != null && node.exists()) {
-                    // Index this node directly to Lucene
-                    LOG.trace("Indexing changed path: {}", path);
+                    // CRITICAL: Check if this path is part of a relative property definition
+                    // If so, we need to index the PARENT node(s), not this node
+                    Set<String> parentPathsToIndex = findParentNodesForRelativeProperties(path, indexDefinition);
                     
-                    // Create and write Lucene document for this node
-                    Document doc = createLuceneDocument(path, node, indexDefinition);
-                    if (doc != null) {
-                        // Update or add the document (remove old version first)
-                        indexWriter.updateDocument(path, doc);
+                    if (!parentPathsToIndex.isEmpty()) {
+                        // This changed path is part of relative property definitions
+                        // Index the parent nodes that reference this path
+                        LOG.trace("Changed path {} matches relative properties, indexing {} parent node(s)", 
+                                 path, parentPathsToIndex.size());
+                        
+                        for (String parentPath : parentPathsToIndex) {
+                            NodeState parentNode = getNodeAtPath(root, parentPath);
+                            if (parentNode != null && parentNode.exists()) {
+                                Document doc = createLuceneDocument(parentPath, parentNode, indexDefinition);
+                                if (doc != null) {
+                                    indexWriter.updateDocument(parentPath, doc);
+                                    LOG.trace("Indexed parent node {} for relative property at {}", parentPath, path);
+                                }
+                            }
+                        }
+                    } else {
+                        // Regular node - index it directly
+                        LOG.trace("Indexing changed path: {}", path);
+                        
+                        Document doc = createLuceneDocument(path, node, indexDefinition);
+                        if (doc != null) {
+                            indexWriter.updateDocument(path, doc);
+                        }
                     }
                     
                     // Check if parent nodes need re-indexing for aggregation
@@ -274,6 +294,19 @@ public class LuceneChunkedIndexProcessor {
                     // Node was deleted - remove from index
                     LOG.trace("Removing deleted path from index: {}", path);
                     indexWriter.deleteDocuments(path);
+                    
+                    // Also check if parent nodes need re-indexing due to relative property deletion
+                    Set<String> parentPathsToIndex = findParentNodesForRelativeProperties(path, indexDefinition);
+                    for (String parentPath : parentPathsToIndex) {
+                        NodeState parentNode = getNodeAtPath(root, parentPath);
+                        if (parentNode != null && parentNode.exists()) {
+                            // Re-index parent to reflect the deleted relative property
+                            Document doc = createLuceneDocument(parentPath, parentNode, indexDefinition);
+                            if (doc != null) {
+                                indexWriter.updateDocument(parentPath, doc);
+                            }
+                        }
+                    }
                     
                     processed++;
                     successCount++;
@@ -806,6 +839,94 @@ public class LuceneChunkedIndexProcessor {
             currentPath = parentPath;
             level++;
         }
+    }
+    
+    /**
+     * Finds parent nodes that need to be indexed when a child path changes,
+     * based on relative property definitions in the index.
+     * 
+     * <p>This uses Oak's existing logic: when a path like "/asset1/jcr:content/metadata/jcr:title" changes,
+     * and the index has a relative property "jcr:content/metadata/jcr:title", we need to index the parent
+     * node "/asset1" (not the child node where the property actually exists).
+     * 
+     * <p>The implementation checks if any ancestor of the changed path could be indexed with relative
+     * properties that reference this changed path. This is similar to how {@link FulltextIndexEditor}
+     * handles aggregations, but for relative properties instead.
+     * 
+     * @param changedPath the path that changed
+     * @param indexDefinition the index definition with property rules
+     * @return set of parent paths that need to be indexed (empty if none)
+     */
+    private Set<String> findParentNodesForRelativeProperties(String changedPath, IndexDefinition indexDefinition) {
+        Set<String> parentPaths = new HashSet<>();
+        
+        // Traverse up the path hierarchy to find potential parent nodes
+        // Example: /asset1/jcr:content/metadata/jcr:title -> check /asset1/jcr:content/metadata, /asset1/jcr:content, /asset1
+        String currentPath = changedPath;
+        NodeState root = nodeStore.getRoot();
+        
+        // Check up to N levels (typical relative properties are 1-4 levels deep)
+        int maxLevels = 5;
+        int level = 0;
+        
+        while (level < maxLevels) {
+            String parentPath = getParentPath(currentPath);
+            if (parentPath == null) {
+                break;
+            }
+            
+            // Get the parent node
+            NodeState parentNode = getNodeAtPath(root, parentPath);
+            if (parentNode == null || !parentNode.exists()) {
+                currentPath = parentPath;
+                level++;
+                continue;
+            }
+            
+            // Check if this parent node has an indexing rule with relative properties
+            // that reference the changed path
+            org.apache.jackrabbit.oak.api.PropertyState primaryTypeProp = parentNode.getProperty("jcr:primaryType");
+            if (primaryTypeProp != null) {
+                String nodeType = primaryTypeProp.getValue(org.apache.jackrabbit.oak.api.Type.STRING);
+                IndexDefinition.IndexingRule rule = indexDefinition.getApplicableIndexingRule(nodeType);
+                
+                if (rule != null) {
+                    // Calculate the relative path from parent to changed path
+                    // Example: parent="/asset1", changed="/asset1/jcr:content/metadata/jcr:title"
+                    //          -> relative="jcr:content/metadata/jcr:title"
+                    String relativePath = changedPath.substring(parentPath.length());
+                    if (relativePath.startsWith("/")) {
+                        relativePath = relativePath.substring(1);
+                    }
+                    
+                    // Check if any property definition matches this relative path
+                    for (PropertyDefinition propDef : rule.getProperties()) {
+                        if (propDef.relative && propDef.ancestors != null && propDef.ancestors.length > 0) {
+                            // Build the expected relative path from property definition
+                            // Example: ancestors=["jcr:content", "metadata"], name="jcr:title"
+                            //          -> expectedPath="jcr:content/metadata/jcr:title" or "jcr:content/metadata"
+                            String expectedPath = String.join("/", propDef.ancestors);
+                            if (propDef.nonRelativeName != null && !propDef.nonRelativeName.isEmpty()) {
+                                expectedPath = expectedPath + "/" + propDef.nonRelativeName;
+                            }
+                            
+                            // Check if the relative path matches or is a parent of the expected path
+                            if (relativePath.equals(expectedPath) || relativePath.startsWith(expectedPath + "/")) {
+                                parentPaths.add(parentPath);
+                                LOG.trace("Found parent path {} needs re-indexing for relative property {} (changed: {})",
+                                         parentPath, propDef.name, changedPath);
+                                break; // Found a match for this parent, no need to check other properties
+                            }
+                        }
+                    }
+                }
+            }
+            
+            currentPath = parentPath;
+            level++;
+        }
+        
+        return parentPaths;
     }
     
     /**
