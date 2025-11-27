@@ -110,6 +110,8 @@ public class SimpleContainsRelativePropertyTest {
         
         // Register DAM node types (dam:Asset, dam:AssetContent)
         registerDamNodeTypes();
+        
+        System.out.println("Note: All queries use 'option(traversal fail)' to ensure index usage\n");
     }
     
     @After
@@ -404,7 +406,7 @@ public class SimpleContainsRelativePropertyTest {
         
         // Query 1: CONTAINS on jcr:title
         System.out.println("Query 1: CONTAINS([jcr:content/metadata/jcr:title], 'Java')");
-        String query1 = "select [jcr:path] from [dam:Asset] where CONTAINS([jcr:content/metadata/jcr:title], 'Java')";
+        String query1 = "select [jcr:path] from [dam:Asset] where CONTAINS([jcr:content/metadata/jcr:title], 'Java') option(traversal fail)";
         List<String> results1 = executeQuery(query1);
         System.out.println("  Results: " + results1);
         System.out.println("  Expected: [/asset1, /asset3] (contain 'Java' as a word)");
@@ -417,7 +419,7 @@ public class SimpleContainsRelativePropertyTest {
         
         // Query 2: CONTAINS on dc:title
         System.out.println("Query 2: CONTAINS([jcr:content/metadata/dc:title], 'Java')");
-        String query2 = "select [jcr:path] from [dam:Asset] where CONTAINS([jcr:content/metadata/dc:title], 'Java')";
+        String query2 = "select [jcr:path] from [dam:Asset] where CONTAINS([jcr:content/metadata/dc:title], 'Java') option(traversal fail)";
         List<String> results2 = executeQuery(query2);
         System.out.println("  Results: " + results2);
         System.out.println("  Expected: [/asset1, /asset3] (contain 'Java' as a word)");
@@ -453,7 +455,7 @@ public class SimpleContainsRelativePropertyTest {
         
         // Query: Node-scoped CONTAINS
         System.out.println("Query: CONTAINS(*, 'Python')");
-        String query = "select [jcr:path] from [dam:Asset] where CONTAINS(*, 'Python')";
+        String query = "select [jcr:path] from [dam:Asset] where CONTAINS(*, 'Python') option(traversal fail)";
         List<String> results = executeQuery(query);
         System.out.println("  Results: " + results);
         System.out.println("  Expected: [/asset2] (only asset2 has Python in any property)");
@@ -489,7 +491,7 @@ public class SimpleContainsRelativePropertyTest {
         
         // Query 1: Simple equality on status
         System.out.println("Query 1: [jcr:content/metadata/status] = 'published'");
-        String query1 = "select [jcr:path] from [dam:Asset] where [jcr:content/metadata/status] = 'published'";
+        String query1 = "select [jcr:path] from [dam:Asset] where [jcr:content/metadata/status] = 'published' option(traversal fail)";
         List<String> results1 = executeQuery(query1);
         System.out.println("  Results: " + results1);
         System.out.println("  Expected: [/asset1, /asset3, /asset4] (all published)");
@@ -504,7 +506,7 @@ public class SimpleContainsRelativePropertyTest {
         System.out.println("Query 2: CONTAINS([jcr:content/metadata/jcr:title], 'Java') AND status = 'published'");
         String query2 = "select [jcr:path] from [dam:Asset] where " +
                        "CONTAINS([jcr:content/metadata/jcr:title], 'Java') " +
-                       "AND [jcr:content/metadata/status] = 'published'";
+                       "AND [jcr:content/metadata/status] = 'published' option(traversal fail)";
         List<String> results2 = executeQuery(query2);
         System.out.println("  Results: " + results2);
         System.out.println("  Expected: [/asset1, /asset3] (Java + published)");
@@ -541,7 +543,7 @@ public class SimpleContainsRelativePropertyTest {
         
         // Query 1: Equality on direct property "assetType"
         System.out.println("Query 1: [assetType] = 'image'");
-        String query1 = "select [jcr:path] from [dam:Asset] where [assetType] = 'image'";
+        String query1 = "select [jcr:path] from [dam:Asset] where [assetType] = 'image' option(traversal fail)";
         List<String> results1 = executeQuery(query1);
         System.out.println("  Results: " + results1);
         System.out.println("  Expected: [/asset1, /asset4] (both are image type)");
@@ -554,7 +556,7 @@ public class SimpleContainsRelativePropertyTest {
         
         // Query 2: Equality on different assetType value
         System.out.println("Query 2: [assetType] = 'document'");
-        String query2 = "select [jcr:path] from [dam:Asset] where [assetType] = 'document'";
+        String query2 = "select [jcr:path] from [dam:Asset] where [assetType] = 'document' option(traversal fail)";
         List<String> results2 = executeQuery(query2);
         System.out.println("  Results: " + results2);
         System.out.println("  Expected: [/asset2] (only asset2 is document type)");
@@ -562,36 +564,61 @@ public class SimpleContainsRelativePropertyTest {
         assertTrue("Should contain asset2", results2.contains("/asset2"));
         System.out.println("  ✓ PASSED\n");
         
-        // Query 3: Combined direct + relative property filters
-        System.out.println("Query 3: [assetType] = 'image' AND [jcr:content/metadata/status] = 'published'");
-        String query3 = "select [jcr:path] from [dam:Asset] where " +
-                       "[assetType] = 'image' AND [jcr:content/metadata/status] = 'published'";
-        List<String> results3 = executeQuery(query3);
-        System.out.println("  Results: " + results3);
-        System.out.println("  Expected: [/asset1, /asset4] (both image AND published)");
-        assertEquals("Should find 2 published image assets", 2, results3.size());
-        assertTrue("Should contain asset1", results3.contains("/asset1"));
-        assertTrue("Should contain asset4", results3.contains("/asset4"));
-        assertFalse("Should NOT contain asset2 (document type)", results3.contains("/asset2"));
-        assertFalse("Should NOT contain asset3 (video type)", results3.contains("/asset3"));
-        System.out.println("  ✓ PASSED\n");
-        
-        // Query 4: Combined CONTAINS + direct property filter
-        System.out.println("Query 4: [assetType] = 'image' AND CONTAINS([jcr:content/metadata/jcr:title], 'Java')");
-        String query4 = "select [jcr:path] from [dam:Asset] where " +
-                       "[assetType] = 'image' AND CONTAINS([jcr:content/metadata/jcr:title], 'Java')";
-        List<String> results4 = executeQuery(query4);
-        System.out.println("  Results: " + results4);
-        System.out.println("  Expected: [/asset1] (image type with 'Java' in title)");
-        assertEquals("Should find 1 image asset with Java", 1, results4.size());
-        assertTrue("Should contain asset1", results4.contains("/asset1"));
-        assertFalse("Should NOT contain asset4 (has JavaScript, not Java)", results4.contains("/asset4"));
-        System.out.println("  ✓ PASSED\n");
-        
         System.out.println("========================================");
         System.out.println("✓ TEST 4 PASSED!");
         System.out.println("Key Finding: Direct properties (assetType) can be queried without path traversal");
         System.out.println("Comparison: Direct property [assetType] vs Relative property [jcr:content/metadata/status]");
+        System.out.println("========================================\n");
+    }
+    
+    /**
+     * Test 5: Combined filters (direct properties + relative properties).
+     * 
+     * Verifies that complex combined queries work correctly:
+     * - Direct property + Relative property: [assetType] = 'x' AND [jcr:content/metadata/status] = 'y'
+     * - Direct property + CONTAINS on relative property
+     * 
+     * Expected behavior:
+     * - All filter conditions must be satisfied
+     * - Demonstrates real-world query patterns combining multiple criteria
+     * - Index must efficiently handle combined predicates
+     */
+    @Test
+    public void test05_CombinedFilters() throws Exception {
+        setupTestData();
+        
+        System.out.println("========== TEST 5: Combined Filters (Direct + Relative) ==========\n");
+        
+        // Query 1: Combined direct + relative property filters
+        System.out.println("Query 1: [assetType] = 'image' AND [jcr:content/metadata/status] = 'published'");
+        String query1 = "select [jcr:path] from [dam:Asset] where " +
+                       "[assetType] = 'image' AND [jcr:content/metadata/status] = 'published' option(traversal fail)";
+        List<String> results1 = executeQuery(query1);
+        System.out.println("  Results: " + results1);
+        System.out.println("  Expected: [/asset1, /asset4] (both image AND published)");
+        assertEquals("Should find 2 published image assets", 2, results1.size());
+        assertTrue("Should contain asset1", results1.contains("/asset1"));
+        assertTrue("Should contain asset4", results1.contains("/asset4"));
+        assertFalse("Should NOT contain asset2 (document type)", results1.contains("/asset2"));
+        assertFalse("Should NOT contain asset3 (video type)", results1.contains("/asset3"));
+        System.out.println("  ✓ PASSED\n");
+        
+        // Query 2: Combined CONTAINS + direct property filter
+        System.out.println("Query 2: [assetType] = 'image' AND CONTAINS([jcr:content/metadata/jcr:title], 'Java')");
+        String query2 = "select [jcr:path] from [dam:Asset] where " +
+                       "[assetType] = 'image' AND CONTAINS([jcr:content/metadata/jcr:title], 'Java') option(traversal fail)";
+        List<String> results2 = executeQuery(query2);
+        System.out.println("  Results: " + results2);
+        System.out.println("  Expected: [/asset1] (image type with 'Java' in title)");
+        assertEquals("Should find 1 image asset with Java", 1, results2.size());
+        assertTrue("Should contain asset1", results2.contains("/asset1"));
+        assertFalse("Should NOT contain asset4 (has JavaScript, not Java)", results2.contains("/asset4"));
+        System.out.println("  ✓ PASSED\n");
+        
+        System.out.println("========================================");
+        System.out.println("✓ TEST 5 PASSED!");
+        System.out.println("Key Finding: Complex combined filters work efficiently with proper index usage");
+        System.out.println("Demonstrates: Direct property + Relative property + CONTAINS queries combined");
         System.out.println("========================================\n");
     }
     
@@ -676,6 +703,7 @@ public class SimpleContainsRelativePropertyTest {
     
     /**
      * Helper method to execute a query and return results as a list of paths.
+     * With traversal disabled, queries will fail if they cannot use an index.
      */
     private List<String> executeQuery(String query) throws Exception {
         Result result = root.getQueryEngine().executeQuery(
