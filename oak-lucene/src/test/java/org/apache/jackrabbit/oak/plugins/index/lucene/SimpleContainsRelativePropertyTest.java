@@ -27,14 +27,20 @@ import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.plugins.index.AsyncIndexUpdate;
 import org.apache.jackrabbit.oak.plugins.index.counter.NodeCounterEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.lucene.util.LuceneIndexDefinitionBuilder;
+import org.apache.jackrabbit.oak.plugins.index.lucene.changetracker.ChangeTrackingIndexPopulator;
+import org.apache.jackrabbit.oak.plugins.index.lucene.changetracker.ChangeTrackingAsyncIndexUpdate;
+import org.apache.jackrabbit.oak.plugins.index.lucene.changetracker.ChangeTrackingIndexQuery;
 import org.apache.jackrabbit.oak.plugins.index.nodetype.NodeTypeIndexProvider;
 import org.apache.jackrabbit.oak.plugins.index.property.PropertyIndexEditorProvider;
+import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadataManager;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
 import org.apache.jackrabbit.oak.spi.commit.Observer;
 import org.apache.jackrabbit.oak.spi.query.QueryIndexProvider;
 import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.apache.jackrabbit.oak.plugins.nodetype.write.NodeTypeRegistry;
+import org.apache.jackrabbit.oak.stats.StatisticsProvider;
+import org.apache.lucene.index.DirectoryReader;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -51,9 +57,25 @@ import static org.junit.Assert.fail;
 /**
  * Simple test demonstrating CONTAINS queries on relative properties.
  * 
- * Run with: mvn test -Dtest=SimpleContainsRelativePropertyTest
+ * <p><strong>Test Modes:</strong>
+ * <ul>
+ *   <li><strong>Traditional Mode</strong> (default): Uses standard AsyncIndexUpdate</li>
+ *   <li><strong>Change Tracking Mode</strong> (-DuseChangeTracking=true): Uses 3-indexer architecture</li>
+ * </ul>
+ * 
+ * <p><strong>Usage Examples:</strong>
+ * <pre>
+ * # Traditional mode (default)
+ * mvn test -Dtest=SimpleContainsRelativePropertyTest
+ * 
+ * # Change tracking mode
+ * mvn test -Dtest=SimpleContainsRelativePropertyTest -DuseChangeTracking=true
+ * </pre>
  */
 public class SimpleContainsRelativePropertyTest {
+    
+    // Test control flag
+    private static final boolean USE_CHANGE_TRACKING = Boolean.getBoolean("useChangeTracking");
     
     private ContentRepository repository;
     private Root root;
@@ -62,8 +84,21 @@ public class SimpleContainsRelativePropertyTest {
     private LuceneIndexEditorProvider luceneEditorProvider;
     private LuceneIndexProvider luceneIndexProvider;
     
+    // Change tracking components (Three-Indexer Architecture)
+    private org.apache.lucene.store.Directory changeTrackingDirectory;
+    private org.apache.lucene.index.IndexWriter changeTrackingWriter;
+    private IndexProgressMetadataManager metadataManager;
+    private ChangeTrackingIndexPopulator changeTrackingPopulator;       // 1. Populates change tracking index
+    private AsyncIndexUpdate traditionalAsyncIndexer;                   // 2. Processes non-CT indexes
+    private ChangeTrackingAsyncIndexUpdate changeTrackingAsyncIndexer;  // 3. Processes CT indexes
+    
     @Before
     public void setup() throws Exception {
+        System.out.println("\n========================================");
+        System.out.println("Test Configuration:");
+        System.out.println("  Mode: " + (USE_CHANGE_TRACKING ? "CHANGE TRACKING (3 indexers)" : "TRADITIONAL (1 indexer)"));
+        System.out.println("========================================\n");
+        
         repository = createRepository();
         root = repository.login(null, null).getLatestRoot();
         
@@ -78,9 +113,21 @@ public class SimpleContainsRelativePropertyTest {
     }
     
     @After
-    public void teardown() {
+    public void teardown() throws Exception {
+        // Close traditional async indexer
         if (asyncIndexUpdate != null) {
             asyncIndexUpdate.close();
+        }
+        
+        // Close change tracking components
+        if (changeTrackingPopulator != null) {
+            changeTrackingPopulator.close();
+        }
+        if (changeTrackingWriter != null) {
+            changeTrackingWriter.close();
+        }
+        if (changeTrackingDirectory != null) {
+            changeTrackingDirectory.close();
         }
     }
     
@@ -101,6 +148,15 @@ public class SimpleContainsRelativePropertyTest {
         
         asyncIndexUpdate = new AsyncIndexUpdate("async", nodeStore, compositeEditorProvider);
         
+        // Initialize change tracking components if enabled
+        if (USE_CHANGE_TRACKING) {
+            try {
+                initializeChangeTracking();
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to initialize change tracking", e);
+            }
+        }
+        
         return new Oak(nodeStore)
                 .with(new InitialContent())
                 .with(new OpenSecurityProvider())
@@ -111,6 +167,47 @@ public class SimpleContainsRelativePropertyTest {
                 .with(new NodeTypeIndexProvider())
                 .with(new NodeCounterEditorProvider())
                 .createContentRepository();
+    }
+    
+    /**
+     * Initializes the three-indexer change tracking architecture:
+     * 1. ChangeTrackingIndexPopulator - Populates the change tracking index
+     * 2. Traditional AsyncIndexUpdate - Processes indexes WITHOUT useChangeTracker
+     * 3. ChangeTrackingAsyncIndexUpdate - Processes indexes WITH useChangeTracker
+     */
+    private void initializeChangeTracking() throws Exception {
+        System.out.println("Initializing three-indexer change tracking architecture...");
+        
+        // Create in-memory Lucene directory for change tracking index
+        changeTrackingDirectory = new org.apache.lucene.store.RAMDirectory();
+        
+        // Create metadata manager for progress tracking and coordination
+        metadataManager = new IndexProgressMetadataManager(nodeStore);
+        
+        // 1. Create Change Tracking Populator (records changes to tracking index)
+        changeTrackingPopulator = new ChangeTrackingIndexPopulator(
+            nodeStore,
+            changeTrackingDirectory,
+            metadataManager,
+            StatisticsProvider.NOOP
+        );
+        changeTrackingPopulator.initialize();
+        System.out.println("  [1/3] ChangeTrackingIndexPopulator initialized");
+        
+        // 2. Traditional AsyncIndexUpdate already created in createRepository()
+        traditionalAsyncIndexer = asyncIndexUpdate;
+        System.out.println("  [2/3] Traditional AsyncIndexUpdate ready");
+        
+        // 3. Create Change Tracking AsyncIndexUpdate (processes CT indexes)
+        changeTrackingAsyncIndexer = new ChangeTrackingAsyncIndexUpdate(
+            "change-tracker-async",
+            nodeStore,
+            changeTrackingDirectory,
+            changeTrackingWriter
+        );
+        System.out.println("  [3/3] ChangeTrackingAsyncIndexUpdate initialized");
+        
+        System.out.println("✓ Three-indexer architecture ready\n");
     }
     
     /**
@@ -164,6 +261,10 @@ public class SimpleContainsRelativePropertyTest {
         // Index rule for dam:Asset (or nt:base as fallback)
         LuceneIndexDefinitionBuilder.IndexRule rule = idxb.indexRule("dam:Asset");
         
+        // Direct property on dam:Asset node itself (non-relative)
+        rule.property("assetType")
+            .propertyIndex();
+        
         // Relative property with fulltext analysis for CONTAINS queries
         rule.property("jcr:content/metadata/jcr:title")
             .analyzed()
@@ -181,34 +282,30 @@ public class SimpleContainsRelativePropertyTest {
             .propertyIndex();
         
         // Build and commit index
-        idxb.build(root.getTree("/oak:index").addChild(indexName));
+        Tree indexTree = idxb.build(root.getTree("/oak:index").addChild(indexName));
+        
+        // Mark index to use change tracking if enabled
+        if (USE_CHANGE_TRACKING) {
+            indexTree.setProperty("useChangeTracker", true);
+            System.out.println("  - useChangeTracker: true");
+        }
+        
         root.commit();
         
         System.out.println("✓ Index definition created: " + indexName);
         System.out.println("  - Node type: dam:Asset");
-        System.out.println("  - jcr:content/metadata/jcr:title (analyzed, nodeScopeIndex)");
-        System.out.println("  - jcr:content/metadata/dc:title (analyzed, nodeScopeIndex)");
-        System.out.println("  - jcr:content/metadata/status (exact match)");
+        System.out.println("  - Direct property: assetType (exact match)");
+        System.out.println("  - Relative property: jcr:content/metadata/jcr:title (analyzed, nodeScopeIndex)");
+        System.out.println("  - Relative property: jcr:content/metadata/dc:title (analyzed, nodeScopeIndex)");
+        System.out.println("  - Relative property: jcr:content/metadata/status (exact match)");
     }
     
     /**
-     * Comprehensive test for CONTAINS queries on relative properties.
-     * 
-     * Tests:
-     * 1. CONTAINS query on relative property jcr:content/metadata/jcr:title
-     * 2. CONTAINS query on relative property jcr:content/metadata/dc:title  
-     * 3. Node-scoped CONTAINS (CONTAINS(*, 'term'))
-     * 4. Equality query on relative property jcr:content/metadata/status
-     * 5. Combined CONTAINS + equality filter
-     * 
-     * Verifies:
-     * - Parent nodes are returned (not child nodes where properties exist)
-     * - Multiple assets with different property values are correctly filtered
-     * - Both analyzed (fulltext) and non-analyzed (exact match) properties work
+     * Setup shared test data - creates index and test content.
+     * This is called once before all test methods run.
      */
-    @Test
-    public void testContainsQueriesOnRelativeProperties() throws Exception {
-        System.out.println("\n========== Simple CONTAINS on Relative Properties Test ==========\n");
+    private void setupTestData() throws Exception {
+        System.out.println("\n========== Setup: Creating Index and Test Content ==========\n");
         
         // ========================================
         // Step 1: Create Index Definition
@@ -221,9 +318,10 @@ public class SimpleContainsRelativePropertyTest {
         // ========================================
         System.out.println("\nStep 2: Creating test content...");
         
-        // Asset 1: Java content, published
+        // Asset 1: Java content, published, image type
         Tree asset1 = root.getTree("/").addChild("asset1");
         asset1.setProperty("jcr:primaryType", "dam:Asset", Type.NAME);
+        asset1.setProperty("assetType", "image");  // Direct property on dam:Asset
         Tree jcrContent1 = asset1.addChild("jcr:content");
         jcrContent1.setProperty("jcr:primaryType", "dam:AssetContent", Type.NAME);
         Tree metadata1 = jcrContent1.addChild("metadata");
@@ -232,9 +330,10 @@ public class SimpleContainsRelativePropertyTest {
         metadata1.setProperty("dc:title", "Comprehensive Java Tutorial");
         metadata1.setProperty("status", "published");
         
-        // Asset 2: Python content, draft
+        // Asset 2: Python content, draft, document type
         Tree asset2 = root.getTree("/").addChild("asset2");
         asset2.setProperty("jcr:primaryType", "dam:Asset", Type.NAME);
+        asset2.setProperty("assetType", "document");  // Direct property on dam:Asset
         Tree jcrContent2 = asset2.addChild("jcr:content");
         jcrContent2.setProperty("jcr:primaryType", "dam:AssetContent", Type.NAME);
         Tree metadata2 = jcrContent2.addChild("metadata");
@@ -243,9 +342,10 @@ public class SimpleContainsRelativePropertyTest {
         metadata2.setProperty("dc:title", "Python for Beginners");
         metadata2.setProperty("status", "draft");
         
-        // Asset 3: Java content, published
+        // Asset 3: Java content, published, video type
         Tree asset3 = root.getTree("/").addChild("asset3");
         asset3.setProperty("jcr:primaryType", "dam:Asset", Type.NAME);
+        asset3.setProperty("assetType", "video");  // Direct property on dam:Asset
         Tree jcrContent3 = asset3.addChild("jcr:content");
         jcrContent3.setProperty("jcr:primaryType", "dam:AssetContent", Type.NAME);
         Tree metadata3 = jcrContent3.addChild("metadata");
@@ -254,9 +354,10 @@ public class SimpleContainsRelativePropertyTest {
         metadata3.setProperty("dc:title", "Advanced Java Techniques");
         metadata3.setProperty("status", "published");
         
-        // Asset 4: JavaScript content, published (contains "Java" substring)
+        // Asset 4: JavaScript content, published, image type
         Tree asset4 = root.getTree("/").addChild("asset4");
         asset4.setProperty("jcr:primaryType", "dam:Asset", Type.NAME);
+        asset4.setProperty("assetType", "image");  // Direct property on dam:Asset
         Tree jcrContent4 = asset4.addChild("jcr:content");
         jcrContent4.setProperty("jcr:primaryType", "dam:AssetContent", Type.NAME);
         Tree metadata4 = jcrContent4.addChild("metadata");
@@ -268,30 +369,38 @@ public class SimpleContainsRelativePropertyTest {
         root.commit();
         
         System.out.println("✓ Created 4 test dam:Asset nodes:");
-        System.out.println("  - asset1: dam:Asset with Java content, published");
-        System.out.println("  - asset2: dam:Asset with Python content, draft");
-        System.out.println("  - asset3: dam:Asset with Java content, published");
-        System.out.println("  - asset4: dam:Asset with JavaScript content, published");
+        System.out.println("  - asset1: assetType=image, Java content, published");
+        System.out.println("  - asset2: assetType=document, Python content, draft");
+        System.out.println("  - asset3: assetType=video, Java content, published");
+        System.out.println("  - asset4: assetType=image, JavaScript content, published");
         
         // ========================================
         // Step 3: Run Async Indexing
         // ========================================
         System.out.println("\nStep 3: Running async indexing...");
         
-        asyncIndexUpdate.run();
-        
-        if (asyncIndexUpdate.isFailing()) {
-            System.err.println("ERROR: Async indexing failed!");
-            System.err.println("Index lane: " + asyncIndexUpdate.getIndexStats());
-            fail("Async indexing should not be failing");
-        }
+        runAsyncIndexing();
         
         System.out.println("✓ Async indexing completed successfully");
+        System.out.println("\n========================================\n");
+    }
+    
+    /**
+     * Test 1: CONTAINS queries on specific relative properties.
+     * 
+     * Verifies that CONTAINS queries work on relative properties like:
+     * - jcr:content/metadata/jcr:title
+     * - jcr:content/metadata/dc:title
+     * 
+     * Expected behavior:
+     * - Parent nodes (dam:Asset) are returned, not the child nodes where properties exist
+     * - Fulltext analysis correctly tokenizes words (Java != JavaScript)
+     */
+    @Test
+    public void test01_ContainsOnRelativeProperties() throws Exception {
+        setupTestData();
         
-        // ========================================
-        // Step 4: Execute Queries
-        // ========================================
-        System.out.println("\nStep 4: Executing queries...\n");
+        System.out.println("========== TEST 1: CONTAINS on Relative Properties ==========\n");
         
         // Query 1: CONTAINS on jcr:title
         System.out.println("Query 1: CONTAINS([jcr:content/metadata/jcr:title], 'Java')");
@@ -319,58 +428,250 @@ public class SimpleContainsRelativePropertyTest {
         assertFalse("Should NOT contain asset4 (JavaScript is a different word)", results2.contains("/asset4"));
         System.out.println("  ✓ PASSED\n");
         
-        // Query 3: Node-scoped CONTAINS
-        System.out.println("Query 3: CONTAINS(*, 'Python')");
-        String query3 = "select [jcr:path] from [dam:Asset] where CONTAINS(*, 'Python')";
-        List<String> results3 = executeQuery(query3);
-        System.out.println("  Results: " + results3);
-        System.out.println("  Expected: [/asset2] (only asset2 has Python)");
-        assertEquals("Should find 1 asset", 1, results3.size());
-        assertTrue("Should contain asset2", results3.contains("/asset2"));
+        System.out.println("========================================");
+        System.out.println("✓ TEST 1 PASSED!");
+        System.out.println("Key Finding: CONTAINS queries correctly return parent nodes for relative properties");
+        System.out.println("========================================\n");
+    }
+    
+    /**
+     * Test 2: Node-scoped CONTAINS queries (CONTAINS with *).
+     * 
+     * Verifies that node-scoped CONTAINS queries work correctly:
+     * - CONTAINS(*, 'term') searches all nodeScopeIndex properties
+     * - Includes both direct properties and relative properties with nodeScopeIndex=true
+     * 
+     * Expected behavior:
+     * - Searches across all analyzed properties in the node and its descendants
+     * - Returns parent nodes (dam:Asset) that match the search term
+     */
+    @Test
+    public void test02_NodeScopedContains() throws Exception {
+        setupTestData();
+        
+        System.out.println("========== TEST 2: Node-Scoped CONTAINS (*) ==========\n");
+        
+        // Query: Node-scoped CONTAINS
+        System.out.println("Query: CONTAINS(*, 'Python')");
+        String query = "select [jcr:path] from [dam:Asset] where CONTAINS(*, 'Python')";
+        List<String> results = executeQuery(query);
+        System.out.println("  Results: " + results);
+        System.out.println("  Expected: [/asset2] (only asset2 has Python in any property)");
+        assertEquals("Should find 1 asset with 'Python'", 1, results.size());
+        assertTrue("Should contain asset2", results.contains("/asset2"));
+        assertFalse("Should NOT contain asset1", results.contains("/asset1"));
+        assertFalse("Should NOT contain asset3", results.contains("/asset3"));
+        assertFalse("Should NOT contain asset4", results.contains("/asset4"));
         System.out.println("  ✓ PASSED\n");
         
-        // Query 4: Equality on status
-        System.out.println("Query 4: [jcr:content/metadata/status] = 'published'");
-        String query4 = "select [jcr:path] from [dam:Asset] where [jcr:content/metadata/status] = 'published'";
-        List<String> results4 = executeQuery(query4);
-        System.out.println("  Results: " + results4);
+        System.out.println("========================================");
+        System.out.println("✓ TEST 2 PASSED!");
+        System.out.println("Key Finding: CONTAINS(*, 'term') searches all nodeScopeIndex properties");
+        System.out.println("========================================\n");
+    }
+    
+    /**
+     * Test 3: Equality queries on relative properties.
+     * 
+     * Verifies that equality queries work on relative properties:
+     * - Simple equality: [relative/path] = 'value'
+     * - Combined with CONTAINS: CONTAINS(...) AND [relative/path] = 'value'
+     * 
+     * Expected behavior:
+     * - Equality queries on relative properties return parent nodes
+     * - Can be combined with CONTAINS queries for complex filtering
+     */
+    @Test
+    public void test03_EqualityOnRelativeProperties() throws Exception {
+        setupTestData();
+        
+        System.out.println("========== TEST 3: Equality on Relative Properties ==========\n");
+        
+        // Query 1: Simple equality on status
+        System.out.println("Query 1: [jcr:content/metadata/status] = 'published'");
+        String query1 = "select [jcr:path] from [dam:Asset] where [jcr:content/metadata/status] = 'published'";
+        List<String> results1 = executeQuery(query1);
+        System.out.println("  Results: " + results1);
         System.out.println("  Expected: [/asset1, /asset3, /asset4] (all published)");
-        assertEquals("Should find 3 published assets", 3, results4.size());
-        assertTrue("Should contain asset1", results4.contains("/asset1"));
-        assertTrue("Should contain asset3", results4.contains("/asset3"));
-        assertTrue("Should contain asset4", results4.contains("/asset4"));
-        assertFalse("Should NOT contain asset2 (draft)", results4.contains("/asset2"));
+        assertEquals("Should find 3 published assets", 3, results1.size());
+        assertTrue("Should contain asset1", results1.contains("/asset1"));
+        assertTrue("Should contain asset3", results1.contains("/asset3"));
+        assertTrue("Should contain asset4", results1.contains("/asset4"));
+        assertFalse("Should NOT contain asset2 (draft)", results1.contains("/asset2"));
         System.out.println("  ✓ PASSED\n");
         
-        // Query 5: Combined CONTAINS + equality filter
-        System.out.println("Query 5: CONTAINS([jcr:content/metadata/jcr:title], 'Java') AND status = 'published'");
-        String query5 = "select [jcr:path] from [dam:Asset] where " +
+        // Query 2: Combined CONTAINS + equality filter
+        System.out.println("Query 2: CONTAINS([jcr:content/metadata/jcr:title], 'Java') AND status = 'published'");
+        String query2 = "select [jcr:path] from [dam:Asset] where " +
                        "CONTAINS([jcr:content/metadata/jcr:title], 'Java') " +
                        "AND [jcr:content/metadata/status] = 'published'";
-        List<String> results5 = executeQuery(query5);
-        System.out.println("  Results: " + results5);
+        List<String> results2 = executeQuery(query2);
+        System.out.println("  Results: " + results2);
         System.out.println("  Expected: [/asset1, /asset3] (Java + published)");
-        assertEquals("Should find 2 published Java assets", 2, results5.size());
-        assertTrue("Should contain asset1", results5.contains("/asset1"));
-        assertTrue("Should contain asset3", results5.contains("/asset3"));
-        assertFalse("Should NOT contain asset2 (draft)", results5.contains("/asset2"));
-        assertFalse("Should NOT contain asset4 (JavaScript, not Java)", results5.contains("/asset4"));
+        assertEquals("Should find 2 published Java assets", 2, results2.size());
+        assertTrue("Should contain asset1", results2.contains("/asset1"));
+        assertTrue("Should contain asset3", results2.contains("/asset3"));
+        assertFalse("Should NOT contain asset2 (draft)", results2.contains("/asset2"));
+        assertFalse("Should NOT contain asset4 (JavaScript, not Java)", results2.contains("/asset4"));
         System.out.println("  ✓ PASSED\n");
         
-        // ========================================
-        // Summary
-        // ========================================
         System.out.println("========================================");
-        System.out.println("✓ ALL TESTS PASSED!");
+        System.out.println("✓ TEST 3 PASSED!");
+        System.out.println("Key Finding: Equality queries and combined filters work correctly on relative properties");
+        System.out.println("========================================\n");
+    }
+    
+    /**
+     * Test 4: Equality queries on direct properties (non-relative).
+     * 
+     * Verifies that equality queries work on direct properties defined on dam:Asset itself:
+     * - Direct property: assetType (on dam:Asset node)
+     * - Contrast with relative properties: jcr:content/metadata/status
+     * 
+     * Expected behavior:
+     * - Direct properties can be queried with simple equality: [propertyName] = 'value'
+     * - No path traversal needed (unlike relative properties)
+     * - Can be combined with other filters
+     */
+    @Test
+    public void test04_EqualityOnDirectProperty() throws Exception {
+        setupTestData();
+        
+        System.out.println("========== TEST 4: Equality on Direct Property (Non-Relative) ==========\n");
+        
+        // Query 1: Equality on direct property "assetType"
+        System.out.println("Query 1: [assetType] = 'image'");
+        String query1 = "select [jcr:path] from [dam:Asset] where [assetType] = 'image'";
+        List<String> results1 = executeQuery(query1);
+        System.out.println("  Results: " + results1);
+        System.out.println("  Expected: [/asset1, /asset4] (both are image type)");
+        assertEquals("Should find 2 image assets", 2, results1.size());
+        assertTrue("Should contain asset1", results1.contains("/asset1"));
+        assertTrue("Should contain asset4", results1.contains("/asset4"));
+        assertFalse("Should NOT contain asset2 (document)", results1.contains("/asset2"));
+        assertFalse("Should NOT contain asset3 (video)", results1.contains("/asset3"));
+        System.out.println("  ✓ PASSED\n");
+        
+        // Query 2: Equality on different assetType value
+        System.out.println("Query 2: [assetType] = 'document'");
+        String query2 = "select [jcr:path] from [dam:Asset] where [assetType] = 'document'";
+        List<String> results2 = executeQuery(query2);
+        System.out.println("  Results: " + results2);
+        System.out.println("  Expected: [/asset2] (only asset2 is document type)");
+        assertEquals("Should find 1 document asset", 1, results2.size());
+        assertTrue("Should contain asset2", results2.contains("/asset2"));
+        System.out.println("  ✓ PASSED\n");
+        
+        // Query 3: Combined direct + relative property filters
+        System.out.println("Query 3: [assetType] = 'image' AND [jcr:content/metadata/status] = 'published'");
+        String query3 = "select [jcr:path] from [dam:Asset] where " +
+                       "[assetType] = 'image' AND [jcr:content/metadata/status] = 'published'";
+        List<String> results3 = executeQuery(query3);
+        System.out.println("  Results: " + results3);
+        System.out.println("  Expected: [/asset1, /asset4] (both image AND published)");
+        assertEquals("Should find 2 published image assets", 2, results3.size());
+        assertTrue("Should contain asset1", results3.contains("/asset1"));
+        assertTrue("Should contain asset4", results3.contains("/asset4"));
+        assertFalse("Should NOT contain asset2 (document type)", results3.contains("/asset2"));
+        assertFalse("Should NOT contain asset3 (video type)", results3.contains("/asset3"));
+        System.out.println("  ✓ PASSED\n");
+        
+        // Query 4: Combined CONTAINS + direct property filter
+        System.out.println("Query 4: [assetType] = 'image' AND CONTAINS([jcr:content/metadata/jcr:title], 'Java')");
+        String query4 = "select [jcr:path] from [dam:Asset] where " +
+                       "[assetType] = 'image' AND CONTAINS([jcr:content/metadata/jcr:title], 'Java')";
+        List<String> results4 = executeQuery(query4);
+        System.out.println("  Results: " + results4);
+        System.out.println("  Expected: [/asset1] (image type with 'Java' in title)");
+        assertEquals("Should find 1 image asset with Java", 1, results4.size());
+        assertTrue("Should contain asset1", results4.contains("/asset1"));
+        assertFalse("Should NOT contain asset4 (has JavaScript, not Java)", results4.contains("/asset4"));
+        System.out.println("  ✓ PASSED\n");
+        
         System.out.println("========================================");
-        System.out.println("\nKey Findings:");
-        System.out.println("1. CONTAINS queries work correctly on relative properties");
-        System.out.println("2. Parent nodes are returned (not child nodes)");
-        System.out.println("3. Multiple relative properties can be indexed and queried");
-        System.out.println("4. Node-scoped CONTAINS (CONTAINS(*, 'term')) works");
-        System.out.println("5. Equality queries work on relative properties");
-        System.out.println("6. Combined CONTAINS + equality filters work correctly");
-        System.out.println();
+        System.out.println("✓ TEST 4 PASSED!");
+        System.out.println("Key Finding: Direct properties (assetType) can be queried without path traversal");
+        System.out.println("Comparison: Direct property [assetType] vs Relative property [jcr:content/metadata/status]");
+        System.out.println("========================================\n");
+    }
+    
+    /**
+     * Runs indexing using either traditional or change tracking mode.
+     * 
+     * <p>Traditional Mode: Single AsyncIndexUpdate
+     * <p>Change Tracking Mode: Three-Indexer Flow
+     * <ol>
+     *   <li>Populator: changeTrackingPopulator.run() - Records changes to tracking index</li>
+     *   <li>Traditional: traditionalAsyncIndexer.run() - Processes non-CT indexes</li>
+     *   <li>Change Tracking: changeTrackingAsyncIndexer.run() - Processes CT indexes</li>
+     * </ol>
+     */
+    private void runAsyncIndexing() throws Exception {
+        if (USE_CHANGE_TRACKING) {
+            System.out.println("========================================");
+            System.out.println("THREE-INDEXER CHANGE TRACKING MODE");
+            System.out.println("========================================");
+            
+            // Phase 1: Populate change tracking index
+            System.out.println("PHASE 1: Running ChangeTrackingIndexPopulator...");
+            long phase1Start = System.currentTimeMillis();
+            changeTrackingPopulator.run();
+            long phase1Time = System.currentTimeMillis() - phase1Start;
+            System.out.println("Phase 1 complete: " + phase1Time + " ms");
+            
+            // Query to see how many changes were recorded
+            DirectoryReader reader = DirectoryReader.open(changeTrackingDirectory);
+            try {
+                @SuppressWarnings("resource") // query is not a resource, reader is closed below
+                ChangeTrackingIndexQuery query = new ChangeTrackingIndexQuery(reader);
+                int totalChanges = query.getUnprocessedChanges(0, 0, Integer.MAX_VALUE).size();
+                System.out.println("  Change tracking index: " + totalChanges + " entries");
+            } finally {
+                reader.close();
+            }
+            
+            // Phase 2: Process traditional indexes (none in this test, but would run)
+            System.out.println("PHASE 2: Running Traditional AsyncIndexUpdate...");
+            long phase2Start = System.currentTimeMillis();
+            traditionalAsyncIndexer.run();
+            long phase2Time = System.currentTimeMillis() - phase2Start;
+            System.out.println("Phase 2 complete: " + phase2Time + " ms");
+            
+            // Phase 3: Process change-tracked indexes
+            System.out.println("PHASE 3: Running ChangeTrackingAsyncIndexUpdate...");
+            long phase3Start = System.currentTimeMillis();
+            changeTrackingAsyncIndexer.run();
+            long phase3Time = System.currentTimeMillis() - phase3Start;
+            System.out.println("Phase 3 complete: " + phase3Time + " ms");
+            
+            // Summary
+            long totalTime = phase1Time + phase2Time + phase3Time;
+            System.out.println("========================================");
+            System.out.println("ALL THREE INDEXERS COMPLETE");
+            System.out.println("Total time: " + totalTime + " ms");
+            System.out.println("  Phase 1 (Change Tracker Populate): " + phase1Time + " ms");
+            System.out.println("  Phase 2 (Traditional Indexer):      " + phase2Time + " ms");
+            System.out.println("  Phase 3 (Change Tracked Indexer):   " + phase3Time + " ms");
+            System.out.println("========================================");
+        } else {
+            System.out.println("========================================");
+            System.out.println("TRADITIONAL MODE");
+            System.out.println("========================================");
+            
+            // Traditional: Just run async indexing
+            long start = System.currentTimeMillis();
+            asyncIndexUpdate.run();
+            long time = System.currentTimeMillis() - start;
+            
+            if (asyncIndexUpdate.isFailing()) {
+                System.err.println("ERROR: Async indexing failed!");
+                System.err.println("Index lane: " + asyncIndexUpdate.getIndexStats());
+                fail("Async indexing should not be failing");
+            }
+            
+            System.out.println("Traditional AsyncIndexUpdate complete: " + time + " ms");
+            System.out.println("========================================");
+        }
     }
     
     /**
