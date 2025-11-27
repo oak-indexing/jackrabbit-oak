@@ -76,7 +76,7 @@ public class ChangeTrackingIndexDefinitionBuilder {
         index.setProperty(LuceneIndexConstants.COMPAT_MODE, 2);
         index.setProperty("type", "lucene", Type.STRING);
         index.setProperty("async", ASYNC_LANE, Type.STRING);
-        index.setProperty(LuceneIndexConstants.CODEC_NAME, "Lucene46");
+        // index.setProperty(LuceneIndexConstants.CODEC_NAME, "Lucene46");
         index.setProperty("evaluatePathRestrictions", true);
         
         // Include all paths
