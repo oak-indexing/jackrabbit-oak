@@ -18,6 +18,7 @@ package org.apache.jackrabbit.oak.plugins.index.lucene;
 
 import org.apache.jackrabbit.oak.InitialContent;
 import org.apache.jackrabbit.oak.Oak;
+import org.apache.jackrabbit.oak.api.CommitFailedException;
 import org.apache.jackrabbit.oak.api.ContentRepository;
 import org.apache.jackrabbit.oak.api.ContentSession;
 import org.apache.jackrabbit.oak.api.QueryEngine;
@@ -33,10 +34,14 @@ import org.apache.jackrabbit.oak.plugins.index.lucene.changetracker.ChangeTracki
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.ChangeEntry;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadata;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadataManager;
+import org.apache.jackrabbit.oak.spi.commit.CommitInfo;
+import org.apache.jackrabbit.oak.spi.commit.EmptyHook;
 import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
+import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
 import org.apache.jackrabbit.oak.stats.StatisticsProvider;
+import org.apache.jackrabbit.oak.plugins.nodetype.write.NodeTypeRegistry;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.store.Directory;
@@ -45,6 +50,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -123,6 +129,9 @@ public class BasicChangeTrackerTest {
         contentSession = contentRepository.login(null, null);
         root = contentSession.getLatestRoot();
         
+        // Register DAM node types (dam:Asset, dam:AssetContent) using CND
+        registerDamNodeTypes();
+        
         // 7. Create traditional async index update (for non-change-tracked indexes)
         asyncIndexUpdate = new AsyncIndexUpdate("async", nodeStore, editorProvider);
         
@@ -141,6 +150,26 @@ public class BasicChangeTrackerTest {
         System.out.println("✓ Oak content repository created");
     }
     
+    /**
+     * Registers DAM node types (dam:Asset, dam:AssetContent) for testing.
+     */
+    private void registerDamNodeTypes() throws Exception {
+        try {
+            // Load node type definitions from CND file
+            InputStream cndStream = getClass().getResourceAsStream("/dam-nodetypes.cnd");
+            if (cndStream == null) {
+                throw new IllegalStateException("dam-nodetypes.cnd not found in classpath");
+            }
+            
+            // Register node types
+            NodeTypeRegistry.register(root, cndStream, "dam-nodetypes.cnd");
+            root.commit();
+            
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to register DAM node types", e);
+        }
+    }
+
     @After
     public void tearDown() throws Exception {
         if (contentSession != null) {
@@ -219,6 +248,19 @@ public class BasicChangeTrackerTest {
         statusProp.setProperty("propertyIndex", true);
         statusProp.setProperty("analyzed", false);
         
+        // Add index rule for dam:Asset
+        Tree damAsset = indexRules.addChild("dam:Asset");
+        damAsset.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        Tree damProps = damAsset.addChild("properties");
+        damProps.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        
+        Tree damTitle = damProps.addChild("title");
+        damTitle.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        damTitle.setProperty("name", "title");
+        damTitle.setProperty("propertyIndex", true);
+        damTitle.setProperty("analyzed", true);
+        damTitle.setProperty("nodeScopeIndex", true);
+        
         root.commit();
         // Register index in metadata manager
         metadataManager.registerIndex("/oak:index/searchIndex");
@@ -260,8 +302,13 @@ public class BasicChangeTrackerTest {
         doc4.setProperty("category", "cooking");
         doc4.setProperty("status", "published");
         
+        // Document 5: dam:Asset (Direct property indexing)
+        Tree doc5 = content.addChild("asset1");
+        doc5.setProperty("jcr:primaryType", "dam:Asset", Type.NAME);
+        doc5.setProperty("title", "My Awesome Asset");
+        
         root.commit();
-        System.out.println("✓ Created 4 test documents");
+        System.out.println("✓ Created 5 test documents (4 nt:unstructured, 1 dam:Asset)");
 
 
         
@@ -351,6 +398,16 @@ public class BasicChangeTrackerTest {
         System.out.printf("    Found %d results: %s%n", results6.size(), results6);
         assertEquals("Should find 1 draft article", 1, results6.size());
         assertTrue("Should contain doc2", results6.stream().anyMatch(p -> p.contains("doc2")));
+        System.out.println("    ✓ PASSED");
+        
+        // Query 7: dam:Asset search
+        System.out.println("\n  Query 7: Find dam:Asset by title");
+        // Query using dam:Asset primary type selector
+        String query7 = "SELECT [jcr:path] FROM [dam:Asset] WHERE CONTAINS([title], 'Awesome')";
+        List<String> results7 = executeQuery(query7);
+        System.out.printf("    Found %d results: %s%n", results7.size(), results7);
+        assertEquals("Should find 1 asset", 1, results7.size());
+        assertTrue("Should contain asset1", results7.stream().anyMatch(p -> p.contains("asset1")));
         System.out.println("    ✓ PASSED");
         
         // STEP 6: Verify index progress was tracked
