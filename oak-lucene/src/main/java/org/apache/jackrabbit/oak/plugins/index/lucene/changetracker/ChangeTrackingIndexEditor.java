@@ -26,6 +26,7 @@ import org.apache.lucene.document.Field;
 import org.apache.lucene.document.LongField;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.Term;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -182,7 +183,8 @@ public class ChangeTrackingIndexEditor implements Editor {
             // ct:serialNumber - for unique ordering within same timestamp (Lucene 4.7 uses LongField)
             doc.add(new LongField(FIELD_SERIAL_NUMBER, serialNumber, Field.Store.YES));
             
-            indexWriter.addDocument(doc);
+            // Use updateDocument to ensure path is unique in the index (deduplication)
+            indexWriter.updateDocument(new Term(FIELD_PATH, path), doc);
             entriesWritten++;
             
             if (entriesWritten % 10000 == 0) {

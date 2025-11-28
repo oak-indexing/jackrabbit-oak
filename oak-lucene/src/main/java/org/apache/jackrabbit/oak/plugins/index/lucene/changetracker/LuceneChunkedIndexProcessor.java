@@ -96,6 +96,7 @@ public class LuceneChunkedIndexProcessor {
     private final IndexReader changeTrackingReader;
     private final IndexProgressMetadataManager metadataManager;
     private final int chunkSize;
+    private final ChangeTrackingIndexQuery changeTrackingQuery;
     
     /**
      * Tracks failed entries per index for retry.
@@ -185,6 +186,7 @@ public class LuceneChunkedIndexProcessor {
         this.changeTrackingReader = changeTrackingReader;
         this.metadataManager = metadataManager;
         this.chunkSize = chunkSize;
+        this.changeTrackingQuery = new ChangeTrackingIndexQuery(changeTrackingReader);
         LOG.info("LuceneChunkedIndexProcessor initialized with chunk size: {}", chunkSize);
     }
     
@@ -215,9 +217,8 @@ public class LuceneChunkedIndexProcessor {
         LOG.debug("Processing chunk for index {} from timestamp={}, serial={}",
                  indexPath, lastTimestamp, lastSerial);
         
-        // Query change tracking index for next chunk of changes
-        ChangeTrackingIndexQuery query = new ChangeTrackingIndexQuery(changeTrackingReader);
-        List<ChangeEntry> changes = query.getUnprocessedChanges(
+        // Query change tracking index for next chunk of changes using cached query instance
+        List<ChangeEntry> changes = changeTrackingQuery.getUnprocessedChanges(
             lastTimestamp, lastSerial, chunkSize);
         
         if (changes.isEmpty()) {
@@ -230,8 +231,8 @@ public class LuceneChunkedIndexProcessor {
         // Get current repository state
         NodeState root = nodeStore.getRoot();
         
-        // Track paths that need aggregation re-indexing
-        Set<String> aggregationPaths = new HashSet<>();
+        // Track paths that need re-indexing (aggregation or relative properties)
+        Set<String> parentReindexingPaths = new HashSet<>();
         
         // Get or create error statistics for this index
         ErrorStatistics stats = errorStatsMap.computeIfAbsent(indexPath, k -> new ErrorStatistics());
@@ -260,20 +261,10 @@ public class LuceneChunkedIndexProcessor {
                     
                     if (!parentPathsToIndex.isEmpty()) {
                         // This changed path is part of relative property definitions
-                        // Index the parent nodes that reference this path
-                        LOG.trace("Changed path {} matches relative properties, indexing {} parent node(s)", 
+                        // Defer indexing to batch/deduplicate parent updates
+                        LOG.trace("Changed path {} matches relative properties, queuing {} parent node(s) for re-indexing", 
                                  path, parentPathsToIndex.size());
-                        
-                        for (String parentPath : parentPathsToIndex) {
-                            NodeState parentNode = getNodeAtPath(root, parentPath);
-                            if (parentNode != null && parentNode.exists()) {
-                                Document doc = createLuceneDocument(parentPath, parentNode, indexDefinition);
-                                if (doc != null) {
-                                    indexWriter.updateDocument(parentPath, doc);
-                                    LOG.trace("Indexed parent node {} for relative property at {}", parentPath, path);
-                                }
-                            }
-                        }
+                        parentReindexingPaths.addAll(parentPathsToIndex);
                     } else {
                         // Regular node - index it directly
                         LOG.trace("Indexing changed path: {}", path);
@@ -285,7 +276,7 @@ public class LuceneChunkedIndexProcessor {
                     }
                     
                     // Check if parent nodes need re-indexing for aggregation
-                    collectAggregationPaths(path, indexDefinition, aggregationPaths);
+                    collectAggregationPaths(path, indexDefinition, parentReindexingPaths);
                     
                     processed++;
                     successCount++;
@@ -299,16 +290,13 @@ public class LuceneChunkedIndexProcessor {
                     
                     // Also check if parent nodes need re-indexing due to relative property deletion
                     Set<String> parentPathsToIndex = findParentNodesForRelativeProperties(path, indexDefinition);
-                    for (String parentPath : parentPathsToIndex) {
-                        NodeState parentNode = getNodeAtPath(root, parentPath);
-                        if (parentNode != null && parentNode.exists()) {
-                            // Re-index parent to reflect the deleted relative property
-                            Document doc = createLuceneDocument(parentPath, parentNode, indexDefinition);
-                            if (doc != null) {
-                                indexWriter.updateDocument(parentPath, doc);
-                            }
-                        }
+                    if (!parentPathsToIndex.isEmpty()) {
+                        parentReindexingPaths.addAll(parentPathsToIndex);
                     }
+                    
+                    // Check aggregation for deletion (though usually aggregation depends on child existence)
+                    // We conservatively re-index parents if they aggregate this path
+                    collectAggregationPaths(path, indexDefinition, parentReindexingPaths);
                     
                     processed++;
                     successCount++;
@@ -356,20 +344,21 @@ public class LuceneChunkedIndexProcessor {
                      indexPath, stats.getErrorRate(), ERROR_RATE_WARNING_THRESHOLD, failedEntries.size());
         }
         
-        // Process aggregation paths (parent nodes that need re-indexing)
-        if (!aggregationPaths.isEmpty()) {
-            LOG.debug("Re-indexing {} parent nodes for aggregations", aggregationPaths.size());
-            for (String aggPath : aggregationPaths) {
+        // Process batched parent re-indexing (relative properties and aggregations)
+        if (!parentReindexingPaths.isEmpty()) {
+            LOG.debug("Re-indexing {} parent nodes for relative properties/aggregations", parentReindexingPaths.size());
+            for (String parentPath : parentReindexingPaths) {
                 try {
-                    NodeState aggNode = getNodeAtPath(root, aggPath);
-                    if (aggNode != null && aggNode.exists()) {
-                        Document doc = createLuceneDocument(aggPath, aggNode, indexDefinition);
+                    NodeState parentNode = getNodeAtPath(root, parentPath);
+                    if (parentNode != null && parentNode.exists()) {
+                        Document doc = createLuceneDocument(parentPath, parentNode, indexDefinition);
                         if (doc != null) {
-                            indexWriter.updateDocument(aggPath, doc);
+                            indexWriter.updateDocument(parentPath, doc);
+                            LOG.trace("Re-indexed parent node {}", parentPath);
                         }
                     }
                 } catch (Exception e) {
-                    LOG.warn("Error re-indexing aggregation path {}: {}", aggPath, e.getMessage());
+                    LOG.warn("Error re-indexing parent path {}: {}", parentPath, e.getMessage());
                 }
             }
         }
