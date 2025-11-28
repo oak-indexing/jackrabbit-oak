@@ -17,18 +17,13 @@
 package org.apache.jackrabbit.oak.plugins.index.lucene.changetracker;
 
 import org.apache.jackrabbit.oak.plugins.index.AsyncIndexUpdate;
-import org.apache.jackrabbit.oak.plugins.index.IndexEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadataManager;
 import org.apache.jackrabbit.oak.spi.commit.CommitInfo;
 import org.apache.jackrabbit.oak.spi.commit.EmptyHook;
-import org.apache.jackrabbit.oak.spi.state.ChildNodeEntry;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
-import org.apache.jackrabbit.oak.api.Type;
-import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.stats.StatisticsProvider;
-import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
@@ -261,6 +256,9 @@ public class ChangeTrackingIndexPopulator implements Runnable {
             // ChangeTrackingIndexEditorProvider will extract the timestamp from checkpoint1
             asyncIndexUpdate.run();
             
+            // Commit changes to the change tracking index so they are visible to readers
+            changeTrackingWriter.commit();
+            
             // Track the last processed checkpoint via lastProcessedCheckpoint field
             // Note: Since AsyncIndexStats is not accessible, we track checkpoints internally
             if (lastProcessedCheckpoint != null) {
@@ -318,7 +316,6 @@ public class ChangeTrackingIndexPopulator implements Runnable {
     public long getLastProcessedTimestamp() {
         try {
             // Read from metadata
-            NodeState root = nodeStore.getRoot();
             // This would read from the metadata manager's storage
             // For now, return current time as placeholder
             return System.currentTimeMillis();

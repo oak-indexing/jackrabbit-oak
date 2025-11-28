@@ -323,7 +323,12 @@ public class ChangeTrackingAsyncIndexUpdate {
         IndexReader reader = null;
         ChangeTrackingIndexQuery query = null;
         try {
-            reader = DirectoryReader.open(changeTrackingDirectory);
+            if (changeTrackingWriter != null) {
+                // Use NRT reader if writer is available
+                reader = DirectoryReader.open(changeTrackingWriter, true);
+            } else {
+                reader = DirectoryReader.open(changeTrackingDirectory);
+            }
             query = new ChangeTrackingIndexQuery(reader);
             
             // Get next chunk of unprocessed changes

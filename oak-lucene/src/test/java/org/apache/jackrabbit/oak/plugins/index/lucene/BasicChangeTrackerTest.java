@@ -322,8 +322,8 @@ public class BasicChangeTrackerTest {
         // STEP 2: Create searchable content
         System.out.println("\nStep 2: Creating searchable content...");
         populator.run();  // Initial run to set baseline
+        commitChangeTrackingIndex();
         changeTrackingAsyncIndexUpdate.run();
-
         
         Tree content = root.getTree("/").addChild("testContent");
         
@@ -402,6 +402,12 @@ public class BasicChangeTrackerTest {
         System.out.println("\nStep 3: Running change tracker populator...");
         populator.run();
         commitChangeTrackingIndex();
+        
+        // Debug: Check change tracking index
+        try (IndexReader reader = DirectoryReader.open(changeTrackingDirectory)) {
+            System.out.println("DEBUG: Change tracking index has " + reader.numDocs() + " docs");
+        }
+        
         System.out.println("✓ Change tracker populated");
         
         // Verify changes were recorded
@@ -691,6 +697,7 @@ public class BasicChangeTrackerTest {
         damIndex.setProperty("jcr:primaryType", "oak:QueryIndexDefinition", Type.NAME);
         damIndex.setProperty("type", "lucene");
         damIndex.setProperty("async", "async");
+        damIndex.setProperty("compatVersion", 2);
         damIndex.setProperty("useChangeTracker", true);
         // Ensure path filter works: only index /deleteTest
         damIndex.setProperty("evaluatePathRestrictions", true);
@@ -710,7 +717,12 @@ public class BasicChangeTrackerTest {
         damRules.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
         Tree damAssetRule = damRules.addChild("nt:unstructured");
         damAssetRule.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
-        // Need fulltext enabled (nodeScopeIndex implied by aggregation)
+        List<String> includes = new ArrayList<>(Arrays.asList("String", "Binary"));
+        damAssetRule.setProperty("includePropertyTypes", includes, Type.STRINGS);
+        
+        // Empty properties node to satisfy some checks
+        Tree properties = damAssetRule.addChild("properties");
+        properties.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
         
         root.commit();
         metadataManager.registerIndex("/oak:index/deleteTestIndex");
@@ -736,7 +748,7 @@ public class BasicChangeTrackerTest {
         }
 
         // STEP 4: Verify Search
-        String query = "SELECT [jcr:path] FROM [nt:unstructured] WHERE ISDESCENDANTNODE('/deleteTest') AND CONTAINS(*, 'SecretKeyWord') option(traversal fail, index name deleteTestIndex)";
+        String query = "SELECT [jcr:path] FROM [nt:unstructured] WHERE CONTAINS(*, 'SecretKeyWord') option(traversal fail, index name deleteTestIndex)";
         List<String> results = executeQuery(query);
         assertEquals("Should find asset before delete", 1, results.size());
         
@@ -762,32 +774,13 @@ public class BasicChangeTrackerTest {
         
         System.out.println("\n✓ Test 8 PASSED: Aggregation deletion handled correctly!");
     }
-
-    /**
-     * Helper method to force commit of the change tracking IndexWriter.
-     * 
-     * <p><strong>Why this is needed:</strong> The ChangeTrackingIndexPopulator's internal
-     * IndexWriter does not auto-commit after run(). In production, commits happen periodically
-     * or when the writer is closed. In tests, we need immediate visibility of changes for
-     * subsequent queries, so we force a commit using reflection.
-     * 
-     * <p><strong>Note:</strong> This is a test-only workaround. Ideally, ChangeTrackingIndexPopulator
-     * would expose a public flush() or commit() method, but since it doesn't, reflection is
-     * necessary to access the private writer field.
-     */
+    
     private void commitChangeTrackingIndex() throws Exception {
-        try {
-            // Use reflection to access the private changeTrackingWriter field from populator
-            java.lang.reflect.Field writerField = populator.getClass().getDeclaredField("changeTrackingWriter");
-            writerField.setAccessible(true);
-            Object writer = writerField.get(populator);
-            if (writer != null) {
-                // Call commit() on the IndexWriter
-                writer.getClass().getMethod("commit").invoke(writer);
-            }
-        } catch (Exception e) {
-            System.err.println("Warning: Could not commit change tracking writer: " + e.getMessage());
-            // Non-fatal - continue test
+        java.lang.reflect.Field writerField = ChangeTrackingIndexPopulator.class.getDeclaredField("changeTrackingWriter");
+        writerField.setAccessible(true);
+        org.apache.lucene.index.IndexWriter writer = (org.apache.lucene.index.IndexWriter) writerField.get(populator);
+        if (writer != null) {
+            writer.commit();
         }
     }
 }

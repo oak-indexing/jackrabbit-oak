@@ -284,6 +284,10 @@ public class Aggregate {
             this.relativeNode = relativeNode;
         }
 
+        public String getPattern() {
+            return pattern;
+        }
+
         @Override
         public boolean match(String name, NodeState nodeState, int depth) {
             //As per JR2 the primaryType is enforced on last element
