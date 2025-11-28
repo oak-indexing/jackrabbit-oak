@@ -228,8 +228,9 @@ public class LuceneChunkedIndexProcessor {
         
         LOG.info("Processing {} changes for index {}", changes.size(), indexPath);
         
-        // Get current repository state
+        // Get current repository state and initialize cache (Optimization Strategy 1)
         NodeState root = nodeStore.getRoot();
+        ChunkNodeCache nodeCache = new ChunkNodeCache(root);
         
         // Track paths that need re-indexing (aggregation or relative properties)
         Set<String> parentReindexingPaths = new HashSet<>();
@@ -244,6 +245,9 @@ public class LuceneChunkedIndexProcessor {
         int processed = 0;
         int successCount = 0;
         int errorCount = 0;
+        boolean aborted = false;
+        
+        // Track progress as we iterate
         long lastProcessedTimestamp = lastTimestamp;
         long lastProcessedSerial = lastSerial;
         
@@ -251,13 +255,13 @@ public class LuceneChunkedIndexProcessor {
             try {
                 String path = entry.getPath();
                 
-                // Get the node at the changed path
-                NodeState node = getNodeAtPath(root, path);
+                // Get the node at the changed path using cache
+                NodeState node = nodeCache.get(path);
                 
                 if (node != null && node.exists()) {
                     // CRITICAL: Check if this path is part of a relative property definition
                     // If so, we need to index the PARENT node(s), not this node
-                    Set<String> parentPathsToIndex = findParentNodesForRelativeProperties(path, indexDefinition);
+                    Set<String> parentPathsToIndex = findParentNodesForRelativeProperties(path, indexDefinition, nodeCache);
                     
                     if (!parentPathsToIndex.isEmpty()) {
                         // This changed path is part of relative property definitions
@@ -276,11 +280,13 @@ public class LuceneChunkedIndexProcessor {
                     }
                     
                     // Check if parent nodes need re-indexing for aggregation
-                    collectAggregationPaths(path, indexDefinition, parentReindexingPaths);
+                    collectAggregationPaths(path, indexDefinition, parentReindexingPaths, nodeCache);
                     
                     processed++;
                     successCount++;
                     stats.recordSuccess();
+                    
+                    // Update progress tracker
                     lastProcessedTimestamp = entry.getDiffProcessingTime();
                     lastProcessedSerial = entry.getSerialNumber();
                 } else {
@@ -289,18 +295,20 @@ public class LuceneChunkedIndexProcessor {
                     indexWriter.deleteDocuments(path);
                     
                     // Also check if parent nodes need re-indexing due to relative property deletion
-                    Set<String> parentPathsToIndex = findParentNodesForRelativeProperties(path, indexDefinition);
+                    Set<String> parentPathsToIndex = findParentNodesForRelativeProperties(path, indexDefinition, nodeCache);
                     if (!parentPathsToIndex.isEmpty()) {
                         parentReindexingPaths.addAll(parentPathsToIndex);
                     }
                     
                     // Check aggregation for deletion (though usually aggregation depends on child existence)
                     // We conservatively re-index parents if they aggregate this path
-                    collectAggregationPaths(path, indexDefinition, parentReindexingPaths);
+                    collectAggregationPaths(path, indexDefinition, parentReindexingPaths, nodeCache);
                     
                     processed++;
                     successCount++;
                     stats.recordSuccess();
+                    
+                    // Update progress tracker
                     lastProcessedTimestamp = entry.getDiffProcessingTime();
                     lastProcessedSerial = entry.getSerialNumber();
                 }
@@ -324,6 +332,7 @@ public class LuceneChunkedIndexProcessor {
                               stats.totalProcessed, stats.totalErrors, stats.consecutiveErrors);
                     
                     // Break out of processing loop
+                    aborted = true;
                     break;
                 }
                 
@@ -345,11 +354,12 @@ public class LuceneChunkedIndexProcessor {
         }
         
         // Process batched parent re-indexing (relative properties and aggregations)
-        if (!parentReindexingPaths.isEmpty()) {
+        if (!parentReindexingPaths.isEmpty() && !aborted) {
             LOG.debug("Re-indexing {} parent nodes for relative properties/aggregations", parentReindexingPaths.size());
             for (String parentPath : parentReindexingPaths) {
                 try {
-                    NodeState parentNode = getNodeAtPath(root, parentPath);
+                    // Use cache for re-indexing lookups too
+                    NodeState parentNode = nodeCache.get(parentPath);
                     if (parentNode != null && parentNode.exists()) {
                         Document doc = createLuceneDocument(parentPath, parentNode, indexDefinition);
                         if (doc != null) {
@@ -875,11 +885,11 @@ public class LuceneChunkedIndexProcessor {
     private void collectAggregationPaths(
             String changedPath,
             IndexDefinition indexDefinition,
-            Set<String> aggregationPaths) {
+            Set<String> aggregationPaths,
+            ChunkNodeCache cache) {
         
         // Traverse up the path hierarchy to find aggregating parents
         String currentPath = changedPath;
-        NodeState root = nodeStore.getRoot();
         
         // Check up to N levels (avoid infinite loops, typical aggregations are 1-3 levels deep)
         int maxLevels = 5;
@@ -892,7 +902,7 @@ public class LuceneChunkedIndexProcessor {
             }
             
             // Get the parent node to check its type and aggregation rules
-            NodeState parentNode = getNodeAtPath(root, parentPath);
+            NodeState parentNode = cache.get(parentPath);
             if (parentNode == null || !parentNode.exists()) {
                 break;
             }
@@ -933,13 +943,12 @@ public class LuceneChunkedIndexProcessor {
      * @param indexDefinition the index definition with property rules
      * @return set of parent paths that need to be indexed (empty if none)
      */
-    private Set<String> findParentNodesForRelativeProperties(String changedPath, IndexDefinition indexDefinition) {
+    private Set<String> findParentNodesForRelativeProperties(String changedPath, IndexDefinition indexDefinition, ChunkNodeCache cache) {
         Set<String> parentPaths = new HashSet<>();
         
         // Traverse up the path hierarchy to find potential parent nodes
         // Example: /asset1/jcr:content/metadata/jcr:title -> check /asset1/jcr:content/metadata, /asset1/jcr:content, /asset1
         String currentPath = changedPath;
-        NodeState root = nodeStore.getRoot();
         
         // Check up to N levels (typical relative properties are 1-4 levels deep)
         int maxLevels = 5;
@@ -952,7 +961,7 @@ public class LuceneChunkedIndexProcessor {
             }
             
             // Get the parent node
-            NodeState parentNode = getNodeAtPath(root, parentPath);
+            NodeState parentNode = cache.get(parentPath);
             if (parentNode == null || !parentNode.exists()) {
                 currentPath = parentPath;
                 level++;
@@ -1163,6 +1172,59 @@ public class LuceneChunkedIndexProcessor {
         }
         
         return successCount;
+    }
+
+    /**
+     * Cache for NodeState lookups within a chunk to reduce store access.
+     */
+    private static class ChunkNodeCache {
+        private final NodeState root;
+        private final Map<String, NodeState> cache = new HashMap<>();
+        
+        ChunkNodeCache(NodeState root) {
+            this.root = root;
+            cache.put("/", root);
+        }
+        
+        NodeState get(String path) {
+            if (path == null) return null;
+            if (path.equals("/")) return root;
+            
+            NodeState cached = cache.get(path);
+            if (cached != null) return cached;
+            
+            // Not in cache, find closest ancestor
+            String parentPath = getParentPath(path);
+            if (parentPath == null) return null;
+            
+            NodeState parent = get(parentPath); // Recursive call to populate ancestors
+            if (parent == null || !parent.exists()) {
+                // Parent doesn't exist, so child doesn't exist
+                // We don't cache nulls for non-existent parents to avoid pollution, 
+                // or we can cache a "missing" marker. 
+                // Here we just return null.
+                return null;
+            }
+            
+            String name = getName(path);
+            NodeState node = parent.getChildNode(name);
+            // Cache even if it doesn't exist (it will be non-existent NodeState)
+            cache.put(path, node);
+            return node;
+        }
+        
+        private String getParentPath(String path) {
+            int lastSlash = path.lastIndexOf('/');
+            if (lastSlash == 0) return "/";
+            if (lastSlash == -1) return null;
+            return path.substring(0, lastSlash);
+        }
+        
+        private String getName(String path) {
+            int lastSlash = path.lastIndexOf('/');
+            if (lastSlash == -1) return path;
+            return path.substring(lastSlash + 1);
+        }
     }
 }
 
