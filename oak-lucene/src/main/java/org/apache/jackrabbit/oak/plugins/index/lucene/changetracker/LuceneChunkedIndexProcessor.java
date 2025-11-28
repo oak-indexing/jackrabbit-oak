@@ -17,7 +17,9 @@
 package org.apache.jackrabbit.oak.plugins.index.lucene.changetracker;
 
 import org.apache.jackrabbit.oak.api.CommitFailedException;
+import org.apache.jackrabbit.oak.plugins.index.lucene.FieldFactory;
 import org.apache.jackrabbit.oak.plugins.index.search.Aggregate;
+import org.apache.jackrabbit.oak.plugins.index.search.FieldNames;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.PropertyDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.ChangeEntry;
@@ -489,8 +491,8 @@ public class LuceneChunkedIndexProcessor {
         // Step 4: Create Lucene document
         Document doc = new Document();
         
-        // Always add path field (stored, not analyzed)
-        doc.add(new StringField(":path", path, Field.Store.YES));
+        // Always add path field using Oak's factory method
+        doc.add(FieldFactory.newPathField(path));
         
         // Step 5: Index properties according to property definitions
         boolean hasIndexedContent = false;
@@ -514,7 +516,9 @@ public class LuceneChunkedIndexProcessor {
             // Implementation: Collect all text from analyzed properties into a special field
             String nodeScopedText = collectNodeScopedText(node, rule);
             if (nodeScopedText != null && !nodeScopedText.isEmpty()) {
-                doc.add(new TextField(":fulltext", nodeScopedText, Field.Store.NO));
+                LOG.info("Added node-scoped text for path {}: {}", path, nodeScopedText); // DEBUG LOG
+                // Use Oak's factory method for consistency
+                doc.add(FieldFactory.newFulltextField(nodeScopedText));
                 hasIndexedContent = true;
             }
         }
@@ -628,11 +632,25 @@ public class LuceneChunkedIndexProcessor {
         try {
             if (propDef.analyzed) {
                 // Analyzed text field (for fulltext search)
+                // IMPORTANT: Oak uses "full:" prefix for analyzed fields
+                // e.g., property "title" becomes field "full:title"
                 String value = index >= 0 ?
                     prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING, index) :
                     prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING);
                 if (value != null && !value.isEmpty()) {
-                    return new TextField(propDef.name, value, store);
+                    // Use Oak's field naming convention for analyzed properties
+                    String analyzedFieldName = FieldNames.createAnalyzedFieldName(propDef.name);
+                    
+                    // Use Oak's field factory to create proper field
+                    // This creates OakTextField with proper tokenization
+                    Field field = FieldFactory.newPropertyField(
+                        analyzedFieldName,           // "full:propertyName"
+                        value,
+                        true,                        // tokenized
+                        propDef.stored
+                    );
+                    LOG.info("Added analyzed field {} with value {}", analyzedFieldName, value); // DEBUG LOG
+                    return field;
                 }
             } else {
                 // Not analyzed - use appropriate field type based on property type

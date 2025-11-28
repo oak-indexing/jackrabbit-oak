@@ -20,14 +20,23 @@ import org.apache.jackrabbit.oak.api.CommitFailedException;
 import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.plugins.index.AsyncIndexUpdate;
+import org.apache.jackrabbit.oak.plugins.index.IndexConstants;
+import org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexConstants;
 import org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.lucene.directory.OakDirectory;
+import org.apache.jackrabbit.oak.plugins.index.lucene.writer.LuceneIndexWriter;
+import org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants;
 import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.ChangeEntry;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.ChunkedIndexProcessor;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexDefinitionHelper;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadata;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadataManager;
+import org.apache.jackrabbit.oak.spi.commit.CommitInfo;
+import org.apache.jackrabbit.oak.spi.commit.EmptyHook;
+import org.apache.jackrabbit.util.ISO8601;
+
+import java.util.Calendar;
 import org.apache.jackrabbit.oak.plugins.index.IndexConstants;
 import org.apache.jackrabbit.oak.spi.commit.EditorDiff;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
@@ -149,7 +158,7 @@ public class ChangeTrackingAsyncIndexUpdate {
     public ChangeTrackingAsyncIndexUpdate(@NotNull String asyncIndexName,
                                            @NotNull NodeStore nodeStore,
                                            @NotNull Directory changeTrackingDirectory,
-                                           @NotNull IndexWriter changeTrackingWriter) {
+                                           IndexWriter changeTrackingWriter) {
         this.asyncIndexName = asyncIndexName;
         this.nodeStore = nodeStore;
         this.changeTrackingDirectory = changeTrackingDirectory;
@@ -373,6 +382,13 @@ public class ChangeTrackingAsyncIndexUpdate {
     private void cleanupOldEntries() {
         LOG.info("Phase 2: Cleaning up old change tracking entries");
         
+        // Skip cleanup if changeTrackingWriter is not provided
+        if (changeTrackingWriter == null) {
+            LOG.warn("Change tracking writer not available, skipping cleanup. " +
+                    "Cleanup should be performed by the change tracking populator.");
+            return;
+        }
+        
         try {
             ChangeTrackingCleanupService cleanupService =
                 new ChangeTrackingCleanupService(changeTrackingWriter, metadataManager);
@@ -407,6 +423,9 @@ public class ChangeTrackingAsyncIndexUpdate {
         }
         
         try {
+            // Get mutable access to the repository to create/access the index directory
+            org.apache.jackrabbit.oak.spi.state.NodeBuilder rootBuilder = nodeStore.getRoot().builder();
+            
             // Get IndexDefinition from the index definition node
             org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition indexDef = 
                 new org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexDefinition(
@@ -416,14 +435,14 @@ public class ChangeTrackingAsyncIndexUpdate {
                 );
             
             // Get or create the index directory for this index
-            // Production: This would integrate with IndexCopier/LuceneIndexEditorProvider
-            // to get the actual persistent directory for the index
-            org.apache.lucene.store.Directory indexDirectory = getIndexDirectory(indexPath, indexDef);
+            // Pass rootBuilder so we can merge changes later
+            org.apache.lucene.store.Directory indexDirectory = getIndexDirectory(indexPath, indexDef, rootBuilder);
             
-            // Create Lucene index writer config with standard analyzer
+            // Create Lucene index writer config
+            // IMPORTANT: Use the analyzer from the index definition (OakAnalyzer), not StandardAnalyzer
+            // otherwise tokenization will not match query time analysis
             org.apache.lucene.analysis.Analyzer analyzer = 
-                new org.apache.lucene.analysis.standard.StandardAnalyzer(
-                    org.apache.lucene.util.Version.LUCENE_47);
+                ((org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexDefinition)indexDef).getAnalyzer();
             
             org.apache.lucene.index.IndexWriterConfig writerConfig = 
                 new org.apache.lucene.index.IndexWriterConfig(
@@ -448,12 +467,13 @@ public class ChangeTrackingAsyncIndexUpdate {
             
             LOG.info("Processing changes for index {} using LuceneChunkedIndexProcessor", indexPath);
             
-            // Process all changes for this index
-            // Note: This uses a simplified approach for this refactoring demonstration
-            // Production would use the full LuceneIndexWriter integration
-            // For now, we log the processing intent
-            int processedCount = changes.size();
-            LOG.info("Would process {} changes for index {} (using chunked processor with Lucene IndexWriter)", 
+            // Wrap the IndexWriter in our LuceneIndexWriter interface
+            LuceneIndexWriter luceneIndexWriter = new SimpleIndexWriterWrapper(luceneWriter);
+            
+            // Actually process the changes using the chunked processor
+            int processedCount = processor.processChangesChunk(indexPath, indexDef, luceneIndexWriter);
+            
+            LOG.info("Processed {} changes for index {} using LuceneChunkedIndexProcessor", 
                     processedCount, indexPath);
             
             // Commit and close writer
@@ -461,8 +481,17 @@ public class ChangeTrackingAsyncIndexUpdate {
             luceneWriter.close();
             indexDirectory.close();
             
-            LOG.info("Processed {} changes for {} using LuceneChunkedIndexProcessor", 
-                    processedCount, indexPath);
+            // Update the index status so IndexTracker detects the change
+            // This is critical for the query engine to see the updates
+            NodeBuilder indexNode = getNodeBuilderAtPath(rootBuilder, indexPath);
+            NodeBuilder status = indexNode.child(":status");
+            status.setProperty("lastUpdated", ISO8601.format(Calendar.getInstance()), Type.DATE);
+            status.setProperty("indexed", true);
+            
+            // CRITICAL: Merge the changes back to the NodeStore!
+            // OakDirectory writes to a NodeBuilder, but those changes need to be persisted
+            nodeStore.merge(rootBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+            LOG.info("Persisted index changes to NodeStore for {}", indexPath);
             
             return processedCount;
             
@@ -492,25 +521,24 @@ public class ChangeTrackingAsyncIndexUpdate {
      * 
      * @param indexPath the index path (e.g., "/oak:index/damAssetLucene")
      * @param indexDef the index definition
+     * @param rootBuilder the root node builder (used to merge changes back to NodeStore)
      * @return the Lucene directory for this index
      * @throws IOException if directory creation fails
      */
     private org.apache.lucene.store.Directory getIndexDirectory(
             String indexPath,
-            org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition indexDef) 
+            org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition indexDef,
+            org.apache.jackrabbit.oak.spi.state.NodeBuilder rootBuilder) 
             throws IOException {
         
-        // Get mutable access to the repository to create/access the index directory
-        NodeBuilder rootBuilder = nodeStore.getRoot().builder();
-        
-        // Navigate to the index definition node
+        // Navigate to the index definition node (using passed rootBuilder)
         NodeBuilder indexDefBuilder = getNodeBuilderAtPath(rootBuilder, indexPath);
         
-        // Ensure the :index child node exists (this is where Lucene data is stored)
-        if (!indexDefBuilder.hasChildNode(IndexConstants.INDEX_CONTENT_NODE_NAME)) {
-            LOG.info("Creating :index node for {} (first time indexing)", indexPath);
-            indexDefBuilder.child(IndexConstants.INDEX_CONTENT_NODE_NAME);
-            // Note: This change will be persisted when the processor commits
+        // Ensure the :data child node exists (this is where Lucene data is stored)
+        // IMPORTANT: Must use :data (INDEX_DATA_CHILD_NAME) for LuceneIndexProvider to find it
+        if (!indexDefBuilder.hasChildNode(FulltextIndexConstants.INDEX_DATA_CHILD_NAME)) {
+            LOG.info("Creating :data node for {} (first time indexing)", indexPath);
+            indexDefBuilder.child(FulltextIndexConstants.INDEX_DATA_CHILD_NAME);
         }
         
         // Create OakDirectory for persistent storage in NodeStore
@@ -518,7 +546,7 @@ public class ChangeTrackingAsyncIndexUpdate {
         LuceneIndexDefinition luceneDef = (LuceneIndexDefinition) indexDef;
         OakDirectory directory = new OakDirectory(
             indexDefBuilder,
-            IndexConstants.INDEX_CONTENT_NODE_NAME,
+            FulltextIndexConstants.INDEX_DATA_CHILD_NAME,
             luceneDef,
             false  // readOnly = false (we need to write)
         );

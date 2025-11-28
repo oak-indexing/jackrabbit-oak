@@ -78,6 +78,7 @@ public class BasicChangeTrackerTest {
     private Root root;
     private AsyncIndexUpdate asyncIndexUpdate;
     private ChangeTrackingAsyncIndexUpdate changeTrackingAsyncIndexUpdate;
+    private LuceneIndexProvider provider;
     
     @Before
     public void setUp() throws Exception {
@@ -105,7 +106,7 @@ public class BasicChangeTrackerTest {
         populator.initialize();
         
         // 5. Create Oak ContentRepository with Lucene index support
-        LuceneIndexProvider provider = new LuceneIndexProvider();
+        provider = new LuceneIndexProvider();
         LuceneIndexEditorProvider editorProvider = new LuceneIndexEditorProvider();
         
         contentRepository = new Oak(nodeStore)
@@ -183,6 +184,7 @@ public class BasicChangeTrackerTest {
         searchIndex.setProperty("jcr:primaryType", "oak:QueryIndexDefinition", Type.NAME);
         searchIndex.setProperty("type", "lucene");
         searchIndex.setProperty("async", "async");
+        searchIndex.setProperty("compatVersion", 2);
         searchIndex.setProperty("useChangeTracker", true);
         
         // Create index rules for nt:unstructured
@@ -281,6 +283,14 @@ public class BasicChangeTrackerTest {
         System.out.println("\nStep 4: Running change tracking async index update...");
         changeTrackingAsyncIndexUpdate.run();
         root = contentSession.getLatestRoot(); // Refresh root
+        
+        // Force refresh the index tracker to ensure it sees the new index files
+        if (provider != null) {
+            provider.getTracker().refresh();
+            // Manually trigger update to force refresh
+            provider.contentChanged(nodeStore.getRoot(), org.apache.jackrabbit.oak.spi.commit.CommitInfo.EMPTY);
+        }
+        
         System.out.println("✓ Change tracking async index update completed");
         
         // STEP 5: Execute queries and verify results
@@ -413,6 +423,13 @@ public class BasicChangeTrackerTest {
         commitChangeTrackingIndex();
         changeTrackingAsyncIndexUpdate.run();
         root = contentSession.getLatestRoot();
+        
+        // Force refresh
+        if (provider != null) {
+            provider.getTracker().refresh();
+            provider.contentChanged(nodeStore.getRoot(), org.apache.jackrabbit.oak.spi.commit.CommitInfo.EMPTY);
+        }
+        
         System.out.println("✓ Initial indexing completed");
         
         // Verify initial query
@@ -441,6 +458,13 @@ public class BasicChangeTrackerTest {
         commitChangeTrackingIndex();
         changeTrackingAsyncIndexUpdate.run();
         root = contentSession.getLatestRoot();
+        
+        // Force refresh
+        if (provider != null) {
+            provider.getTracker().refresh();
+            provider.contentChanged(nodeStore.getRoot(), org.apache.jackrabbit.oak.spi.commit.CommitInfo.EMPTY);
+        }
+        
         System.out.println("✓ Incremental indexing completed");
         
         // STEP 4: Verify queries return updated results
