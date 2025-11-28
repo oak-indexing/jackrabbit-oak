@@ -514,7 +514,7 @@ public class LuceneChunkedIndexProcessor {
             // Node-scoped fulltext combines all analyzed properties
             // This enables queries like: SELECT * FROM [nt:base] WHERE CONTAINS(*, 'search')
             // Implementation: Collect all text from analyzed properties into a special field
-            String nodeScopedText = collectNodeScopedText(node, rule);
+            String nodeScopedText = collectNodeScopedText(node, rule, path);
             if (nodeScopedText != null && !nodeScopedText.isEmpty()) {
                 LOG.info("Added node-scoped text for path {}: {}", path, nodeScopedText); // DEBUG LOG
                 // Use Oak's factory method for consistency
@@ -756,16 +756,18 @@ public class LuceneChunkedIndexProcessor {
     }
     
     /**
-     * Collects node-scoped fulltext content from all analyzed properties.
+     * Collects node-scoped fulltext content from all analyzed properties and aggregations.
      * This enables queries like: SELECT * FROM [nt:base] WHERE CONTAINS(*, 'search')
      * 
      * @param node the node being indexed
      * @param rule the indexing rule
-     * @return combined text from all analyzed properties, or null if none
+     * @param path the node path
+     * @return combined text from all analyzed properties and aggregations, or null if none
      */
-    private String collectNodeScopedText(NodeState node, IndexDefinition.IndexingRule rule) {
+    private String collectNodeScopedText(NodeState node, IndexDefinition.IndexingRule rule, String path) {
         StringBuilder fulltext = new StringBuilder();
         
+        // 1. Properties of the current node
         for (PropertyDefinition propDef : rule.getProperties()) {
             if (!propDef.analyzed || propDef.nodeScopeIndex == false) {
                 continue;  // Only include analyzed properties in node-scoped index
@@ -783,33 +785,81 @@ public class LuceneChunkedIndexProcessor {
                 prop = node.getProperty(propDef.name);
             }
             
-            if (prop == null) {
-                continue;
+            if (prop != null) {
+                collectTextFromProperty(prop, fulltext);
             }
-            
-            // Collect text from property
-            try {
-                if (prop.isArray()) {
-                    for (int i = 0; i < prop.count(); i++) {
-                        String value = prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING, i);
-                        if (value != null && !value.isEmpty()) {
-                            if (fulltext.length() > 0) fulltext.append(" ");
-                            fulltext.append(value);
+        }
+        
+        // 2. Aggregations (content from child nodes)
+        collectAggregatedText(node, rule, path, fulltext);
+        
+        return fulltext.length() > 0 ? fulltext.toString() : null;
+    }
+    
+    /**
+     * Collects text from aggregations.
+     */
+    private void collectAggregatedText(NodeState node, IndexDefinition.IndexingRule rule, String path, StringBuilder fulltext) {
+        Aggregate aggregate = rule.getAggregate();
+        if (aggregate == null) {
+            return;
+        }
+        
+        try {
+            // Use Oak's Aggregate API to collect content from aggregated nodes
+            aggregate.collectAggregates(node, new Aggregate.ResultCollector() {
+                @Override
+                public void onResult(Aggregate.NodeIncludeResult result) {
+                    // Collect text from all properties of the aggregated node
+                    if (result.nodeState != null) {
+                        for (org.apache.jackrabbit.oak.api.PropertyState prop : result.nodeState.getProperties()) {
+                            // Simple heuristic: index all STRING properties of aggregated nodes
+                            // We avoid system properties like jcr:primaryType usually, but for * query it might be ok
+                            // For safety/cleanliness, let's stick to STRING types
+                            if (prop.getType().tag() == PropertyType.STRING) {
+                                collectTextFromProperty(prop, fulltext);
+                            }
                         }
                     }
-                } else {
-                    String value = prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING);
+                }
+
+                @Override
+                public void onResult(Aggregate.PropertyIncludeResult result) {
+                    // Collect text from specific included property
+                    if (result.propertyState != null) {
+                        collectTextFromProperty(result.propertyState, fulltext);
+                    }
+                }
+            });
+        } catch (Exception e) {
+            LOG.warn("Error collecting aggregated text for path {}: {}", path, e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    /**
+     * Helper to collect text from a property.
+     */
+    private void collectTextFromProperty(org.apache.jackrabbit.oak.api.PropertyState prop, StringBuilder fulltext) {
+        try {
+            if (prop.isArray()) {
+                for (int i = 0; i < prop.count(); i++) {
+                    String value = prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING, i);
                     if (value != null && !value.isEmpty()) {
                         if (fulltext.length() > 0) fulltext.append(" ");
                         fulltext.append(value);
                     }
                 }
-            } catch (Exception e) {
-                LOG.trace("Error collecting text from property {}: {}", propDef.name, e.getMessage());
+            } else {
+                String value = prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING);
+                if (value != null && !value.isEmpty()) {
+                    if (fulltext.length() > 0) fulltext.append(" ");
+                    fulltext.append(value);
+                }
             }
+        } catch (Exception e) {
+            // Ignore conversion errors
         }
-        
-        return fulltext.length() > 0 ? fulltext.toString() : null;
     }
     
     /**

@@ -48,6 +48,7 @@ import org.junit.Test;
 
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.Assert.*;
@@ -249,14 +250,34 @@ public class BasicChangeTrackerTest {
         metadataManager.registerIndex("/oak:index/searchIndex");
         System.out.println("✓ Created searchIndex with useChangeTracker=true");
         
-        // Create damAssetLucene13 index (modeled after SimpleContainsRelativePropertyTest)
+        // Create damAssetLucene13 index (modeled after AEM damAssetLucene-13)
         Tree damIndex = oakIndex.addChild("damAssetLucene13");
         damIndex.setProperty("jcr:primaryType", "oak:QueryIndexDefinition", Type.NAME);
         damIndex.setProperty("type", "lucene");
         damIndex.setProperty("async", "async");
         damIndex.setProperty("compatVersion", 2);
+        damIndex.setProperty("evaluatePathRestrictions", true);
+        damIndex.setProperty("includedPaths", Arrays.asList("/testContent"), Type.STRINGS);
         damIndex.setProperty("useChangeTracker", true);
         
+        // Aggregation rules (damAssetLucene-13 pattern)
+        Tree aggregates = damIndex.addChild("aggregates");
+        aggregates.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        
+        Tree damAssetAggregate = aggregates.addChild("dam:Asset");
+        damAssetAggregate.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        
+        // include0: jcr:content
+        Tree include0 = damAssetAggregate.addChild("include0");
+        include0.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        include0.setProperty("path", "jcr:content");
+        
+        // include1: jcr:content/metadata
+        Tree include1 = damAssetAggregate.addChild("include1");
+        include1.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        include1.setProperty("path", "jcr:content/metadata");
+        
+        // Index rules for dam:Asset
         Tree damRules = damIndex.addChild("indexRules");
         damRules.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
         
@@ -266,22 +287,33 @@ public class BasicChangeTrackerTest {
         Tree damProps = damAssetRule.addChild("properties");
         damProps.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
         
-        // Direct property: assetType
-        Tree assetType = damProps.addChild("assetType");
-        assetType.setProperty("name", "assetType");
-        assetType.setProperty("propertyIndex", true);
+        // dc:title (analyzed, fulltext)
+        Tree dcTitle = damProps.addChild("dcTitle");
+        dcTitle.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        dcTitle.setProperty("name", "jcr:content/metadata/dc:title");
+        dcTitle.setProperty("analyzed", true);
+        dcTitle.setProperty("nodeScopeIndex", true);
+        dcTitle.setProperty("propertyIndex", true);
         
-        // Relative property: jcr:content/metadata/jcr:title
+        // jcr:title (analyzed, fulltext)
         Tree jcrTitle = damProps.addChild("jcrTitle");
+        jcrTitle.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
         jcrTitle.setProperty("name", "jcr:content/metadata/jcr:title");
-        jcrTitle.setProperty("propertyIndex", true);
         jcrTitle.setProperty("analyzed", true);
         jcrTitle.setProperty("nodeScopeIndex", true);
+        jcrTitle.setProperty("propertyIndex", true);
         
-        // Relative property: jcr:content/metadata/status
+        // dam:status
         Tree damStatus = damProps.addChild("damStatus");
-        damStatus.setProperty("name", "jcr:content/metadata/status");
+        damStatus.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        damStatus.setProperty("name", "jcr:content/metadata/dam:status");
         damStatus.setProperty("propertyIndex", true);
+        
+        // dc:format
+        Tree dcFormat = damProps.addChild("dcFormat");
+        dcFormat.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        dcFormat.setProperty("name", "jcr:content/metadata/dc:format");
+        dcFormat.setProperty("propertyIndex", true);
         
         root.commit();
         metadataManager.registerIndex("/oak:index/damAssetLucene13");
@@ -326,7 +358,6 @@ public class BasicChangeTrackerTest {
         // Document 5: dam:Asset with relative properties
         Tree doc5 = content.addChild("asset1");
         doc5.setProperty("jcr:primaryType", "dam:Asset", Type.NAME);
-        doc5.setProperty("assetType", "image");
         
         Tree jcrContent5 = doc5.addChild("jcr:content");
         jcrContent5.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
@@ -334,12 +365,12 @@ public class BasicChangeTrackerTest {
         Tree metadata5 = jcrContent5.addChild("metadata");
         metadata5.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
         metadata5.setProperty("jcr:title", "My Awesome Asset");
-        metadata5.setProperty("status", "published");
+        metadata5.setProperty("dam:status", "approved");
+        metadata5.setProperty("dc:format", "image/jpeg");
         
         // Document 6: dam:Asset with another relative property value
         Tree doc6 = content.addChild("asset2");
         doc6.setProperty("jcr:primaryType", "dam:Asset", Type.NAME);
-        doc6.setProperty("assetType", "document");
         
         Tree jcrContent6 = doc6.addChild("jcr:content");
         jcrContent6.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
@@ -347,10 +378,23 @@ public class BasicChangeTrackerTest {
         Tree metadata6 = jcrContent6.addChild("metadata");
         metadata6.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
         metadata6.setProperty("jcr:title", "Nested Asset");
-        metadata6.setProperty("status", "draft");
+        metadata6.setProperty("dam:status", "draft");
+        metadata6.setProperty("dc:format", "application/pdf");
+        
+        // Document 7: dam:Asset with aggregated content
+        Tree doc7 = content.addChild("asset3");
+        doc7.setProperty("jcr:primaryType", "dam:Asset", Type.NAME);
+        
+        Tree jcrContent7 = doc7.addChild("jcr:content");
+        jcrContent7.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        jcrContent7.setProperty("description", "Aggregation Magic Content"); // Aggregated by include0
+        
+        Tree metadata7 = jcrContent7.addChild("metadata");
+        metadata7.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        metadata7.setProperty("jcr:title", "Aggregated Asset");
         
         root.commit();
-        System.out.println("✓ Created 6 test documents (4 nt:unstructured, 2 dam:Asset)");
+        System.out.println("✓ Created 7 test documents (4 nt:unstructured, 3 dam:Asset)");
 
 
         
@@ -438,7 +482,7 @@ public class BasicChangeTrackerTest {
         String query6 = "SELECT [jcr:path] FROM [nt:unstructured] WHERE [status] = 'draft' option(traversal fail, index name searchIndex)";
         List<String> results6 = executeQuery(query6);
         System.out.printf("    Found %d results: %s%n", results6.size(), results6);
-        assertEquals("Should find 2 draft articles (doc2 + asset2 metadata)", 2, results6.size());
+        assertEquals("Should find 1 draft article", 1, results6.size());
         assertTrue("Should contain doc2", results6.stream().anyMatch(p -> p.contains("doc2")));
         System.out.println("    ✓ PASSED");
         
@@ -451,22 +495,32 @@ public class BasicChangeTrackerTest {
         assertTrue("Should contain asset1", results7.stream().anyMatch(p -> p.contains("asset1")));
         System.out.println("    ✓ PASSED");
         
-        // Query 8: Relative property equality
-        System.out.println("\n  Query 8: Find asset by relative status (equality)");
-        String query8 = "SELECT [jcr:path] FROM [dam:Asset] WHERE [jcr:content/metadata/status] = 'draft' option(traversal fail, index name damAssetLucene13)";
+        // Query 8: Relative property equality (dam:status)
+        System.out.println("\n  Query 8: Find asset by relative dam:status (equality)");
+        String query8 = "SELECT [jcr:path] FROM [dam:Asset] WHERE [jcr:content/metadata/dam:status] = 'draft' option(traversal fail, index name damAssetLucene13)";
         List<String> results8 = executeQuery(query8);
         System.out.printf("    Found %d results: %s%n", results8.size(), results8);
         assertEquals("Should find 1 asset by status", 1, results8.size());
         assertTrue("Should contain asset2", results8.stream().anyMatch(p -> p.contains("asset2")));
         System.out.println("    ✓ PASSED");
         
-        // Query 9: Direct property on dam:Asset
-        System.out.println("\n  Query 9: Find asset by assetType (direct property)");
-        String query9 = "SELECT [jcr:path] FROM [dam:Asset] WHERE [assetType] = 'image' option(traversal fail, index name damAssetLucene13)";
+        // Query 9: Relative property equality (dc:format)
+        System.out.println("\n  Query 9: Find asset by dc:format (equality)");
+        String query9 = "SELECT [jcr:path] FROM [dam:Asset] WHERE [jcr:content/metadata/dc:format] = 'image/jpeg' option(traversal fail, index name damAssetLucene13)";
         List<String> results9 = executeQuery(query9);
         System.out.printf("    Found %d results: %s%n", results9.size(), results9);
         assertEquals("Should find 1 image asset", 1, results9.size());
         assertTrue("Should contain asset1", results9.stream().anyMatch(p -> p.contains("asset1")));
+        System.out.println("    ✓ PASSED");
+        
+        // Query 10: Aggregated content search
+        System.out.println("\n  Query 10: Find asset by aggregated content");
+        // Searching for 'Magic' which is in jcr:content/description (aggregated by include0)
+        String query10 = "SELECT [jcr:path] FROM [dam:Asset] WHERE CONTAINS(*, 'Magic') option(traversal fail, index name damAssetLucene13)";
+        List<String> results10 = executeQuery(query10);
+        System.out.printf("    Found %d results: %s%n", results10.size(), results10);
+        assertEquals("Should find 1 asset by aggregated content", 1, results10.size());
+        assertTrue("Should contain asset3", results10.stream().anyMatch(p -> p.contains("asset3")));
         System.out.println("    ✓ PASSED");
         
         // STEP 6: Verify index progress was tracked
