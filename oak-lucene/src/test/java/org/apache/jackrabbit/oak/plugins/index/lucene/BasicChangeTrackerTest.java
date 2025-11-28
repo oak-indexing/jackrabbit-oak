@@ -18,7 +18,6 @@ package org.apache.jackrabbit.oak.plugins.index.lucene;
 
 import org.apache.jackrabbit.oak.InitialContent;
 import org.apache.jackrabbit.oak.Oak;
-import org.apache.jackrabbit.oak.api.CommitFailedException;
 import org.apache.jackrabbit.oak.api.ContentRepository;
 import org.apache.jackrabbit.oak.api.ContentSession;
 import org.apache.jackrabbit.oak.api.QueryEngine;
@@ -34,10 +33,7 @@ import org.apache.jackrabbit.oak.plugins.index.lucene.changetracker.ChangeTracki
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.ChangeEntry;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadata;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadataManager;
-import org.apache.jackrabbit.oak.spi.commit.CommitInfo;
-import org.apache.jackrabbit.oak.spi.commit.EmptyHook;
 import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
-import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
 import org.apache.jackrabbit.oak.stats.StatisticsProvider;
@@ -345,7 +341,7 @@ public class BasicChangeTrackerTest {
         
         // Query 1: Exact match on category
         System.out.println("\n  Query 1: Find all programming articles");
-        String query1 = "SELECT [jcr:path] FROM [nt:unstructured] WHERE [category] = 'programming'";
+        String query1 = "SELECT [jcr:path] FROM [nt:unstructured] WHERE [category] = 'programming' option(traversal fail, index name searchIndex)";
         List<String> results1 = executeQuery(query1);
         System.out.printf("    Found %d results: %s%n", results1.size(), results1);
         assertEquals("Should find 3 programming articles", 3, results1.size());
@@ -356,7 +352,7 @@ public class BasicChangeTrackerTest {
         
         // Query 2: Multiple property filter (AND)
         System.out.println("\n  Query 2: Find published programming articles");
-        String query2 = "SELECT [jcr:path] FROM [nt:unstructured] WHERE [category] = 'programming' AND [status] = 'published'";
+        String query2 = "SELECT [jcr:path] FROM [nt:unstructured] WHERE [category] = 'programming' AND [status] = 'published' option(traversal fail, index name searchIndex)";
         List<String> results2 = executeQuery(query2);
         System.out.printf("    Found %d results: %s%n", results2.size(), results2);
         assertEquals("Should find 2 published programming articles", 2, results2.size());
@@ -366,7 +362,7 @@ public class BasicChangeTrackerTest {
         
         // Query 3: Different category
         System.out.println("\n  Query 3: Find cooking articles");
-        String query3 = "SELECT [jcr:path] FROM [nt:unstructured] WHERE [category] = 'cooking'";
+        String query3 = "SELECT [jcr:path] FROM [nt:unstructured] WHERE [category] = 'cooking' option(traversal fail, index name searchIndex)";
         List<String> results3 = executeQuery(query3);
         System.out.printf("    Found %d results: %s%n", results3.size(), results3);
         assertEquals("Should find 1 cooking article", 1, results3.size());
@@ -375,7 +371,7 @@ public class BasicChangeTrackerTest {
         
         // Query 4: Fulltext search (CONTAINS)
         System.out.println("\n  Query 4: Fulltext search for 'Java'");
-        String query4 = "SELECT [jcr:path] FROM [nt:unstructured] WHERE CONTAINS(*, 'Java')";
+        String query4 = "SELECT [jcr:path] FROM [nt:unstructured] WHERE CONTAINS(*, 'Java') option(traversal fail, index name searchIndex)";
         List<String> results4 = executeQuery(query4);
         System.out.printf("    Found %d results: %s%n", results4.size(), results4);
         assertTrue("Should find at least 1 Java-related article", results4.size() >= 1);
@@ -384,7 +380,7 @@ public class BasicChangeTrackerTest {
         
         // Query 5: Fulltext search on specific property
         System.out.println("\n  Query 5: Search for 'Python' in title");
-        String query5 = "SELECT [jcr:path] FROM [nt:unstructured] WHERE CONTAINS([title], 'Python')";
+        String query5 = "SELECT [jcr:path] FROM [nt:unstructured] WHERE CONTAINS([title], 'Python') option(traversal fail, index name searchIndex)";
         List<String> results5 = executeQuery(query5);
         System.out.printf("    Found %d results: %s%n", results5.size(), results5);
         assertEquals("Should find 1 Python article", 1, results5.size());
@@ -393,7 +389,7 @@ public class BasicChangeTrackerTest {
         
         // Query 6: Draft status
         System.out.println("\n  Query 6: Find draft articles");
-        String query6 = "SELECT [jcr:path] FROM [nt:unstructured] WHERE [status] = 'draft'";
+        String query6 = "SELECT [jcr:path] FROM [nt:unstructured] WHERE [status] = 'draft' option(traversal fail, index name searchIndex)";
         List<String> results6 = executeQuery(query6);
         System.out.printf("    Found %d results: %s%n", results6.size(), results6);
         assertEquals("Should find 1 draft article", 1, results6.size());
@@ -403,7 +399,7 @@ public class BasicChangeTrackerTest {
         // Query 7: dam:Asset search
         System.out.println("\n  Query 7: Find dam:Asset by title");
         // Query using dam:Asset primary type selector
-        String query7 = "SELECT [jcr:path] FROM [dam:Asset] WHERE CONTAINS([title], 'Awesome')";
+        String query7 = "SELECT [jcr:path] FROM [dam:Asset] WHERE CONTAINS([title], 'Awesome') option(traversal fail, index name searchIndex)";
         List<String> results7 = executeQuery(query7);
         System.out.printf("    Found %d results: %s%n", results7.size(), results7);
         assertEquals("Should find 1 asset", 1, results7.size());
