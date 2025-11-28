@@ -26,6 +26,7 @@ import org.apache.jackrabbit.oak.plugins.index.search.changetracker.ChangeEntry;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadata;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadataManager;
 import org.apache.jackrabbit.oak.plugins.index.lucene.writer.LuceneIndexWriter;
+import org.apache.jackrabbit.oak.spi.filter.PathFilter;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.apache.lucene.document.Document;
@@ -291,8 +292,13 @@ public class LuceneChunkedIndexProcessor {
                     lastProcessedSerial = entry.getSerialNumber();
                 } else {
                     // Node was deleted - remove from index
-                    LOG.trace("Removing deleted path from index: {}", path);
-                    indexWriter.deleteDocuments(path);
+                    
+                    // Optimization: Check if path is within index scope before deleting
+                    // This prevents sending delete commands for paths that this index definitely doesn't cover
+                    if (indexDefinition.getPathFilter().filter(path) != PathFilter.Result.EXCLUDE) {
+                        LOG.trace("Removing deleted path from index: {}", path);
+                        indexWriter.deleteDocuments(path);
+                    }
                     
                     // Also check if parent nodes need re-indexing due to relative property deletion
                     Set<String> parentPathsToIndex = findParentNodesForRelativeProperties(path, indexDefinition, nodeCache);

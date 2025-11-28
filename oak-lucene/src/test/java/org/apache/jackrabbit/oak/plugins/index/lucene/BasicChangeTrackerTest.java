@@ -681,6 +681,88 @@ public class BasicChangeTrackerTest {
         return paths;
     }
     
+    @Test
+    public void testDeleteAggregatedNode() throws Exception {
+        System.out.println("\n=== Test 8: Delete Aggregated Node Verification ===");
+
+        // STEP 1: Create index definition
+        Tree oakIndex = root.getTree("/oak:index");
+        Tree damIndex = oakIndex.addChild("deleteTestIndex");
+        damIndex.setProperty("jcr:primaryType", "oak:QueryIndexDefinition", Type.NAME);
+        damIndex.setProperty("type", "lucene");
+        damIndex.setProperty("async", "async");
+        damIndex.setProperty("useChangeTracker", true);
+        // Ensure path filter works: only index /deleteTest
+        damIndex.setProperty("evaluatePathRestrictions", true);
+        damIndex.setProperty("includedPaths", Arrays.asList("/deleteTest"), Type.STRINGS);
+        
+        // Aggregates
+        Tree aggregates = damIndex.addChild("aggregates");
+        aggregates.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        Tree damAssetAggregate = aggregates.addChild("nt:unstructured");
+        damAssetAggregate.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        Tree include0 = damAssetAggregate.addChild("include0");
+        include0.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        include0.setProperty("path", "jcr:content");
+
+        // Index Rules
+        Tree damRules = damIndex.addChild("indexRules");
+        damRules.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        Tree damAssetRule = damRules.addChild("nt:unstructured");
+        damAssetRule.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        // Need fulltext enabled (nodeScopeIndex implied by aggregation)
+        
+        root.commit();
+        metadataManager.registerIndex("/oak:index/deleteTestIndex");
+        
+        // STEP 2: Create Content
+        Tree content = root.getTree("/").addChild("deleteTest");
+        Tree asset = content.addChild("asset1");
+        asset.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        Tree jcrContent = asset.addChild("jcr:content");
+        jcrContent.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        jcrContent.setProperty("description", "SecretKeyWord"); // Aggregated
+        
+        root.commit();
+        
+        // STEP 3: Index
+        populator.run();
+        commitChangeTrackingIndex();
+        changeTrackingAsyncIndexUpdate.run();
+        root = contentSession.getLatestRoot();
+        if (provider != null) {
+            provider.getTracker().refresh();
+            provider.contentChanged(nodeStore.getRoot(), org.apache.jackrabbit.oak.spi.commit.CommitInfo.EMPTY);
+        }
+
+        // STEP 4: Verify Search
+        String query = "SELECT [jcr:path] FROM [nt:unstructured] WHERE ISDESCENDANTNODE('/deleteTest') AND CONTAINS(*, 'SecretKeyWord') option(traversal fail, index name deleteTestIndex)";
+        List<String> results = executeQuery(query);
+        assertEquals("Should find asset before delete", 1, results.size());
+        
+        // STEP 5: Delete aggregated node
+        root.getTree("/deleteTest/asset1/jcr:content").remove();
+        root.commit();
+        System.out.println("✓ Deleted aggregated node /deleteTest/asset1/jcr:content");
+        
+        // STEP 6: Re-index
+        populator.run(); // populates change tracker with deletion
+        commitChangeTrackingIndex();
+        changeTrackingAsyncIndexUpdate.run(); // processes deletion
+        root = contentSession.getLatestRoot();
+        if (provider != null) {
+            provider.getTracker().refresh();
+            provider.contentChanged(nodeStore.getRoot(), org.apache.jackrabbit.oak.spi.commit.CommitInfo.EMPTY);
+        }
+        
+        // STEP 7: Verify Search (Should NOT find it)
+        List<String> resultsAfter = executeQuery(query);
+        assertEquals("Should NOT find asset after deleting aggregated content", 0, resultsAfter.size());
+        System.out.println("✓ Verified deletion update: Aggregation removed");
+        
+        System.out.println("\n✓ Test 8 PASSED: Aggregation deletion handled correctly!");
+    }
+
     /**
      * Helper method to force commit of the change tracking IndexWriter.
      * 
@@ -709,4 +791,3 @@ public class BasicChangeTrackerTest {
         }
     }
 }
-
