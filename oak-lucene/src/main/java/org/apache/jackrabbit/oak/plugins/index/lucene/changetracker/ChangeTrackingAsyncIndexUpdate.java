@@ -223,7 +223,8 @@ public class ChangeTrackingAsyncIndexUpdate {
         LOG.info("Phase 1: Processing change-tracked indexes (reading from pre-populated change tracking index)");
         
         long phaseStart = System.currentTimeMillis();
-        
+
+        //TODO we should not explicitly register indexes
         List<String> allIndexes = metadataManager.getRegisteredIndexes();
         LOG.info("Found {} registered indexes", allIndexes.size());
         

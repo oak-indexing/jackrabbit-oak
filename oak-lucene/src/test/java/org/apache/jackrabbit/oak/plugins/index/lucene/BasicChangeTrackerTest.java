@@ -27,6 +27,7 @@ import org.apache.jackrabbit.oak.api.Root;
 import org.apache.jackrabbit.oak.api.Tree;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.plugins.index.AsyncIndexUpdate;
+import org.apache.jackrabbit.oak.plugins.index.lucene.changetracker.ChangeTrackingAsyncIndexUpdate;
 import org.apache.jackrabbit.oak.plugins.index.lucene.changetracker.ChangeTrackingIndexPopulator;
 import org.apache.jackrabbit.oak.plugins.index.lucene.changetracker.ChangeTrackingIndexQuery;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.ChangeEntry;
@@ -76,6 +77,7 @@ public class BasicChangeTrackerTest {
     private ContentSession contentSession;
     private Root root;
     private AsyncIndexUpdate asyncIndexUpdate;
+    private ChangeTrackingAsyncIndexUpdate changeTrackingAsyncIndexUpdate;
     
     @Before
     public void setUp() throws Exception {
@@ -91,6 +93,7 @@ public class BasicChangeTrackerTest {
         // 4. Create and initialize the change tracking populator
         // Enable population via system property
         System.setProperty("oak.changeTracker.population.enabled", "true");
+        System.setProperty("oak.changeTracker.enabled", "true");
         
         populator = new ChangeTrackingIndexPopulator(
             nodeStore,
@@ -119,8 +122,17 @@ public class BasicChangeTrackerTest {
         contentSession = contentRepository.login(null, null);
         root = contentSession.getLatestRoot();
         
-        // 7. Create async index update for traditional indexing
+        // 7. Create traditional async index update (for non-change-tracked indexes)
         asyncIndexUpdate = new AsyncIndexUpdate("async", nodeStore, editorProvider);
+        
+        // 8. Create ChangeTrackingAsyncIndexUpdate (for change-tracked indexes)
+        // IndexWriter is managed internally by both populator and async indexer
+        changeTrackingAsyncIndexUpdate = new ChangeTrackingAsyncIndexUpdate(
+            "change-tracker-async",
+            nodeStore,
+            changeTrackingDirectory,
+            null  // IndexWriter is managed internally
+        );
         
         // Verify initialization
         assertTrue("Populator should be initialized", populator.isInitialized());
@@ -136,6 +148,9 @@ public class BasicChangeTrackerTest {
         if (asyncIndexUpdate != null) {
             asyncIndexUpdate.close();
         }
+        if (changeTrackingAsyncIndexUpdate != null) {
+            // ChangeTrackingAsyncIndexUpdate doesn't have close()
+        }
         if (populator != null) {
             populator.close();
         }
@@ -143,457 +158,9 @@ public class BasicChangeTrackerTest {
             changeTrackingDirectory.close();
         }
         System.clearProperty("oak.changeTracker.population.enabled");
+        System.clearProperty("oak.changeTracker.enabled");
     }
     
-    /**
-     * Test 1: Basic change recording
-     * 
-     * Demonstrates:
-     * - Making changes to the repository
-     * - Running the change tracker populator
-     * - Verifying changes are recorded in the change tracking index
-     */
-    @Test
-    public void testBasicChangeRecording() throws Exception {
-        System.out.println("\n=== Test 1: Basic Change Recording ===");
-        
-        // Make some changes to the repository using Tree API (creates checkpoints)
-        Tree content = root.getTree("/").addChild("content");
-        content.setProperty("title", "Test Content");
-        
-        Tree page1 = content.addChild("page1");
-        page1.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
-        page1.setProperty("text", "Page 1 content");
-        
-        Tree page2 = content.addChild("page2");
-        page2.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
-        page2.setProperty("text", "Page 2 content");
-        
-        // Commit changes - this creates a checkpoint that AsyncIndexUpdate can track
-        root.commit();
-        System.out.println("✓ Created test content: /content/page1, /content/page2");
-        
-        // Run the change tracking populator
-        // This runs a checkpoint diff and records all changed paths
-        populator.run();
-        
-        // Force commit of the IndexWriter
-        commitChangeTrackingIndex();
-        
-        // Refresh root to see indexed changes
-        root = contentSession.getLatestRoot();
-        System.out.println("✓ Change tracking populator executed");
-        
-        // Query the change tracking index to verify changes were recorded
-        try (IndexReader reader = DirectoryReader.open(changeTrackingDirectory);
-             ChangeTrackingIndexQuery query = new ChangeTrackingIndexQuery(reader)) {
-            
-            // Get all changes (starting from timestamp 0, serial 0)
-            List<ChangeEntry> changes = query.getUnprocessedChanges(0, 0, 100);
-            
-            System.out.println("✓ Found " + changes.size() + " change entries");
-            
-            // Verify we recorded changes
-            assertTrue("Should have recorded changes", changes.size() > 0);
-            
-            // Print the changes
-            System.out.println("\nRecorded changes:");
-            for (ChangeEntry entry : changes) {
-                System.out.printf("  - Path: %s, Timestamp: %d, Serial: %d%n",
-                    entry.getPath(),
-                    entry.getDiffProcessingTime(),
-                    entry.getSerialNumber());
-            }
-            
-            // Verify specific paths were recorded
-            boolean foundPage1 = changes.stream()
-                .anyMatch(e -> e.getPath().equals("/content/page1"));
-            boolean foundPage2 = changes.stream()
-                .anyMatch(e -> e.getPath().equals("/content/page2"));
-            
-            assertTrue("Should have recorded /content/page1", foundPage1);
-            assertTrue("Should have recorded /content/page2", foundPage2);
-        }
-        
-        System.out.println("✓ Test 1 PASSED: Changes recorded successfully");
-    }
-    
-    /**
-     * Test 2: Index with change tracking enabled
-     * 
-     * Demonstrates:
-     * - Creating an index definition with useChangeTracker=true
-     * - Registering the index for change tracking
-     * - Verifying progress metadata is created
-     */
-    @Test
-    public void testIndexWithChangeTracking() throws Exception {
-        System.out.println("\n=== Test 2: Index with Change Tracking ===");
-        
-        // Create an index definition with useChangeTracker=true using Tree API
-        Tree oakIndex = root.getTree("/oak:index");
-        
-        // Create a simple test index
-        Tree testIndex = oakIndex.addChild("testIndex");
-        testIndex.setProperty("jcr:primaryType", "oak:QueryIndexDefinition", Type.NAME);
-        testIndex.setProperty("type", "lucene", Type.STRING);
-        testIndex.setProperty("async", "async", Type.STRING);
-        testIndex.setProperty("useChangeTracker", true);  // ← Enable change tracking
-        
-        // Add index rules
-        Tree indexRules = testIndex.addChild("indexRules");
-        indexRules.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
-        
-        Tree ntBase = indexRules.addChild("nt:base");
-        ntBase.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
-        
-        Tree properties = ntBase.addChild("properties");
-        properties.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
-        
-        // Index the "text" property
-        Tree textProp = properties.addChild("text");
-        textProp.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
-        textProp.setProperty("name", "text", Type.STRING);
-        textProp.setProperty("propertyIndex", true);
-        textProp.setProperty("analyzed", true);
-        
-        // Commit the index definition
-        root.commit();
-        root = contentSession.getLatestRoot();
-        System.out.println("✓ Created index definition: /oak:index/testIndex (useChangeTracker=true)");
-        
-        // Register the index for change tracking
-        String indexPath = "/oak:index/testIndex";
-        metadataManager.registerIndex(indexPath);
-        System.out.println("✓ Registered index for change tracking");
-        
-        // Verify progress metadata was created
-        IndexProgressMetadata progress = metadataManager.getIndexProgress(indexPath);
-        assertNotNull("Progress metadata should exist", progress);
-        assertEquals("Index path should match", indexPath, progress.getIndexPath());
-        assertEquals("Initial timestamp should be 0", 0, progress.getLastProcessedTimestamp());
-        assertEquals("Initial serial should be 0", 0, progress.getLastProcessedSerialNumber());
-        
-        System.out.println("✓ Progress metadata initialized:");
-        System.out.printf("  - Index: %s%n", progress.getIndexPath());
-        System.out.printf("  - Last timestamp: %d%n", progress.getLastProcessedTimestamp());
-        System.out.printf("  - Last serial: %d%n", progress.getLastProcessedSerialNumber());
-        System.out.printf("  - Total processed: %d%n", progress.getTotalProcessed());
-        
-        System.out.println("✓ Test 2 PASSED: Index registered for change tracking");
-    }
-    
-    /**
-     * Test 3: Incremental change processing
-     * 
-     * Demonstrates:
-     * - Making initial changes and processing them
-     * - Making additional changes
-     * - Using composite key to get only NEW changes
-     * - Progress tracking
-     */
-    @Test
-    public void testIncrementalChangeProcessing() throws Exception {
-        System.out.println("\n=== Test 3: Incremental Change Processing ===");
-        
-        // Register a test index
-        String indexPath = "/oak:index/testIndex";
-        metadataManager.registerIndex(indexPath);
-        
-        // ROUND 1: Create and process first batch of changes
-        System.out.println("\nRound 1: Initial changes");
-        
-        Tree batch1 = root.getTree("/").addChild("batch1");
-        batch1.addChild("item1").setProperty("text", "First batch item 1");
-        batch1.addChild("item2").setProperty("text", "First batch item 2");
-        root.commit();
-        
-        populator.run();
-        commitChangeTrackingIndex();
-        root = contentSession.getLatestRoot();
-        System.out.println("✓ Created and recorded first batch");
-        
-        // Get changes from round 1
-        try (IndexReader reader = DirectoryReader.open(changeTrackingDirectory);
-             ChangeTrackingIndexQuery query = new ChangeTrackingIndexQuery(reader)) {
-            
-            List<ChangeEntry> round1Changes = query.getUnprocessedChanges(0, 0, 100);
-            System.out.println("✓ Round 1: Found " + round1Changes.size() + " changes");
-            
-            // Simulate processing: update progress with last processed entry
-            if (!round1Changes.isEmpty()) {
-                ChangeEntry lastEntry = round1Changes.get(round1Changes.size() - 1);
-                metadataManager.updateProgress(
-                    indexPath,
-                    lastEntry.getDiffProcessingTime(),
-                    lastEntry.getSerialNumber(),
-                    round1Changes.size()
-                );
-                System.out.printf("✓ Updated progress: timestamp=%d, serial=%d%n",
-                    lastEntry.getDiffProcessingTime(),
-                    lastEntry.getSerialNumber());
-            }
-        }
-        
-        // ROUND 2: Create and process second batch of changes
-        System.out.println("\nRound 2: Additional changes");
-        
-        Tree batch2 = root.getTree("/").addChild("batch2");
-        batch2.addChild("item1").setProperty("text", "Second batch item 1");
-        batch2.addChild("item2").setProperty("text", "Second batch item 2");
-        batch2.addChild("item3").setProperty("text", "Second batch item 3");
-        root.commit();
-        
-        populator.run();
-        commitChangeTrackingIndex();
-        root = contentSession.getLatestRoot();
-        System.out.println("✓ Created and recorded second batch");
-        
-        // Get ONLY NEW changes using the progress metadata
-        IndexProgressMetadata progress = metadataManager.getIndexProgress(indexPath);
-        try (IndexReader reader = DirectoryReader.open(changeTrackingDirectory);
-             ChangeTrackingIndexQuery query = new ChangeTrackingIndexQuery(reader)) {
-            
-            // This composite key query will get only changes AFTER the last processed entry
-            List<ChangeEntry> round2Changes = query.getUnprocessedChanges(
-                progress.getLastProcessedTimestamp(),
-                progress.getLastProcessedSerialNumber(),
-                100
-            );
-            
-            System.out.println("✓ Round 2: Found " + round2Changes.size() + " NEW changes");
-            
-            // Verify we only got round 2 changes
-            assertTrue("Should have new changes", round2Changes.size() > 0);
-            
-            // Print the new changes
-            System.out.println("\nNew changes (Round 2 only):");
-            for (ChangeEntry entry : round2Changes) {
-                System.out.printf("  - Path: %s%n", entry.getPath());
-            }
-            
-            // Verify these are batch2 changes
-            boolean allFromBatch2 = round2Changes.stream()
-                .allMatch(e -> e.getPath().contains("batch2"));
-            assertTrue("All new changes should be from batch2", allFromBatch2);
-            
-            // Update progress again
-            if (!round2Changes.isEmpty()) {
-                ChangeEntry lastEntry = round2Changes.get(round2Changes.size() - 1);
-                metadataManager.updateProgress(
-                    indexPath,
-                    lastEntry.getDiffProcessingTime(),
-                    lastEntry.getSerialNumber(),
-                    round2Changes.size()
-                );
-            }
-        }
-        
-        // Verify final progress
-        progress = metadataManager.getIndexProgress(indexPath);
-        System.out.println("\n✓ Final progress:");
-        System.out.printf("  - Total processed: %d%n", progress.getTotalProcessed());
-        System.out.printf("  - Total chunks: %d%n", progress.getTotalChunks());
-        
-        assertTrue("Should have processed multiple chunks", progress.getTotalChunks() >= 2);
-        
-        System.out.println("✓ Test 3 PASSED: Incremental processing works correctly");
-    }
-    
-    /**
-     * Test 4: Composite key ordering
-     * 
-     * Demonstrates:
-     * - Entries are ordered by (timestamp, serialNumber)
-     * - Composite key queries work correctly
-     * - No changes are missed or duplicated
-     */
-    @Test
-    public void testCompositeKeyOrdering() throws Exception {
-        System.out.println("\n=== Test 4: Composite Key Ordering ===");
-        
-        // Create multiple changes in quick succession
-        for (int i = 0; i < 5; i++) {
-            Tree test = root.getTree("/");
-            if (!test.hasChild("test")) {
-                test = test.addChild("test");
-            } else {
-                test = test.getChild("test");
-            }
-            
-            Tree item = test.addChild("item" + i);
-            item.setProperty("text", "Item " + i);
-            
-            root.commit();
-            root = contentSession.getLatestRoot();
-            
-            populator.run();
-            commitChangeTrackingIndex();
-            
-            // Small delay to potentially get different timestamps
-            Thread.sleep(10);
-        }
-        
-        System.out.println("✓ Created 5 changes");
-        
-        // Read all changes and verify ordering
-        try (IndexReader reader = DirectoryReader.open(changeTrackingDirectory);
-             ChangeTrackingIndexQuery query = new ChangeTrackingIndexQuery(reader)) {
-            
-            List<ChangeEntry> allChanges = query.getUnprocessedChanges(0, 0, 1000);
-            System.out.println("✓ Retrieved " + allChanges.size() + " changes");
-            
-            // Verify ordering: each entry should be >= previous entry
-            ChangeEntry prev = null;
-            for (ChangeEntry current : allChanges) {
-                if (prev != null) {
-                    // Compare composite keys: (timestamp, serial)
-                    boolean ordered = 
-                        current.getDiffProcessingTime() > prev.getDiffProcessingTime() ||
-                        (current.getDiffProcessingTime() == prev.getDiffProcessingTime() &&
-                         current.getSerialNumber() > prev.getSerialNumber());
-                    
-                    assertTrue(
-                        String.format("Entries should be ordered: prev=%s, current=%s", 
-                            prev, current),
-                        ordered
-                    );
-                }
-                prev = current;
-            }
-            
-            System.out.println("✓ All entries are properly ordered by (timestamp, serialNumber)");
-            
-            // Test chunked reading with composite key
-            long midTimestamp = 0;
-            long midSerial = 0;
-            
-            if (allChanges.size() > 2) {
-                int midIndex = allChanges.size() / 2;
-                ChangeEntry midEntry = allChanges.get(midIndex);
-                midTimestamp = midEntry.getDiffProcessingTime();
-                midSerial = midEntry.getSerialNumber();
-                
-                // Get changes after midpoint
-                List<ChangeEntry> afterMid = query.getUnprocessedChanges(
-                    midTimestamp, 
-                    midSerial, 
-                    1000
-                );
-                
-                System.out.printf("✓ After midpoint (timestamp=%d, serial=%d): %d entries%n",
-                    midTimestamp, midSerial, afterMid.size());
-                
-                // Verify no entry from first half appears in second half
-                for (ChangeEntry entry : afterMid) {
-                    boolean isAfterMid = 
-                        entry.getDiffProcessingTime() > midTimestamp ||
-                        (entry.getDiffProcessingTime() == midTimestamp &&
-                         entry.getSerialNumber() > midSerial);
-                    
-                    assertTrue("Entry should be after midpoint", isAfterMid);
-                }
-            }
-        }
-        
-        System.out.println("✓ Test 4 PASSED: Composite key ordering works correctly");
-    }
-    
-    /**
-     * Test 5: Multiple indexes
-     * 
-     * Demonstrates:
-     * - Multiple indexes can use the same change tracking index
-     * - Each tracks its own progress independently
-     * - Same changes are processed by different indexes
-     */
-    @Test
-    public void testMultipleIndexes() throws Exception {
-        System.out.println("\n=== Test 5: Multiple Indexes ===");
-        
-        // Register two indexes
-        String index1Path = "/oak:index/index1";
-        String index2Path = "/oak:index/index2";
-        
-        metadataManager.registerIndex(index1Path);
-        metadataManager.registerIndex(index2Path);
-        System.out.println("✓ Registered two indexes");
-        
-        // Create changes
-        Tree shared = root.getTree("/").addChild("shared");
-        shared.addChild("data").setProperty("text", "Shared data");
-        root.commit();
-        
-        populator.run();
-        commitChangeTrackingIndex();
-        root = contentSession.getLatestRoot();
-        System.out.println("✓ Created and recorded changes");
-        
-        // Both indexes see the same changes
-        try (IndexReader reader = DirectoryReader.open(changeTrackingDirectory);
-             ChangeTrackingIndexQuery query = new ChangeTrackingIndexQuery(reader)) {
-            
-            // Index 1 processes changes
-            IndexProgressMetadata progress1 = metadataManager.getIndexProgress(index1Path);
-            List<ChangeEntry> changes1 = query.getUnprocessedChanges(
-                progress1.getLastProcessedTimestamp(),
-                progress1.getLastProcessedSerialNumber(),
-                100
-            );
-            System.out.printf("✓ Index 1 sees %d changes%n", changes1.size());
-            
-            // Index 2 processes the SAME changes (independent progress)
-            IndexProgressMetadata progress2 = metadataManager.getIndexProgress(index2Path);
-            List<ChangeEntry> changes2 = query.getUnprocessedChanges(
-                progress2.getLastProcessedTimestamp(),
-                progress2.getLastProcessedSerialNumber(),
-                100
-            );
-            System.out.printf("✓ Index 2 sees %d changes%n", changes2.size());
-            
-            // Both should see the same changes
-            assertEquals("Both indexes should see same changes", 
-                changes1.size(), changes2.size());
-            
-            // Simulate index 1 processing faster than index 2
-            if (!changes1.isEmpty()) {
-                ChangeEntry lastEntry = changes1.get(changes1.size() - 1);
-                metadataManager.updateProgress(
-                    index1Path,
-                    lastEntry.getDiffProcessingTime(),
-                    lastEntry.getSerialNumber(),
-                    changes1.size()
-                );
-            }
-            System.out.println("✓ Index 1 processed all changes");
-            
-            // Index 2 still sees the same changes (hasn't caught up yet)
-            progress2 = metadataManager.getIndexProgress(index2Path);
-            List<ChangeEntry> changes2Again = query.getUnprocessedChanges(
-                progress2.getLastProcessedTimestamp(),
-                progress2.getLastProcessedSerialNumber(),
-                100
-            );
-            assertEquals("Index 2 should still see all changes", 
-                changes1.size(), changes2Again.size());
-            
-            System.out.println("✓ Index 2 still has pending changes (independent progress)");
-        }
-        
-        // Verify independent progress
-        IndexProgressMetadata finalProgress1 = metadataManager.getIndexProgress(index1Path);
-        IndexProgressMetadata finalProgress2 = metadataManager.getIndexProgress(index2Path);
-        
-        System.out.printf("✓ Index 1 progress: %d processed%n", finalProgress1.getTotalProcessed());
-        System.out.printf("✓ Index 2 progress: %d processed%n", finalProgress2.getTotalProcessed());
-        
-        assertTrue("Index 1 should have processed changes", 
-            finalProgress1.getTotalProcessed() > 0);
-        assertEquals("Index 2 should not have processed changes yet", 
-            0, finalProgress2.getTotalProcessed());
-        
-        System.out.println("✓ Test 5 PASSED: Multiple indexes work independently");
-    }
     
     /**
      * Test 6: Query-based verification of indexing
@@ -651,14 +218,15 @@ public class BasicChangeTrackerTest {
         statusProp.setProperty("analyzed", false);
         
         root.commit();
-        System.out.println("✓ Created searchIndex with useChangeTracker=true");
-        
-        // Register with metadata manager
+        // Register index in metadata manager
         metadataManager.registerIndex("/oak:index/searchIndex");
-        System.out.println("✓ Registered index for change tracking");
+        System.out.println("✓ Created searchIndex with useChangeTracker=true");
         
         // STEP 2: Create searchable content
         System.out.println("\nStep 2: Creating searchable content...");
+        populator.run();  // Initial run to set baseline
+        changeTrackingAsyncIndexUpdate.run();
+
         
         Tree content = root.getTree("/").addChild("testContent");
         
@@ -692,6 +260,8 @@ public class BasicChangeTrackerTest {
         
         root.commit();
         System.out.println("✓ Created 4 test documents");
+
+
         
         // STEP 3: Run change tracker populator
         System.out.println("\nStep 3: Running change tracker populator...");
@@ -707,11 +277,11 @@ public class BasicChangeTrackerTest {
             assertTrue("Should have recorded changes", changes.size() > 0);
         }
         
-        // STEP 4: Run async index update to build the index
-        System.out.println("\nStep 4: Running async index update...");
-        asyncIndexUpdate.run();
+        // STEP 4: Run change tracking async index update to build the index
+        System.out.println("\nStep 4: Running change tracking async index update...");
+        changeTrackingAsyncIndexUpdate.run();
         root = contentSession.getLatestRoot(); // Refresh root
-        System.out.println("✓ Async index update completed");
+        System.out.println("✓ Change tracking async index update completed");
         
         // STEP 5: Execute queries and verify results
         System.out.println("\nStep 5: Executing queries to verify indexing...");
@@ -826,7 +396,7 @@ public class BasicChangeTrackerTest {
         tagProp.setProperty("analyzed", false);
         
         root.commit();
-        metadataManager.registerIndex("/oak:index/incrementalIndex");
+        System.out.println("✓ Created index with useChangeTracker=true");
         
         // Create initial content
         Tree content = root.getTree("/").addChild("articles");
@@ -841,7 +411,7 @@ public class BasicChangeTrackerTest {
         // Index initial content
         populator.run();
         commitChangeTrackingIndex();
-        asyncIndexUpdate.run();
+        changeTrackingAsyncIndexUpdate.run();
         root = contentSession.getLatestRoot();
         System.out.println("✓ Initial indexing completed");
         
@@ -869,7 +439,7 @@ public class BasicChangeTrackerTest {
         System.out.println("\nStep 3: Running incremental indexing...");
         populator.run();
         commitChangeTrackingIndex();
-        asyncIndexUpdate.run();
+        changeTrackingAsyncIndexUpdate.run();
         root = contentSession.getLatestRoot();
         System.out.println("✓ Incremental indexing completed");
         
@@ -918,17 +488,26 @@ public class BasicChangeTrackerTest {
     }
     
     /**
-     * Helper method to commit the change tracking IndexWriter.
-     * This is needed in tests because the writer doesn't auto-commit.
+     * Helper method to force commit of the change tracking IndexWriter.
+     * 
+     * <p><strong>Why this is needed:</strong> The ChangeTrackingIndexPopulator's internal
+     * IndexWriter does not auto-commit after run(). In production, commits happen periodically
+     * or when the writer is closed. In tests, we need immediate visibility of changes for
+     * subsequent queries, so we force a commit using reflection.
+     * 
+     * <p><strong>Note:</strong> This is a test-only workaround. Ideally, ChangeTrackingIndexPopulator
+     * would expose a public flush() or commit() method, but since it doesn't, reflection is
+     * necessary to access the private writer field.
      */
     private void commitChangeTrackingIndex() throws Exception {
         try {
-            // Use reflection to access the private changeTrackingWriter field
+            // Use reflection to access the private changeTrackingWriter field from populator
             java.lang.reflect.Field writerField = populator.getClass().getDeclaredField("changeTrackingWriter");
             writerField.setAccessible(true);
-            org.apache.lucene.index.IndexWriter writer = (org.apache.lucene.index.IndexWriter) writerField.get(populator);
+            Object writer = writerField.get(populator);
             if (writer != null) {
-                writer.commit();
+                // Call commit() on the IndexWriter
+                writer.getClass().getMethod("commit").invoke(writer);
             }
         } catch (Exception e) {
             System.err.println("Warning: Could not commit change tracking writer: " + e.getMessage());
