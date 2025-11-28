@@ -257,6 +257,14 @@ public class BasicChangeTrackerTest {
         damTitle.setProperty("analyzed", true);
         damTitle.setProperty("nodeScopeIndex", true);
         
+        // Add relative property "jcr:content/metadata/author" to dam:Asset rule
+        Tree authorProp = damProps.addChild("author");
+        authorProp.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        authorProp.setProperty("name", "jcr:content/metadata/author");
+        authorProp.setProperty("propertyIndex", true);
+        authorProp.setProperty("analyzed", true);
+        authorProp.setProperty("nodeScopeIndex", true);
+        
         root.commit();
         // Register index in metadata manager
         metadataManager.registerIndex("/oak:index/searchIndex");
@@ -303,8 +311,20 @@ public class BasicChangeTrackerTest {
         doc5.setProperty("jcr:primaryType", "dam:Asset", Type.NAME);
         doc5.setProperty("title", "My Awesome Asset");
         
+        // Document 6: dam:Asset with relative property
+        Tree doc6 = content.addChild("asset2");
+        doc6.setProperty("jcr:primaryType", "dam:Asset", Type.NAME);
+        doc6.setProperty("title", "Nested Asset");
+        
+        Tree jcrContent = doc6.addChild("jcr:content");
+        jcrContent.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        
+        Tree metadata = jcrContent.addChild("metadata");
+        metadata.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        metadata.setProperty("author", "John Doe");
+        
         root.commit();
-        System.out.println("✓ Created 5 test documents (4 nt:unstructured, 1 dam:Asset)");
+        System.out.println("✓ Created 6 test documents (4 nt:unstructured, 2 dam:Asset)");
 
 
         
@@ -404,6 +424,24 @@ public class BasicChangeTrackerTest {
         System.out.printf("    Found %d results: %s%n", results7.size(), results7);
         assertEquals("Should find 1 asset", 1, results7.size());
         assertTrue("Should contain asset1", results7.stream().anyMatch(p -> p.contains("asset1")));
+        System.out.println("    ✓ PASSED");
+        
+        // Query 8: Relative property search
+        System.out.println("\n  Query 8: Find asset by relative author");
+        String query8 = "SELECT [jcr:path] FROM [dam:Asset] WHERE CONTAINS([jcr:content/metadata/author], 'John') option(traversal fail, index name searchIndex)";
+        List<String> results8 = executeQuery(query8);
+        System.out.printf("    Found %d results: %s%n", results8.size(), results8);
+        assertEquals("Should find 1 asset by relative author", 1, results8.size());
+        assertTrue("Should contain asset2", results8.stream().anyMatch(p -> p.contains("asset2")));
+        System.out.println("    ✓ PASSED");
+        
+        // Query 9: Relative property equality
+        System.out.println("\n  Query 9: Find asset by relative author (equality)");
+        String query9 = "SELECT [jcr:path] FROM [dam:Asset] WHERE [jcr:content/metadata/author] = 'John Doe' option(traversal fail, index name searchIndex)";
+        List<String> results9 = executeQuery(query9);
+        System.out.printf("    Found %d results: %s%n", results9.size(), results9);
+        assertEquals("Should find 1 asset by relative author (equality)", 1, results9.size());
+        assertTrue("Should contain asset2", results9.stream().anyMatch(p -> p.contains("asset2")));
         System.out.println("    ✓ PASSED");
         
         // STEP 6: Verify index progress was tracked

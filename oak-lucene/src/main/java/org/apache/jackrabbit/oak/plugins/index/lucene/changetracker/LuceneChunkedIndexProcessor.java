@@ -586,21 +586,42 @@ public class LuceneChunkedIndexProcessor {
         if (prop.isArray()) {
             // Handle multi-value properties
             for (int i = 0; i < prop.count(); i++) {
-                Field field = createFieldForProperty(prop, propDef, store, i);
-                if (field != null) {
-                    // Apply boosting if configured (LIMITATION 1.6 - partial implementation)
-                    if (propDef.boost != 1.0f) {
-                        field.setBoost(propDef.boost);
-                    }
-                    doc.add(field);
-                    added = true;
-                }
+                added |= addFieldsForValue(doc, prop, propDef, store, i);
             }
         } else {
             // Handle single-value property
-            Field field = createFieldForProperty(prop, propDef, store, -1);
+            added |= addFieldsForValue(doc, prop, propDef, store, -1);
+        }
+        
+        return added;
+    }
+
+    /**
+     * Adds fields for a single property value (analyzed and/or typed).
+     */
+    private boolean addFieldsForValue(Document doc, org.apache.jackrabbit.oak.api.PropertyState prop, 
+                                      PropertyDefinition propDef, Field.Store store, int index) {
+        boolean added = false;
+        
+        // 1. Analyzed field (for fulltext search)
+        if (propDef.analyzed) {
+            Field field = createAnalyzedField(prop, propDef, store, index);
             if (field != null) {
-                // Apply boosting if configured (LIMITATION 1.6 - partial implementation)
+                // Apply boosting if configured
+                if (propDef.boost != 1.0f) {
+                    field.setBoost(propDef.boost);
+                }
+                doc.add(field);
+                added = true;
+            }
+        }
+        
+        // 2. Typed field (for equality/range queries)
+        // Add if analyzed is false (must have typed field) OR if explicitly requested via propertyIndex
+        if (!propDef.analyzed || propDef.propertyIndex) {
+            Field field = createTypedField(prop, propDef, store, index);
+            if (field != null) {
+                // Apply boosting if configured
                 if (propDef.boost != 1.0f) {
                     field.setBoost(propDef.boost);
                 }
@@ -613,97 +634,95 @@ public class LuceneChunkedIndexProcessor {
     }
     
     /**
-     * Creates appropriate Lucene field based on property type and configuration.
-     * Addresses LIMITATION 1.3 (property type handling).
-     * 
-     * @param prop the property state
-     * @param propDef the property definition
-     * @param store whether to store the field value
-     * @param index array index, or -1 for single value
-     * @return the Lucene field, or null if property can't be indexed
+     * Creates an analyzed text field.
      */
-    private Field createFieldForProperty(org.apache.jackrabbit.oak.api.PropertyState prop,
-                                        PropertyDefinition propDef,
-                                        Field.Store store,
-                                        int index) {
-        int propType = prop.getType().tag();
-        
-        // Get property value based on type
+    private Field createAnalyzedField(org.apache.jackrabbit.oak.api.PropertyState prop,
+                                      PropertyDefinition propDef,
+                                      Field.Store store,
+                                      int index) {
         try {
-            if (propDef.analyzed) {
-                // Analyzed text field (for fulltext search)
-                // IMPORTANT: Oak uses "full:" prefix for analyzed fields
-                // e.g., property "title" becomes field "full:title"
-                String value = index >= 0 ?
-                    prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING, index) :
-                    prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING);
-                if (value != null && !value.isEmpty()) {
-                    // Use Oak's field naming convention for analyzed properties
-                    String analyzedFieldName = FieldNames.createAnalyzedFieldName(propDef.name);
-                    
-                    // Use Oak's field factory to create proper field
-                    // This creates OakTextField with proper tokenization
-                    Field field = FieldFactory.newPropertyField(
-                        analyzedFieldName,           // "full:propertyName"
-                        value,
-                        true,                        // tokenized
-                        propDef.stored
-                    );
-                    LOG.info("Added analyzed field {} with value {}", analyzedFieldName, value); // DEBUG LOG
-                    return field;
-                }
-            } else {
-                // Not analyzed - use appropriate field type based on property type
-                switch (propType) {
-                    case PropertyType.LONG:
-                        Long longValue = index >= 0 ?
-                            prop.getValue(org.apache.jackrabbit.oak.api.Type.LONG, index) :
-                            prop.getValue(org.apache.jackrabbit.oak.api.Type.LONG);
-                        if (longValue != null) {
-                            return new LongField(propDef.name, longValue, store);
-                        }
-                        break;
-                        
-                    case PropertyType.DOUBLE:
-                        Double doubleValue = index >= 0 ?
-                            prop.getValue(org.apache.jackrabbit.oak.api.Type.DOUBLE, index) :
-                            prop.getValue(org.apache.jackrabbit.oak.api.Type.DOUBLE);
-                        if (doubleValue != null) {
-                            return new DoubleField(propDef.name, doubleValue, store);
-                        }
-                        break;
-                        
-                    case PropertyType.DATE:
-                        // Convert date to long (milliseconds) for range queries
-                        String dateStr = index >= 0 ?
-                            prop.getValue(org.apache.jackrabbit.oak.api.Type.DATE, index) :
-                            prop.getValue(org.apache.jackrabbit.oak.api.Type.DATE);
-                        if (dateStr != null) {
-                            // Parse ISO 8601 date string to milliseconds
-                            long dateMillis = javax.xml.bind.DatatypeConverter.parseDateTime(dateStr)
-                                .getTimeInMillis();
-                            return new LongField(propDef.name, dateMillis, store);
-                        }
-                        break;
-                        
-                    case PropertyType.BINARY:
-                        // Binary properties: extract text if configured
-                        // For now, skip binary indexing (requires text extraction setup)
-                        LOG.trace("Binary property {} skipped (text extraction not configured)", propDef.name);
-                        return null;
-                        
-                    default:
-                        // String and other types: use StringField for exact match
-                        String value = index >= 0 ?
-                            prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING, index) :
-                            prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING);
-                        if (value != null && !value.isEmpty()) {
-                            return new StringField(propDef.name, value, store);
-                        }
-                }
+            String value = index >= 0 ?
+                prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING, index) :
+                prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING);
+                
+            if (value != null && !value.isEmpty()) {
+                // Use Oak's field naming convention for analyzed properties
+                String analyzedFieldName = FieldNames.createAnalyzedFieldName(propDef.name);
+                
+                // Use Oak's field factory to create proper field
+                Field field = FieldFactory.newPropertyField(
+                    analyzedFieldName,           // "full:propertyName"
+                    value,
+                    true,                        // tokenized
+                    propDef.stored
+                );
+                LOG.info("Added analyzed field {} with value {}", analyzedFieldName, value); // DEBUG LOG
+                return field;
             }
         } catch (Exception e) {
-            LOG.warn("Error creating field for property {}: {}", propDef.name, e.getMessage());
+            LOG.warn("Error creating analyzed field for property {}: {}", propDef.name, e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * Creates a typed field (String, Long, Double, Date) for exact match or range queries.
+     */
+    private Field createTypedField(org.apache.jackrabbit.oak.api.PropertyState prop,
+                                   PropertyDefinition propDef,
+                                   Field.Store store,
+                                   int index) {
+        int propType = prop.getType().tag();
+        
+        try {
+            switch (propType) {
+                case PropertyType.LONG:
+                    Long longValue = index >= 0 ?
+                        prop.getValue(org.apache.jackrabbit.oak.api.Type.LONG, index) :
+                        prop.getValue(org.apache.jackrabbit.oak.api.Type.LONG);
+                    if (longValue != null) {
+                        return new LongField(propDef.name, longValue, store);
+                    }
+                    break;
+                    
+                case PropertyType.DOUBLE:
+                    Double doubleValue = index >= 0 ?
+                        prop.getValue(org.apache.jackrabbit.oak.api.Type.DOUBLE, index) :
+                        prop.getValue(org.apache.jackrabbit.oak.api.Type.DOUBLE);
+                    if (doubleValue != null) {
+                        return new DoubleField(propDef.name, doubleValue, store);
+                    }
+                    break;
+                    
+                case PropertyType.DATE:
+                    // Convert date to long (milliseconds) for range queries
+                    String dateStr = index >= 0 ?
+                        prop.getValue(org.apache.jackrabbit.oak.api.Type.DATE, index) :
+                        prop.getValue(org.apache.jackrabbit.oak.api.Type.DATE);
+                    if (dateStr != null) {
+                        // Parse ISO 8601 date string to milliseconds
+                        long dateMillis = javax.xml.bind.DatatypeConverter.parseDateTime(dateStr)
+                            .getTimeInMillis();
+                        return new LongField(propDef.name, dateMillis, store);
+                    }
+                    break;
+                    
+                case PropertyType.BINARY:
+                    // Binary properties: extract text if configured
+                    LOG.trace("Binary property {} skipped (text extraction not configured)", propDef.name);
+                    return null;
+                    
+                default:
+                    // String and other types: use StringField for exact match
+                    String value = index >= 0 ?
+                        prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING, index) :
+                        prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING);
+                    if (value != null && !value.isEmpty()) {
+                        return new StringField(propDef.name, value, store);
+                    }
+            }
+        } catch (Exception e) {
+            LOG.warn("Error creating typed field for property {}: {}", propDef.name, e.getMessage());
         }
         
         return null;
