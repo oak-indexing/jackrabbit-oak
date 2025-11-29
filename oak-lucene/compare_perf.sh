@@ -31,6 +31,7 @@ rm -f "$SUMMARY_FILE"
 # Find breaking points for SEGMENT and DOCUMENT (Mongo) and add aggressive scale-up
 SCENARIOS=(
     # Memory baseline (sanity check)
+    "MEMORY 1000 200"
     "MEMORY 10000 2000"
     "MEMORY 50000 5000"
     # Segment store: ramp up to break
