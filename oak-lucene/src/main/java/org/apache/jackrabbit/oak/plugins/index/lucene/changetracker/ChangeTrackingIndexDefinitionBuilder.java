@@ -99,7 +99,7 @@ public class ChangeTrackingIndexDefinitionBuilder {
         pathProp.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
         pathProp.setProperty("name", FIELD_PATH, Type.STRING);
         pathProp.setProperty("propertyIndex", true);
-        pathProp.setProperty("analyzed", false);
+        // pathProp.setProperty("analyzed", false);
         pathProp.setProperty("ordered", false);
         pathProp.setProperty("stored", true);
         
@@ -109,9 +109,9 @@ public class ChangeTrackingIndexDefinitionBuilder {
         timeProp.setProperty("name", FIELD_DIFF_TIME, Type.STRING);
         timeProp.setProperty("propertyIndex", true);
         timeProp.setProperty("type", "Long", Type.STRING);
-        timeProp.setProperty("analyzed", false);
+        // timeProp.setProperty("analyzed", false);
         timeProp.setProperty("ordered", true);
-        timeProp.setProperty("stored", true);
+        // timeProp.setProperty("stored", true);
         
         // ct:serialNumber - ordered, for pagination
         NodeBuilder serialProp = properties.child("ctSerialNumber");
@@ -119,9 +119,9 @@ public class ChangeTrackingIndexDefinitionBuilder {
         serialProp.setProperty("name", FIELD_SERIAL, Type.STRING);
         serialProp.setProperty("propertyIndex", true);
         serialProp.setProperty("type", "Long", Type.STRING);
-        serialProp.setProperty("analyzed", false);
+        // serialProp.setProperty("analyzed", false);
         serialProp.setProperty("ordered", true);
-        serialProp.setProperty("stored", true);
+        // serialProp.setProperty("stored", true);
         
         return index;
     }

@@ -300,6 +300,9 @@ public class BasicChangeTrackerE2ETest {
                 populator.run();
                 // Commit populator internal writer if needed (reflection hack removed, assuming implementation is correct)
                 commitChangeTrackingIndex();
+                
+                // Process all chunks until caught up
+                // ChangeTrackingAsyncIndexUpdate now loops internally to process all available chunks
                 changeTrackingAsyncIndexUpdate.run();
             } catch (Exception e) {
                 throw new RuntimeException("Indexing failed", e);

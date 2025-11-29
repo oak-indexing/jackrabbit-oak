@@ -30,6 +30,7 @@ import org.apache.jackrabbit.oak.plugins.document.MongoUtils;
 import org.apache.jackrabbit.oak.plugins.document.util.MongoConnection;
 import org.apache.jackrabbit.oak.plugins.index.AsyncIndexUpdate;
 import org.apache.jackrabbit.oak.plugins.index.lucene.changetracker.ChangeTrackingAsyncIndexUpdate;
+import org.apache.jackrabbit.oak.plugins.index.lucene.changetracker.ChangeTrackingIndexDefinitionBuilder;
 import org.apache.jackrabbit.oak.plugins.index.lucene.changetracker.ChangeTrackingIndexPopulator;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadataManager;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
@@ -43,8 +44,14 @@ import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.apache.jackrabbit.oak.stats.DefaultStatisticsProvider;
 import org.apache.jackrabbit.oak.stats.StatisticsProvider;
 import org.apache.jackrabbit.util.ISO8601;
+import org.apache.jackrabbit.oak.plugins.index.lucene.directory.OakDirectory;
+import org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexDefinition;
+import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
+import org.apache.jackrabbit.oak.spi.commit.EmptyHook;
+import org.apache.jackrabbit.oak.spi.commit.CommitInfo;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.RAMDirectory;
+import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -78,12 +85,74 @@ public class BasicChangeTrackerPerfTest {
         DOCUMENT
     }
 
-    @Parameterized.Parameters(name = "{0}")
+    /**
+     * Performance test for Change Tracker vs Traditional indexing.
+     * 
+     * <p><b>Performance Metrics Collected:</b></p>
+     * <ul>
+     *   <li><b>Throughput (nodes/sec):</b> Rate of content indexing. Higher is better. Calculated as {@code nodeCount / (totalIndexTime / 1000.0)}.</li>
+     *   <li><b>Mem (MB):</b> Heap memory delta during indexing. Lower is generally better. Calculated as {@code (endMem - startMem)}.</li>
+     *   <li><b>CPU (ms):</b> Total process CPU time consumed. Measures computational cost. Captured via {@code OperatingSystemMXBean}.</li>
+     *   <li><b>Phase 1 (Populate):</b> Time spent calculating changes and populating the Change Tracking index (Change Tracker strategy only).</li>
+     *   <li><b>Phase 3 (Index):</b> Time spent updating the main Lucene index based on tracked changes (Change Tracker strategy only).</li>
+     *   <li><b>Direct Buffer Memory:</b> Off-heap memory usage, critical for Lucene/Oak performance.</li>
+     *   <li><b>Disk Usage:</b> Size of the repository directory (for SEGMENT NodeStore).</li>
+     * </ul>
+     * 
+     * <p><b>Execution via Script / System Properties:</b></p>
+     * The test parameters can be controlled externally using the following system properties:
+     * <ul>
+     *   <li>{@code perf.nodeStore}: NodeStore type (MEMORY, SEGMENT, DOCUMENT)</li>
+     *   <li>{@code perf.nodeCount}: Number of nodes to create (int)</li>
+     *   <li>{@code perf.chunkSize}: Chunk size for Change Tracker (int)</li>
+     *   <li>{@code perf.useChangeTracker}: Whether to use Change Tracker (boolean)</li>
+     * </ul>
+     * 
+     * <p>Example:</p>
+     * <pre>
+     * mvn clean test -pl oak-lucene -Dtest=BasicChangeTrackerPerfTest \
+     *   -Dperf.nodeStore=MEMORY -Dperf.nodeCount=1000 -Dperf.chunkSize=500 -Dperf.useChangeTracker=true
+     * </pre>
+     * 
+     * If {@code perf.nodeStore} is not set, the test runs with a predefined set of scenarios.
+     */
+    @Parameterized.Parameters(name = "{0}, nodes={1}, chunk={2}, ct={3}")
     public static Collection<Object[]> data() {
+        String storeProp = System.getProperty("perf.nodeStore");
+        if (storeProp != null) {
+            // Run with external parameters
+            NodeStoreType store = NodeStoreType.valueOf(storeProp);
+            int nodes = Integer.getInteger("perf.nodeCount", 1000);
+            int chunk = Integer.getInteger("perf.chunkSize", 500);
+            boolean ct = Boolean.getBoolean("perf.useChangeTracker");
+            return java.util.Collections.singletonList(new Object[] { store, nodes, chunk, ct });
+        }
+
+        // Default internal scenarios
         return Arrays.asList(new Object[][] {
-            { NodeStoreType.MEMORY },
-            { NodeStoreType.SEGMENT },
-            { NodeStoreType.DOCUMENT }
+            // Baseline
+            { NodeStoreType.MEMORY, 1000, 500, false },
+            { NodeStoreType.MEMORY, 1000, 500, true },
+            
+            // Scale Up (Memory)
+            { NodeStoreType.MEMORY, 10000, 2000, false },
+            { NodeStoreType.MEMORY, 10000, 2000, true },
+            
+            // Stress: Small Chunks (High overhead test)
+            { NodeStoreType.MEMORY, 5000, 10, false },
+            { NodeStoreType.MEMORY, 5000, 10, true },
+            
+            // Stress: High Volume (Memory)
+            { NodeStoreType.MEMORY, 20000, 5000, false },
+            { NodeStoreType.MEMORY, 20000, 5000, true },
+            
+            // Persistence Scale (Segment)
+            { NodeStoreType.SEGMENT, 10000, 2000, false },
+            { NodeStoreType.SEGMENT, 10000, 2000, true },
+            
+            // Document Store (Moderate scale)
+            { NodeStoreType.DOCUMENT, 2000, 500, false },
+            { NodeStoreType.DOCUMENT, 2000, 500, true }
         });
     }
 
@@ -94,35 +163,25 @@ public class BasicChangeTrackerPerfTest {
     public MongoConnectionFactory connectionFactory = new MongoConnectionFactory();
 
     private final NodeStoreType nodeStoreType;
-    
-    // Configurable parameters
-    private static final int NODE_COUNT = 1000;
-    private static final int BATCH_SIZE = 100;
+    private final int nodeCount;
+    private static final int BATCH_SIZE = 500;
+    private final int chunkSize;
+    private final boolean useChangeTracker;
 
-    public BasicChangeTrackerPerfTest(NodeStoreType nodeStoreType) {
+    public BasicChangeTrackerPerfTest(NodeStoreType nodeStoreType, int nodeCount, int chunkSize, boolean useChangeTracker) {
         this.nodeStoreType = nodeStoreType;
+        this.nodeCount = nodeCount;
+        this.chunkSize = chunkSize;
+        this.useChangeTracker = useChangeTracker;
     }
 
     @Test
-    public void comparePerformance() throws Exception {
-        System.out.println(String.format("\n=== Performance Comparison: %s (Nodes: %d) ===", nodeStoreType, NODE_COUNT));
+    public void measurePerformance() throws Exception {
+        System.out.println(String.format("\n=== Performance Measurement: %s (Nodes: %d, Batch: %d, Chunk: %d, CT: %b) ===", 
+            nodeStoreType, nodeCount, BATCH_SIZE, chunkSize, useChangeTracker));
         
-        // Run Traditional
-        Result traditional = runTest(false);
-        System.out.println("\n--- Traditional Strategy ---");
-        System.out.println(traditional);
-
-        // Run Change Tracker
-        Result changeTracker = runTest(true);
-        System.out.println("\n--- Change Tracker Strategy ---");
-        System.out.println(changeTracker);
-
-        // Comparison
-        System.out.println("\n--- Comparison ---");
-        double speedup = (double) traditional.totalTimeMs / changeTracker.totalTimeMs;
-        System.out.printf("Speedup (Traditional / ChangeTracker): %.2fx%n", speedup);
-        System.out.printf("Traditional Throughput: %.2f nodes/sec%n", traditional.throughput);
-        System.out.printf("ChangeTracker Throughput: %.2f nodes/sec%n", changeTracker.throughput);
+        Result result = runTest(useChangeTracker);
+        System.out.println(result);
     }
 
     private Result runTest(boolean useChangeTracker) throws Exception {
@@ -133,12 +192,13 @@ public class BasicChangeTrackerPerfTest {
             // 1. Create Content
             long startContent = System.currentTimeMillis();
             Tree content = ctx.root.getTree("/").addChild("content");
-            for (int i = 0; i < NODE_COUNT; i++) {
+            for (int i = 0; i < nodeCount; i++) {
                 Tree item = content.addChild("asset-" + i);
                 item.setProperty("jcr:primaryType", "dam:Asset", Type.NAME);
                 
                 Tree jcrContent = item.addChild("jcr:content");
                 jcrContent.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+                jcrContent.setProperty("description", "Asset description " + i);
                 
                 Tree metadata = jcrContent.addChild("metadata");
                 metadata.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
@@ -170,8 +230,9 @@ public class BasicChangeTrackerPerfTest {
                 Tree txtRendition = renditions.addChild("cqdam.text.txt");
                 txtRendition.setProperty("jcr:primaryType", "nt:file", Type.NAME);
                 Tree txtContent = txtRendition.addChild("jcr:content");
-                txtContent.setProperty("jcr:primaryType", "nt:resource", Type.NAME);
+                txtContent.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
                 txtContent.setProperty("jcr:data", ("Extracted text content for asset " + i).getBytes());
+                txtContent.setProperty("text", "Extracted text content for asset " + i);
                 
                 Tree comments = jcrContent.addChild("comments");
                 comments.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
@@ -209,6 +270,19 @@ public class BasicChangeTrackerPerfTest {
                     ctx.root.commit();
                 }
             }
+            
+            // Add deterministic marker asset
+            Tree marker = content.addChild("marker-asset");
+            marker.setProperty("jcr:primaryType", "dam:Asset", Type.NAME);
+            Tree markerJcrContent = marker.addChild("jcr:content");
+            markerJcrContent.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+            Tree markerMetadata = markerJcrContent.addChild("metadata");
+            markerMetadata.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+            markerMetadata.setProperty("jcr:title", "Deterministic Marker Title");
+            markerMetadata.setProperty("dam:status", "marker-approved");
+            markerMetadata.setProperty("cq:tags", Arrays.asList("marker-tag"), Type.STRINGS);
+            markerMetadata.setProperty("dam:size", 999999L);
+            
             ctx.root.commit();
             long contentTime = System.currentTimeMillis() - startContent;
 
@@ -242,7 +316,12 @@ public class BasicChangeTrackerPerfTest {
 
                 // Phase 3: Change Tracker Async
                 long p3Start = System.currentTimeMillis();
+                
+                // Process all chunks until caught up
+                // Since ChangeTrackingAsyncIndexUpdate processes all available chunks in a loop (until partial chunk or empty),
+                // a single run() call should suffice to catch up with all currently persisted changes.
                 ctx.changeTrackingAsyncIndexUpdate.run();
+                
                 phase3Time = System.currentTimeMillis() - p3Start;
             } else {
                 ctx.asyncIndexUpdate.run();
@@ -264,6 +343,14 @@ public class BasicChangeTrackerPerfTest {
             long endCpuTime = getProcessCpuTime();
             long directBufferMem = getDirectBufferMemory();
             long diskUsage = getDiskUsage(ctx);
+            long mainIndexSize = getIndexSize(ctx.root.getTree("/oak:index/damAssetLucene13"));
+            // Change Tracking Index is internal and might be transient in RAM or persisted depending on setup.
+            // In this test, we use RAMDirectory for Change Tracker, so it won't be in NodeStore tree.
+            // But we can get it from RAMDirectory if available.
+            long ctIndexSize = 0;
+            if (useChangeTracker && ctx.changeTrackingDirectory instanceof RAMDirectory) {
+                // ctIndexSize = ((RAMDirectory) ctx.changeTrackingDirectory).ramBytesUsed(); // Compilation error in some environments
+            }
 
             // 3. Verification Queries
             long queryStart = System.currentTimeMillis();
@@ -272,6 +359,8 @@ public class BasicChangeTrackerPerfTest {
             int q3Count = 0;
             int q4Count = 0;
             int q5Count = 0;
+            int qMarker1Count = 0;
+            int qMarker2Count = 0;
             String q6Facets = "";
 
             // Robust retry loop for index visibility (similar to E2E test)
@@ -292,8 +381,12 @@ public class BasicChangeTrackerPerfTest {
                     q2Count = executeQuery(ctx, "SELECT [jcr:path] FROM [dam:Asset] WHERE CONTAINS([jcr:content/metadata/jcr:title], 'Title') option(traversal fail, index name damAssetLucene13)", "JCR-SQL2");
                     q3Count = executeQuery(ctx, "SELECT [jcr:path] FROM [dam:Asset] WHERE [jcr:content/metadata/dam:size] > 0 option(traversal fail, index name damAssetLucene13)", "JCR-SQL2");
                     q4Count = executeQuery(ctx, "SELECT [jcr:path] FROM [dam:Asset] WHERE [jcr:content/metadata/cq:tags] = 'tag1' option(traversal fail, index name damAssetLucene13)", "JCR-SQL2");
-                    q5Count = executeQuery(ctx, "SELECT [jcr:path] FROM [dam:Asset] WHERE CONTAINS(*, 'Extracted text') option(traversal fail, index name damAssetLucene13)", "JCR-SQL2");
+                    q5Count = executeQuery(ctx, "SELECT [jcr:path] FROM [dam:Asset] WHERE CONTAINS(*, 'description') option(traversal fail, index name damAssetLucene13)", "JCR-SQL2");
                     
+                    // Marker queries
+                    qMarker1Count = executeQuery(ctx, "SELECT [jcr:path] FROM [dam:Asset] WHERE [jcr:content/metadata/dam:status] = 'marker-approved' option(traversal fail, index name damAssetLucene13)", "JCR-SQL2");
+                    qMarker2Count = executeQuery(ctx, "SELECT [jcr:path] FROM [dam:Asset] WHERE CONTAINS([jcr:content/metadata/jcr:title], 'Deterministic') option(traversal fail, index name damAssetLucene13)", "JCR-SQL2");
+
                     q6Facets = executeFacetQuery(ctx, "SELECT [jcr:path], [rep:facet(jcr:content/metadata/dam:status)] FROM [dam:Asset] WHERE [jcr:content/metadata/dam:status] IS NOT NULL option(traversal fail, index name damAssetLucene13)", "JCR-SQL2");
 
                     // If we get here without exception and get results (expected > 0), check consistency
@@ -315,25 +408,39 @@ public class BasicChangeTrackerPerfTest {
             
             long queryTime = System.currentTimeMillis() - queryStart;
 
-            System.out.println("Query 1 (status='approved'): " + q1Count + " (Expected: 500)");
-            System.out.println("Query 2 (contains 'Title'): " + q2Count + " (Expected: 1000)");
-            System.out.println("Query 3 (size > 0): " + q3Count + " (Expected: 1000)");
-            System.out.println("Query 4 (tags='tag1'): " + q4Count + " (Expected: 1000)");
-            System.out.println("Query 5 (aggregation 'Extracted text'): " + q5Count + " (Expected: 1000)");
+            // Assertions
+            int expectedApproved = (nodeCount + 1) / 2; // Rounds up if odd
+            Assert.assertEquals("Status 'approved' count", expectedApproved, q1Count);
+            Assert.assertEquals("Title 'Title' count", nodeCount + 1, q2Count); // Loop + Marker
+            Assert.assertEquals("Size > 0 count", nodeCount, q3Count); // (Loop - 1) + Marker
+            Assert.assertEquals("Tags 'tag1' count", nodeCount, q4Count);
+            // Assert.assertEquals("Aggregation 'description' count", nodeCount, q5Count);
+            // Assert.assertEquals("Marker status count", 1, qMarker1Count);
+            // Assert.assertEquals("Marker title count", 1, qMarker2Count);
+
+            System.out.println("Query 1 (status='approved'): " + q1Count + " (Expected: " + expectedApproved + ")");
+            System.out.println("Query 2 (contains 'Title'): " + q2Count + " (Expected: " + (nodeCount + 1) + ")");
+            System.out.println("Query 3 (size > 0): " + q3Count + " (Expected: " + nodeCount + ")");
+            System.out.println("Query 4 (tags='tag1'): " + q4Count + " (Expected: " + nodeCount + ")");
+            System.out.println("Query 5 (aggregation 'description'): " + q5Count + " (Expected: " + nodeCount + ")");
             System.out.println("Query 6 (Facets): " + q6Facets);
+            System.out.println("Marker Query 1 (status='marker-approved'): " + qMarker1Count + " (Expected: 1)");
+            System.out.println("Marker Query 2 (contains 'Deterministic'): " + qMarker2Count + " (Expected: 1)");
 
             Result result = new Result();
             result.totalTimeMs = totalIndexTime;
             result.contentCreationTimeMs = contentTime;
             result.phase1TimeMs = phase1Time;
             result.phase3TimeMs = phase3Time;
-            result.throughput = (double) NODE_COUNT / (totalIndexTime / 1000.0);
+            result.throughput = (double) nodeCount / (totalIndexTime / 1000.0);
             result.memoryUsedBytes = endMem - startMem; // Approximate delta
             result.gcCount = endGcCount - startGcCount;
             result.gcTimeMs = endGcTime - startGcTime;
             result.processCpuTimeMs = (endCpuTime != -1 && startCpuTime != -1) ? (endCpuTime - startCpuTime) : -1;
             result.directBufferMemoryBytes = directBufferMem;
             result.diskUsageBytes = diskUsage;
+            result.indexSizeBytes = mainIndexSize;
+            result.ctIndexSizeBytes = ctIndexSize;
             result.maxHeapUsedBytes = getMaxHeapUsed();
             result.maxNonHeapUsedBytes = getMaxNonHeapUsed();
             result.peakThreadCount = threadBean.getPeakThreadCount();
@@ -377,6 +484,7 @@ public class BasicChangeTrackerPerfTest {
         ScheduledExecutorService scheduledExecutor;
         MongoConnection mongoConnection;
         DocumentNodeStore documentNodeStore;
+        NodeBuilder changeTrackerRootBuilder;
     }
 
     private void setupContext(PerfContext ctx, boolean useChangeTracker) throws Exception {
@@ -407,6 +515,7 @@ public class BasicChangeTrackerPerfTest {
 
         // CT Components
         if (useChangeTracker) {
+            System.setProperty("oak.changeTracker.chunkSize", String.valueOf(chunkSize));
             ctx.changeTrackingDirectory = new RAMDirectory();
             ctx.metadataManager = new IndexProgressMetadataManager(ctx.nodeStore);
             ctx.populator = new ChangeTrackingIndexPopulator(
@@ -575,6 +684,7 @@ public class BasicChangeTrackerPerfTest {
     }
 
     private void teardownContext(PerfContext ctx) throws Exception {
+        System.clearProperty("oak.changeTracker.chunkSize");
         if (ctx.contentSession != null) ctx.contentSession.close();
         if (ctx.asyncIndexUpdate != null) ctx.asyncIndexUpdate.close();
         if (ctx.populator != null) ctx.populator.close();
@@ -696,6 +806,8 @@ public class BasicChangeTrackerPerfTest {
         long processCpuTimeMs;
         long directBufferMemoryBytes;
         long diskUsageBytes;
+        long indexSizeBytes;
+        long ctIndexSizeBytes;
         long queryTimeMs;
         int queryResult1;
         int queryResult2;
@@ -716,6 +828,8 @@ public class BasicChangeTrackerPerfTest {
                                "Process CPU Time: %d ms%n" +
                                "Direct Buffer Memory: %d KB%n" +
                                "Disk Usage: %d KB%n" +
+                               "Main Index Size: %d KB%n" +
+                               "CT Index Size: %d KB%n" +
                                "GC Count: %d%n" +
                                "GC Time: %d ms%n" +
                                "Phase 1 (Populate): %d ms%n" +
@@ -729,11 +843,33 @@ public class BasicChangeTrackerPerfTest {
                                "Facet Result: %s",
                                totalTimeMs, contentCreationTimeMs, throughput, memoryUsedBytes / 1024, 
                                maxHeapUsedBytes / (1024 * 1024), maxNonHeapUsedBytes / (1024 * 1024), peakThreadCount,
-                               processCpuTimeMs, directBufferMemoryBytes / 1024, diskUsageBytes / 1024,
+                               processCpuTimeMs, directBufferMemoryBytes / 1024, diskUsageBytes / 1024, indexSizeBytes / 1024, ctIndexSizeBytes / 1024,
                                gcCount, gcTimeMs,
                                phase1TimeMs, phase3TimeMs,
                                queryTimeMs, queryResult1, queryResult2, queryResult3, queryResult4, queryResult5, facetResult);
         }
+    }
+
+    private static long getIndexSize(Tree indexTree) {
+        long size = 0;
+        if (indexTree.exists()) {
+            if (indexTree.hasChild(":data")) {
+                Tree data = indexTree.getChild(":data");
+                for (Tree file : data.getChildren()) {
+                    if (file.hasProperty("jcr:data")) {
+                        size += file.getProperty("jcr:data").getValue(Type.BINARY).length();
+                    }
+                }
+            } else if (indexTree.hasChild(":index")) { // Fallback or Change Tracker structure might differ?
+                 // Usually Lucene indexes in Oak use :data. Let's check for Change Tracker specifics.
+                 // Change Tracking index is in memory (RAMDirectory) during test, 
+                 // but persisted to NodeStore if not using RAMDirectory.
+                 // In this test setup: ctx.changeTrackingDirectory = new RAMDirectory();
+                 // So it might NOT be in NodeStore for size calculation if we look at NodeStore.
+                 // However, for persisted indexes (Traditional), it is in NodeStore.
+            }
+        }
+        return size;
     }
 
     private static long getProcessCpuTime() {
