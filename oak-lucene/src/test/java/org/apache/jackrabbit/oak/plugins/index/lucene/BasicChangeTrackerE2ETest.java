@@ -70,6 +70,14 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
+import org.apache.jackrabbit.oak.plugins.index.lucene.changetracker.ChangeTrackingIndexDefinitionBuilder;
+import org.apache.jackrabbit.oak.plugins.index.lucene.directory.OakDirectory;
+import org.apache.jackrabbit.oak.plugins.index.lucene.IndexCopier;
+import org.apache.jackrabbit.oak.plugins.index.lucene.IndexTracker;
+import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
+import org.apache.jackrabbit.oak.plugins.blob.datastore.DataStoreBlobStore;
+import org.apache.jackrabbit.oak.plugins.blob.datastore.OakFileDataStore;
+
 /**
  * End-to-end test for Change Tracker verifying different NodeStore types and Indexing Strategies.
  * 
@@ -126,6 +134,10 @@ public class BasicChangeTrackerE2ETest {
     private ChangeTrackingAsyncIndexUpdate changeTrackingAsyncIndexUpdate;
     private LuceneIndexProvider provider;
 
+    // Shared IndexCopier components
+    private java.util.concurrent.ExecutorService indexCopierExecutor;
+    private IndexCopier indexCopier;
+
     // SegmentNodeStore components
     private FileStore fileStore;
     private ScheduledExecutorService scheduledExecutor;
@@ -141,6 +153,11 @@ public class BasicChangeTrackerE2ETest {
 
     @Before
     public void setUp() throws Exception {
+        // Initialize shared IndexCopier
+        File indexWorkDir = temporaryFolder.newFolder("indexCopier");
+        indexCopierExecutor = Executors.newSingleThreadExecutor();
+        indexCopier = new IndexCopier(indexCopierExecutor, indexWorkDir, true);
+
         // 1. Create NodeStore
         if (nodeStoreType == NodeStoreType.MEMORY) {
             nodeStore = new MemoryNodeStore();
@@ -152,7 +169,40 @@ public class BasicChangeTrackerE2ETest {
         
         // 2. Setup Change Tracking components (only relevant if strategy is CHANGE_TRACKER)
         if (indexingStrategy == IndexingStrategy.CHANGE_TRACKER) {
-            changeTrackingDirectory = new RAMDirectory();
+            // Initialize structure if needed
+            NodeBuilder rootBuilder = nodeStore.getRoot().builder();
+            if (!rootBuilder.hasChildNode("oak:index")) {
+                rootBuilder.child("oak:index").setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+            }
+            
+            // Create the Lucene directory for the change tracking index in NodeStore
+            NodeBuilder oakIndex = rootBuilder.child("oak:index");
+            ChangeTrackingIndexDefinitionBuilder.createChangeTrackingIndex(oakIndex);
+            
+            // Persist index definition
+            nodeStore.merge(rootBuilder, org.apache.jackrabbit.oak.spi.commit.EmptyHook.INSTANCE, org.apache.jackrabbit.oak.spi.commit.CommitInfo.EMPTY);
+            
+            // Re-fetch root builder to ensure consistency for OakDirectory
+            rootBuilder = nodeStore.getRoot().builder();
+            NodeBuilder persistentIndex = rootBuilder.child("oak:index").child("changeTrackingIndex");
+            
+            // Ensure :data node exists (required for OakDirectory)
+            if (!persistentIndex.hasChildNode(":data")) {
+                persistentIndex.child(":data");
+                // Persist :data node creation
+                nodeStore.merge(rootBuilder, org.apache.jackrabbit.oak.spi.commit.EmptyHook.INSTANCE, org.apache.jackrabbit.oak.spi.commit.CommitInfo.EMPTY);
+                // Re-fetch again
+                rootBuilder = nodeStore.getRoot().builder();
+                persistentIndex = rootBuilder.child("oak:index").child("changeTrackingIndex");
+            }
+            
+            // Create OakDirectory backed by NodeStore
+            LuceneIndexDefinition def = new LuceneIndexDefinition(nodeStore.getRoot(), persistentIndex.getNodeState(), "/oak:index/changeTrackingIndex");
+            OakDirectory remote = new OakDirectory(persistentIndex, ":data", def, false);
+            
+            // Wrap with IndexCopier for local Copy-On-Write performance
+            changeTrackingDirectory = indexCopier.wrapForWrite(def, remote, false, ":data", IndexCopier.COWDirectoryTracker.NOOP);
+            
             metadataManager = new IndexProgressMetadataManager(nodeStore);
             populator = new ChangeTrackingIndexPopulator(
                 nodeStore,
@@ -164,8 +214,10 @@ public class BasicChangeTrackerE2ETest {
         }
 
         // 3. Create Oak ContentRepository
-        provider = new LuceneIndexProvider();
-        LuceneIndexEditorProvider editorProvider = new LuceneIndexEditorProvider();
+        IndexTracker tracker = new IndexTracker(indexCopier);
+        provider = new LuceneIndexProvider(tracker);
+        
+        LuceneIndexEditorProvider editorProvider = new LuceneIndexEditorProvider(indexCopier);
 
         contentRepository = new Oak(nodeStore)
             .with(new InitialContent())
@@ -229,6 +281,7 @@ public class BasicChangeTrackerE2ETest {
         if (asyncIndexUpdate != null) asyncIndexUpdate.close();
         if (populator != null) populator.close();
         if (changeTrackingDirectory != null) changeTrackingDirectory.close();
+        if (indexCopierExecutor != null) indexCopierExecutor.shutdown();
         
         // Clean up NodeStore resources
         if (nodeStoreType == NodeStoreType.SEGMENT) {
@@ -258,8 +311,17 @@ public class BasicChangeTrackerE2ETest {
             scheduledExecutor = Executors.newSingleThreadScheduledExecutor();
             DefaultStatisticsProvider statisticsProvider = new DefaultStatisticsProvider(scheduledExecutor);
             
+            // Create FileDataStore
+            File blobStoreDir = temporaryFolder.newFolder("blobstore-segment-" + System.currentTimeMillis());
+            OakFileDataStore fds = new OakFileDataStore();
+            fds.setPath(blobStoreDir.getAbsolutePath());
+            fds.init(null);
+            
+            DataStoreBlobStore blobStore = new DataStoreBlobStore(fds);
+            
             fileStore = FileStoreBuilder.fileStoreBuilder(segmentDir)
                     .withStatisticsProvider(statisticsProvider)
+                    .withBlobStore(blobStore)
                     .withMaxFileSize(256)  // Small segments for testing
                     .withMemoryMapping(false)  // Disable memory mapping for test
                     .build();
@@ -280,9 +342,18 @@ public class BasicChangeTrackerE2ETest {
             // Clean up any existing collections
             MongoUtils.dropCollections(mongoConnection.getDatabase());
             
+            // Create FileDataStore
+            File blobStoreDir = temporaryFolder.newFolder("blobstore");
+            OakFileDataStore fds = new OakFileDataStore();
+            fds.setPath(blobStoreDir.getAbsolutePath());
+            fds.init(null);
+            
+            DataStoreBlobStore blobStore = new DataStoreBlobStore(fds);
+            
             // Create DocumentNodeStore with MongoDB backend
             documentNodeStore = new DocumentMK.Builder()
                     .setMongoDB(mongoConnection.getMongoClient(), mongoConnection.getDBName())
+                    .setBlobStore(blobStore)
                     .setAsyncDelay(0)  // Disable async delay for testing
                     .getNodeStore();
             
