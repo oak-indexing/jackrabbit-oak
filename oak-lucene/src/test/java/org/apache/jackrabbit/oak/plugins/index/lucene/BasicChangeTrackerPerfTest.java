@@ -30,6 +30,10 @@ import org.apache.jackrabbit.oak.plugins.document.MongoUtils;
 import org.apache.jackrabbit.oak.plugins.document.util.MongoConnection;
 import org.apache.jackrabbit.oak.plugins.index.AsyncIndexUpdate;
 import org.apache.jackrabbit.oak.plugins.index.lucene.changetracker.ChangeTrackingAsyncIndexUpdate;
+import org.apache.jackrabbit.oak.plugins.index.lucene.IndexCopier;
+import org.apache.jackrabbit.oak.plugins.index.lucene.IndexTracker;
+import org.apache.jackrabbit.oak.plugins.blob.datastore.DataStoreBlobStore;
+import org.apache.jackrabbit.oak.plugins.blob.datastore.OakFileDataStore;
 import org.apache.jackrabbit.oak.plugins.index.lucene.changetracker.ChangeTrackingIndexDefinitionBuilder;
 import org.apache.jackrabbit.oak.plugins.index.lucene.changetracker.ChangeTrackingIndexPopulator;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadataManager;
@@ -50,7 +54,6 @@ import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.commit.EmptyHook;
 import org.apache.jackrabbit.oak.spi.commit.CommitInfo;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.store.RAMDirectory;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -97,6 +100,7 @@ public class BasicChangeTrackerPerfTest {
      *   <li><b>Phase 3 (Index):</b> Time spent updating the main Lucene index based on tracked changes (Change Tracker strategy only).</li>
      *   <li><b>Direct Buffer Memory:</b> Off-heap memory usage, critical for Lucene/Oak performance.</li>
      *   <li><b>Disk Usage:</b> Size of the repository directory (for SEGMENT NodeStore).</li>
+     *   <li><b>Index Size:</b> Size of the main Lucene index (damAssetLucene13) and Change Tracker index (if enabled).</li>
      * </ul>
      * 
      * <p><b>Execution via Script / System Properties:</b></p>
@@ -344,12 +348,10 @@ public class BasicChangeTrackerPerfTest {
             long directBufferMem = getDirectBufferMemory();
             long diskUsage = getDiskUsage(ctx);
             long mainIndexSize = getIndexSize(ctx.root.getTree("/oak:index/damAssetLucene13"));
-            // Change Tracking Index is internal and might be transient in RAM or persisted depending on setup.
-            // In this test, we use RAMDirectory for Change Tracker, so it won't be in NodeStore tree.
-            // But we can get it from RAMDirectory if available.
+            // Change Tracking Index is now in NodeStore
             long ctIndexSize = 0;
-            if (useChangeTracker && ctx.changeTrackingDirectory instanceof RAMDirectory) {
-                // ctIndexSize = ((RAMDirectory) ctx.changeTrackingDirectory).ramBytesUsed(); // Compilation error in some environments
+            if (useChangeTracker) {
+                 ctIndexSize = getIndexSize(ctx.root.getTree("/oak:index/changeTrackingIndex"));
             }
 
             // 3. Verification Queries
@@ -479,6 +481,9 @@ public class BasicChangeTrackerPerfTest {
         LuceneIndexProvider provider;
         LuceneIndexEditorProvider editorProvider;
         
+        java.util.concurrent.ExecutorService indexCopierExecutor;
+        IndexCopier indexCopier;
+        
         FileStore fileStore;
         File storeDir;
         ScheduledExecutorService scheduledExecutor;
@@ -496,8 +501,16 @@ public class BasicChangeTrackerPerfTest {
             ctx.storeDir = segmentDir;
             ctx.scheduledExecutor = Executors.newSingleThreadScheduledExecutor();
             DefaultStatisticsProvider statisticsProvider = new DefaultStatisticsProvider(ctx.scheduledExecutor);
+            
+            File blobStoreDir = temporaryFolder.newFolder("blobstore-segment-" + System.nanoTime());
+            OakFileDataStore fds = new OakFileDataStore();
+            fds.setPath(blobStoreDir.getAbsolutePath());
+            fds.init(null);
+            DataStoreBlobStore blobStore = new DataStoreBlobStore(fds);
+            
             ctx.fileStore = FileStoreBuilder.fileStoreBuilder(segmentDir)
                     .withStatisticsProvider(statisticsProvider)
+                    .withBlobStore(blobStore)
                     .withMaxFileSize(256)
                     .withMemoryMapping(false)
                     .build();
@@ -506,17 +519,53 @@ public class BasicChangeTrackerPerfTest {
             assumeTrue("MongoDB not available", MongoUtils.isAvailable());
             ctx.mongoConnection = connectionFactory.getConnection();
             MongoUtils.dropCollections(ctx.mongoConnection.getDatabase());
+            
+            File blobStoreDir = temporaryFolder.newFolder("blobstore-mongo-" + System.nanoTime());
+            OakFileDataStore fds = new OakFileDataStore();
+            fds.setPath(blobStoreDir.getAbsolutePath());
+            fds.init(null);
+            DataStoreBlobStore blobStore = new DataStoreBlobStore(fds);
+
             ctx.documentNodeStore = new DocumentMK.Builder()
                     .setMongoDB(ctx.mongoConnection.getMongoClient(), ctx.mongoConnection.getDBName())
+                    .setBlobStore(blobStore)
                     .setAsyncDelay(0)
                     .getNodeStore();
             ctx.nodeStore = ctx.documentNodeStore;
         }
 
+        // Shared IndexCopier
+        File indexWorkDir = temporaryFolder.newFolder("indexCopier");
+        ctx.indexCopierExecutor = Executors.newSingleThreadExecutor();
+        ctx.indexCopier = new IndexCopier(ctx.indexCopierExecutor, indexWorkDir, true);
+
         // CT Components
         if (useChangeTracker) {
             System.setProperty("oak.changeTracker.chunkSize", String.valueOf(chunkSize));
-            ctx.changeTrackingDirectory = new RAMDirectory();
+            
+            // Create Change Tracker Index Definition
+            NodeBuilder rootBuilder = ctx.nodeStore.getRoot().builder();
+            if (!rootBuilder.hasChildNode("oak:index")) {
+                rootBuilder.child("oak:index").setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+            }
+            ChangeTrackingIndexDefinitionBuilder.createChangeTrackingIndex(rootBuilder.child("oak:index"));
+            ctx.nodeStore.merge(rootBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+
+            // Get persisted index
+            rootBuilder = ctx.nodeStore.getRoot().builder();
+            NodeBuilder persistentIndex = rootBuilder.child("oak:index").child("changeTrackingIndex");
+            if (!persistentIndex.hasChildNode(":data")) {
+                persistentIndex.child(":data");
+                ctx.nodeStore.merge(rootBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+                rootBuilder = ctx.nodeStore.getRoot().builder();
+                persistentIndex = rootBuilder.child("oak:index").child("changeTrackingIndex");
+            }
+
+            // Create OakDirectory and Wrap
+            LuceneIndexDefinition def = new LuceneIndexDefinition(ctx.nodeStore.getRoot(), persistentIndex.getNodeState(), "/oak:index/changeTrackingIndex");
+            OakDirectory remote = new OakDirectory(persistentIndex, ":data", def, false);
+            ctx.changeTrackingDirectory = ctx.indexCopier.wrapForWrite(def, remote, false, ":data", IndexCopier.COWDirectoryTracker.NOOP);
+
             ctx.metadataManager = new IndexProgressMetadataManager(ctx.nodeStore);
             ctx.populator = new ChangeTrackingIndexPopulator(
                 ctx.nodeStore, ctx.changeTrackingDirectory, ctx.metadataManager, StatisticsProvider.NOOP
@@ -525,8 +574,9 @@ public class BasicChangeTrackerPerfTest {
         }
 
         // Repository
-        ctx.provider = new LuceneIndexProvider();
-        ctx.editorProvider = new LuceneIndexEditorProvider();
+        IndexTracker tracker = new IndexTracker(ctx.indexCopier);
+        ctx.provider = new LuceneIndexProvider(tracker);
+        ctx.editorProvider = new LuceneIndexEditorProvider(ctx.indexCopier);
         
         ctx.contentRepository = new Oak(ctx.nodeStore)
             .with(new InitialContent())
@@ -689,6 +739,7 @@ public class BasicChangeTrackerPerfTest {
         if (ctx.asyncIndexUpdate != null) ctx.asyncIndexUpdate.close();
         if (ctx.populator != null) ctx.populator.close();
         if (ctx.changeTrackingDirectory != null) ctx.changeTrackingDirectory.close();
+        if (ctx.indexCopierExecutor != null) ctx.indexCopierExecutor.shutdown();
         
         if (ctx.fileStore != null) ctx.fileStore.close();
         if (ctx.scheduledExecutor != null) ctx.scheduledExecutor.shutdown();

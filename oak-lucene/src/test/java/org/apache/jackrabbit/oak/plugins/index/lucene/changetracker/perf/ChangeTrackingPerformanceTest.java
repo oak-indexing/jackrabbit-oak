@@ -80,6 +80,16 @@ import java.util.concurrent.ScheduledExecutorService;
 import static org.junit.Assume.assumeTrue;
 import static org.junit.Assert.assertTrue;
 
+import org.apache.jackrabbit.oak.plugins.index.lucene.IndexCopier;
+import org.apache.jackrabbit.oak.plugins.index.lucene.IndexTracker;
+import org.apache.jackrabbit.oak.plugins.blob.datastore.DataStoreBlobStore;
+import org.apache.jackrabbit.oak.plugins.blob.datastore.OakFileDataStore;
+import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
+import org.apache.jackrabbit.oak.plugins.index.lucene.changetracker.ChangeTrackingIndexDefinitionBuilder;
+import org.apache.jackrabbit.oak.plugins.index.lucene.directory.OakDirectory;
+import org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexDefinition;
+import org.apache.jackrabbit.oak.api.Type;
+
 /**
  * Comprehensive performance test to identify breaking points for change tracking implementation.
  * 
@@ -151,6 +161,10 @@ public class ChangeTrackingPerformanceTest {
     // Test Components
     // ========================================
     
+    // Shared IndexCopier components
+    private java.util.concurrent.ExecutorService indexCopierExecutor;
+    private IndexCopier indexCopier;
+
     // NodeStore components
     private NodeStore nodeStore;
     private FileStore fileStore;
@@ -206,6 +220,11 @@ public class ChangeTrackingPerformanceTest {
         performanceMonitor = new PerformanceMonitor();
         testReport = new TestReport();
         
+        // Initialize shared IndexCopier
+        File indexWorkDir = temporaryFolder.newFolder("indexCopier");
+        indexCopierExecutor = Executors.newSingleThreadExecutor();
+        indexCopier = new IndexCopier(indexCopierExecutor, indexWorkDir, true);
+        
         repository = createRepository();
         root = repository.login(null, null).getLatestRoot();
         
@@ -230,6 +249,9 @@ public class ChangeTrackingPerformanceTest {
         }
         if (changeTrackingDirectory != null) {
             changeTrackingDirectory.close();
+        }
+        if (indexCopierExecutor != null) {
+            indexCopierExecutor.shutdown();
         }
         
         // Close NodeStore resources
@@ -426,8 +448,9 @@ public class ChangeTrackingPerformanceTest {
             nodeStore = new MemoryNodeStore();
         }
         
-        luceneEditorProvider = new LuceneIndexEditorProvider();
-        luceneIndexProvider = new LuceneIndexProvider();
+        IndexTracker tracker = new IndexTracker(indexCopier);
+        luceneIndexProvider = new LuceneIndexProvider(tracker);
+        luceneEditorProvider = new LuceneIndexEditorProvider(indexCopier);
         asyncIndexUpdate = new AsyncIndexUpdate("async", nodeStore, luceneEditorProvider);
         
         if (USE_CHANGE_TRACKING) {
@@ -457,8 +480,17 @@ public class ChangeTrackingPerformanceTest {
             scheduledExecutor = Executors.newSingleThreadScheduledExecutor();
             DefaultStatisticsProvider statisticsProvider = new DefaultStatisticsProvider(scheduledExecutor);
             
+            // Create FileDataStore
+            File blobStoreDir = temporaryFolder.newFolder("blobstore-segment");
+            OakFileDataStore fds = new OakFileDataStore();
+            fds.setPath(blobStoreDir.getAbsolutePath());
+            fds.init(null);
+            
+            DataStoreBlobStore blobStore = new DataStoreBlobStore(fds);
+            
             fileStore = FileStoreBuilder.fileStoreBuilder(segmentDir)
                     .withStatisticsProvider(statisticsProvider)
+                    .withBlobStore(blobStore)
                     .withMaxFileSize(256)
                     .withMemoryMapping(false)
                     .build();
@@ -478,8 +510,17 @@ public class ChangeTrackingPerformanceTest {
             
             MongoUtils.dropCollections(mongoConnection.getDatabase());
             
+            // Create FileDataStore
+            File blobStoreDir = temporaryFolder.newFolder("blobstore-mongo");
+            OakFileDataStore fds = new OakFileDataStore();
+            fds.setPath(blobStoreDir.getAbsolutePath());
+            fds.init(null);
+            
+            DataStoreBlobStore blobStore = new DataStoreBlobStore(fds);
+            
             documentNodeStore = new DocumentMK.Builder()
                     .setMongoDB(mongoConnection.getMongoClient(), mongoConnection.getDBName())
+                    .setBlobStore(blobStore)
                     .setAsyncDelay(0)
                     .getNodeStore();
             
@@ -494,7 +535,36 @@ public class ChangeTrackingPerformanceTest {
     private void initializeChangeTracking() throws Exception {
         LOG.info("Initializing change tracking...");
         
-        changeTrackingDirectory = new org.apache.lucene.store.RAMDirectory();
+        // Create the Lucene directory for the change tracking index in NodeStore
+        NodeBuilder rootBuilder = nodeStore.getRoot().builder();
+        if (!rootBuilder.hasChildNode("oak:index")) {
+            rootBuilder.child("oak:index").setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        }
+        NodeBuilder oakIndex = rootBuilder.child("oak:index");
+        ChangeTrackingIndexDefinitionBuilder.createChangeTrackingIndex(oakIndex);
+        
+        // Persist index definition
+        nodeStore.merge(rootBuilder, org.apache.jackrabbit.oak.spi.commit.EmptyHook.INSTANCE, org.apache.jackrabbit.oak.spi.commit.CommitInfo.EMPTY);
+        
+        // Re-fetch root builder to ensure consistency for OakDirectory
+        rootBuilder = nodeStore.getRoot().builder();
+        NodeBuilder persistentIndex = rootBuilder.child("oak:index").child("changeTrackingIndex");
+        
+        // Ensure :data node exists
+        if (!persistentIndex.hasChildNode(":data")) {
+            persistentIndex.child(":data");
+            nodeStore.merge(rootBuilder, org.apache.jackrabbit.oak.spi.commit.EmptyHook.INSTANCE, org.apache.jackrabbit.oak.spi.commit.CommitInfo.EMPTY);
+            rootBuilder = nodeStore.getRoot().builder();
+            persistentIndex = rootBuilder.child("oak:index").child("changeTrackingIndex");
+        }
+        
+        // Create OakDirectory backed by NodeStore
+        LuceneIndexDefinition def = new LuceneIndexDefinition(nodeStore.getRoot(), persistentIndex.getNodeState(), "/oak:index/changeTrackingIndex");
+        OakDirectory remote = new OakDirectory(persistentIndex, ":data", def, false);
+        
+        // Wrap with IndexCopier
+        changeTrackingDirectory = indexCopier.wrapForWrite(def, remote, false, ":data", IndexCopier.COWDirectoryTracker.NOOP);
+        
         metadataManager = new IndexProgressMetadataManager(nodeStore);
         
         changeTrackingPopulator = new ChangeTrackingIndexPopulator(
@@ -511,7 +581,7 @@ public class ChangeTrackingPerformanceTest {
             "change-tracker-async",
             nodeStore,
             changeTrackingDirectory,
-            changeTrackingWriter
+            null
         );
         
         LOG.info("Change tracking initialized");

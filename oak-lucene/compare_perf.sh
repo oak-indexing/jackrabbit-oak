@@ -17,13 +17,25 @@ rm -f "$SUMMARY_FILE"
 
 # Define Scenarios as arrays: Store Nodes Chunk
 # Example: "MEMORY 1000 500"
+# Find breaking points for SEGMENT and DOCUMENT (Mongo) and add aggressive scale-up
 SCENARIOS=(
-    "MEMORY 1000 500"
+    # Memory baseline (sanity check)
     "MEMORY 10000 2000"
-    "MEMORY 5000 10"
-    "MEMORY 20000 5000"
-    "SEGMENT 10000 2000"
-    "DOCUMENT 2000 500"
+    "MEMORY 50000 5000"
+    # Segment store: ramp up to break
+    "SEGMENT 20000 2000"
+    "SEGMENT 50000 5000"
+    "SEGMENT 100000 5000"
+    "SEGMENT 250000 10000"
+    "SEGMENT 500000 25000"
+    "SEGMENT 1000000 50000"
+    # DocumentNodeStore (Mongo): ramp up to break
+    "DOCUMENT 20000 2000"
+    "DOCUMENT 50000 5000"
+    "DOCUMENT 100000 5000"
+    "DOCUMENT 250000 10000"
+    "DOCUMENT 500000 25000"
+    "DOCUMENT 1000000 50000"
 )
 
 # JVM Configurations to Loop Over
@@ -79,6 +91,8 @@ print_stats_from_file() {
     local THROUGHPUT=""
     local MEM_MB=""
     local CPU=""
+    local GC_COUNT=""
+    local GC_TIME=""
     local PHASE1=""
     local PHASE3=""
     local DIRECT_BUF=""
@@ -94,6 +108,8 @@ print_stats_from_file() {
             MEM_MB=$((MEM_KB / 1024))
         fi
         if [[ $line == "Process CPU Time:"* ]]; then CPU=$(echo $line | awk '{print $4}'); fi
+        if [[ $line == "GC Count:"* ]]; then GC_COUNT=$(echo $line | awk '{print $3}'); fi
+        if [[ $line == "GC Time:"* ]]; then GC_TIME=$(echo $line | awk '{print $3}'); fi
         if [[ $line == "Phase 1 (Populate):"* ]]; then PHASE1=$(echo $line | awk '{print $4}'); fi
         if [[ $line == "Phase 3 (Index):"* ]]; then PHASE3=$(echo $line | awk '{print $4}'); fi
         if [[ $line == "Direct Buffer Memory:"* ]]; then DIRECT_BUF=$(echo $line | awk '{print $4}'); fi
@@ -114,12 +130,12 @@ print_stats_from_file() {
     # Truncate JVM config for display if needed
     local MEM_DISPLAY=$(echo $MEM_CONFIG | awk '{print $1}')
     
-    printf "%-10s | %-10s | %-10s | %-10s | %-15s | %-15s | %-15s | %-15s | %-10s | %-10s | %-10s | %-10s | %-10s | %-10s | %-10s\n" "$MEM_DISPLAY" "$STORE" "$NODES" "$CHUNK" "$STRATEGY" "$TIME" "$THROUGHPUT" "$MEM_MB" "$CPU" "$PHASE1" "$PHASE3" "$DIRECT_BUF" "$DISK_USAGE" "$INDEX_SIZE" "$CT_INDEX_SIZE" | tee -a "$SUMMARY_FILE"
+    printf "%-10s | %-10s | %-10s | %-10s | %-15s | %-15s | %-15s | %-15s | %-15s | %-10s | %-10s | %-10s | %-10s | %-10s | %-10s | %-10s | %-10s\n" "$MEM_DISPLAY" "$STORE" "$NODES" "$CHUNK" "$STRATEGY" "$TIME" "$THROUGHPUT" "$MEM_MB" "$CPU" "$GC_COUNT" "$GC_TIME" "$PHASE1" "$PHASE3" "$DIRECT_BUF" "$DISK_USAGE" "$INDEX_SIZE" "$CT_INDEX_SIZE" | tee -a "$SUMMARY_FILE"
 }
 
 # Header
-printf "%-10s | %-10s | %-10s | %-10s | %-15s | %-15s | %-15s | %-15s | %-10s | %-10s | %-10s | %-10s | %-10s | %-10s | %-10s\n" "JVM" "Store" "Nodes" "Chunk" "Strategy" "Time(ms)" "Throughput" "Mem(MB)" "CPU(ms)" "P1(ms)" "P3(ms)" "DirBuf(KB)" "Disk(MB)" "Idx(MB)" "CTIdx(MB)" | tee -a "$SUMMARY_FILE"
-echo "------------------------------------------------------------------------------------------------------------------------------------------------" | tee -a "$SUMMARY_FILE"
+printf "%-10s | %-10s | %-10s | %-10s | %-15s | %-15s | %-15s | %-15s | %-15s | %-10s | %-10s | %-10s | %-10s | %-10s | %-10s | %-10s | %-10s\n" "JVM" "Store" "Nodes" "Chunk" "Strategy" "Time(ms)" "Throughput" "Mem(MB)" "CPU(ms)" "GC(#)" "GC(ms)" "P1(ms)" "P3(ms)" "DirBuf(KB)" "Disk(MB)" "Idx(MB)" "CTIdx(MB)" | tee -a "$SUMMARY_FILE"
+echo "---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------" | tee -a "$SUMMARY_FILE"
 
 # Loop through JVM configs and scenarios
 for jvm_opts in "${JVM_CONFIGS[@]}"; do
