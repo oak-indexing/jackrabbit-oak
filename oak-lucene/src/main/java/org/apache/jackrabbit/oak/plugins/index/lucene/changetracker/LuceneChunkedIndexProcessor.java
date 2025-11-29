@@ -221,9 +221,8 @@ public class LuceneChunkedIndexProcessor {
             return 0;
         }
         
-        // Get current repository state and initialize cache (Optimization Strategy 1)
+        // Get current repository state
         NodeState root = nodeStore.getRoot();
-        ChunkNodeCache nodeCache = new ChunkNodeCache(root);
         
         // Collect impacted rules map for unified lookup of relative properties and aggregations
         Map<String, List<IndexDefinition.IndexingRule>> impactedRulesMap = collectImpactedRules(indexDefinition);
@@ -251,14 +250,14 @@ public class LuceneChunkedIndexProcessor {
             try {
                 String path = entry.getPath();
                 
-                // Get the node at the changed path using cache
-                NodeState node = nodeCache.get(path);
+                // Get the node at the changed path
+                NodeState node = getNodeAtPath(root, path);
                 
                 // Check if path is within index scope
                 boolean isIncluded = indexDefinition.getPathFilter().filter(path) != PathFilter.Result.EXCLUDE;
                 
                 // Check if this path triggers parent re-indexing (relative properties or aggregations)
-                Set<String> impactedParents = findImpactedParents(path, indexDefinition, impactedRulesMap, nodeCache);
+                Set<String> impactedParents = findImpactedParents(path, indexDefinition, impactedRulesMap, root);
                 
                 if (!impactedParents.isEmpty()) {
                     LOG.trace("Changed path {} impacts parents: {}", path, impactedParents);
@@ -938,14 +937,14 @@ public class LuceneChunkedIndexProcessor {
      * @param changedPath the path that changed
      * @param indexDefinition the index definition (for max depth calculation)
      * @param impactedRulesMap pre-calculated map of relative paths to rules
-     * @param nodeCache cache for node lookups
+     * @param root root node state for lookups
      * @return set of parent paths that need to be indexed
      */
     private Set<String> findImpactedParents(
             String changedPath,
             IndexDefinition indexDefinition,
             Map<String, List<IndexDefinition.IndexingRule>> impactedRulesMap,
-            ChunkNodeCache nodeCache) {
+            NodeState root) {
         
         Set<String> parentPaths = new HashSet<>();
         String currentPath = changedPath;
@@ -982,7 +981,7 @@ public class LuceneChunkedIndexProcessor {
                 
                 if (match) {
                     // Pattern matches, check if parent node exists and matches rule
-                    NodeState parentNode = nodeCache.get(parentPath);
+                    NodeState parentNode = getNodeAtPath(root, parentPath);
                     if (parentNode != null && parentNode.exists()) {
                         for (IndexDefinition.IndexingRule rule : entry.getValue()) {
                             if (rule.appliesTo(parentNode)) {
