@@ -111,7 +111,7 @@ public class ChangeTrackingIndexDefinitionBuilder {
         timeProp.setProperty("type", "Long", Type.STRING);
         // timeProp.setProperty("analyzed", false);
         timeProp.setProperty("ordered", true);
-        // timeProp.setProperty("stored", true);
+         timeProp.setProperty("stored", false);
         
         // ct:serialNumber - ordered, for pagination
         NodeBuilder serialProp = properties.child("ctSerialNumber");
@@ -121,7 +121,7 @@ public class ChangeTrackingIndexDefinitionBuilder {
         serialProp.setProperty("type", "Long", Type.STRING);
         // serialProp.setProperty("analyzed", false);
         serialProp.setProperty("ordered", true);
-        // serialProp.setProperty("stored", true);
+         serialProp.setProperty("stored", false);
         
         return index;
     }

@@ -23,7 +23,7 @@ import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.LongField;
-import org.apache.lucene.document.StringField;
+import org.apache.lucene.document.StoredField;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.Term;
 import org.jetbrains.annotations.NotNull;
@@ -179,8 +179,8 @@ public class ChangeTrackingIndexEditor implements Editor {
             
             Document doc = new Document();
             
-            // ct:path - the changed path
-            doc.add(new StringField(FIELD_PATH, path, Field.Store.YES));
+            // ct:path - the changed path (Stored but not indexed for performance)
+            doc.add(new StoredField(FIELD_PATH, path));
             
             // ct:diffProcessingTime - for ordering and retention (Lucene 4.7 uses LongField)
             doc.add(new LongField(FIELD_DIFF_PROCESSING_TIME, diffProcessingTime, Field.Store.YES));
@@ -190,6 +190,8 @@ public class ChangeTrackingIndexEditor implements Editor {
             
             // Use updateDocument to ensure path is unique in the index (deduplication)
             indexWriter.updateDocument(new Term(FIELD_PATH, path), doc);
+            // Use addDocument for faster append-only writes (deduplication happens at query/processing time if needed)
+            // indexWriter.addDocument(doc);
             entriesWritten++;
             
             if (entriesWritten % 10000 == 0) {
