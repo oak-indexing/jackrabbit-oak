@@ -18,7 +18,6 @@ package org.apache.jackrabbit.oak.plugins.index.lucene.changetracker;
 
 import org.apache.jackrabbit.oak.api.CommitFailedException;
 import org.apache.jackrabbit.oak.api.PropertyState;
-import org.apache.jackrabbit.oak.plugins.index.search.changetracker.ChangeEntry;
 import org.apache.jackrabbit.oak.spi.commit.Editor;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.lucene.document.Document;
@@ -77,6 +76,11 @@ public class ChangeTrackingIndexEditor implements Editor {
     private long entriesWritten = 0;
     
     /**
+     * Flag to debounce multiple writes for the same node (e.g. multiple property changes).
+     */
+    private boolean changeRecorded = false;
+    
+    /**
      * Creates the root change tracking editor for a diff run.
      * 
      * @param indexWriter the Lucene index writer for the change tracking index
@@ -132,18 +136,14 @@ public class ChangeTrackingIndexEditor implements Editor {
     @Override
     @Nullable
     public Editor childNodeAdded(String name, NodeState after) throws CommitFailedException {
-        // Child added - record child path and traverse children
-        String childPath = buildChildPath(name);
-        recordChangeAtPath(childPath);
+        // Child added - don't record PARENT path. Return child editor to traverse and record child path.
         return childEditor(name);
     }
     
     @Override
     @Nullable
     public Editor childNodeChanged(String name, NodeState before, NodeState after) throws CommitFailedException {
-        // Child changed - record child path and traverse children
-        String childPath = buildChildPath(name);
-        recordChangeAtPath(childPath);
+        // Child changed - don't record PARENT path. Return child editor to traverse and record child path.
         return childEditor(name);
     }
     
@@ -160,7 +160,12 @@ public class ChangeTrackingIndexEditor implements Editor {
      * Records a change at the current path.
      */
     private void recordChange() throws CommitFailedException {
+        // Debounce: Only record once per node visit
+        if (changeRecorded) {
+            return;
+        }
         recordChangeAtPath(currentPath);
+        changeRecorded = true;
     }
     
     /**
@@ -247,4 +252,3 @@ public class ChangeTrackingIndexEditor implements Editor {
         }
     }
 }
-
