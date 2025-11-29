@@ -1,4 +1,15 @@
 #!/bin/bash
+#
+# Performance Comparison Script for Traditional vs Change Tracker Indexing
+#
+# Usage:
+#   chmod +x compare_perf.sh
+#   ./compare_perf.sh
+#
+# This script runs a series of performance tests defined in the SCENARIOS array
+# across different JVM memory configurations. It collects metrics like time,
+# throughput, memory usage, GC stats, and index sizes, and outputs a summary table.
+#
 
 # Output file for Maven test run
 OUTPUT_FILE="perf_results.txt"
