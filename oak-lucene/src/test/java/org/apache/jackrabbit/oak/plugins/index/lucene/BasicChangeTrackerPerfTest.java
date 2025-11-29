@@ -37,7 +37,6 @@ import org.apache.jackrabbit.oak.plugins.nodetype.write.NodeTypeRegistry;
 import org.apache.jackrabbit.oak.segment.SegmentNodeStoreBuilders;
 import org.apache.jackrabbit.oak.segment.file.FileStore;
 import org.apache.jackrabbit.oak.segment.file.FileStoreBuilder;
-import org.apache.jackrabbit.oak.segment.file.InvalidFileStoreVersionException;
 import org.apache.jackrabbit.oak.spi.commit.Observer;
 import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
@@ -46,8 +45,6 @@ import org.apache.jackrabbit.oak.stats.StatisticsProvider;
 import org.apache.jackrabbit.util.ISO8601;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.RAMDirectory;
-import org.junit.After;
-import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -57,10 +54,11 @@ import org.junit.runners.Parameterized;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.management.BufferPoolMXBean;
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
-import java.lang.management.MemoryMXBean;
-import java.lang.management.MemoryUsage;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Collection;
@@ -217,7 +215,7 @@ public class BasicChangeTrackerPerfTest {
             // 2. Indexing
             // Re-login to ensure fresh session for indexing if needed (though usually not required for AsyncIndexUpdate)
             
-            ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
+            java.lang.management.ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
             if (threadBean.isThreadCpuTimeSupported()) {
                 threadBean.setThreadCpuTimeEnabled(true);
             }
@@ -229,6 +227,7 @@ public class BasicChangeTrackerPerfTest {
             long startMem = getUsedMemory();
             long startGcCount = getGcCount();
             long startGcTime = getGcTime();
+            long startCpuTime = getProcessCpuTime();
 
             if (useChangeTracker) {
                 // Phase 1: Populator
@@ -262,6 +261,9 @@ public class BasicChangeTrackerPerfTest {
             long endMem = getUsedMemory();
             long endGcCount = getGcCount();
             long endGcTime = getGcTime();
+            long endCpuTime = getProcessCpuTime();
+            long directBufferMem = getDirectBufferMemory();
+            long diskUsage = getDiskUsage(ctx);
 
             // 3. Verification Queries
             long queryStart = System.currentTimeMillis();
@@ -329,6 +331,9 @@ public class BasicChangeTrackerPerfTest {
             result.memoryUsedBytes = endMem - startMem; // Approximate delta
             result.gcCount = endGcCount - startGcCount;
             result.gcTimeMs = endGcTime - startGcTime;
+            result.processCpuTimeMs = (endCpuTime != -1 && startCpuTime != -1) ? (endCpuTime - startCpuTime) : -1;
+            result.directBufferMemoryBytes = directBufferMem;
+            result.diskUsageBytes = diskUsage;
             result.maxHeapUsedBytes = getMaxHeapUsed();
             result.maxNonHeapUsedBytes = getMaxNonHeapUsed();
             result.peakThreadCount = threadBean.getPeakThreadCount();
@@ -368,6 +373,7 @@ public class BasicChangeTrackerPerfTest {
         LuceneIndexEditorProvider editorProvider;
         
         FileStore fileStore;
+        File storeDir;
         ScheduledExecutorService scheduledExecutor;
         MongoConnection mongoConnection;
         DocumentNodeStore documentNodeStore;
@@ -379,6 +385,7 @@ public class BasicChangeTrackerPerfTest {
             ctx.nodeStore = new MemoryNodeStore();
         } else if (nodeStoreType == NodeStoreType.SEGMENT) {
             File segmentDir = temporaryFolder.newFolder("segment-" + System.nanoTime());
+            ctx.storeDir = segmentDir;
             ctx.scheduledExecutor = Executors.newSingleThreadScheduledExecutor();
             DefaultStatisticsProvider statisticsProvider = new DefaultStatisticsProvider(ctx.scheduledExecutor);
             ctx.fileStore = FileStoreBuilder.fileStoreBuilder(segmentDir)
@@ -686,6 +693,9 @@ public class BasicChangeTrackerPerfTest {
         long maxHeapUsedBytes;
         long maxNonHeapUsedBytes;
         int peakThreadCount;
+        long processCpuTimeMs;
+        long directBufferMemoryBytes;
+        long diskUsageBytes;
         long queryTimeMs;
         int queryResult1;
         int queryResult2;
@@ -703,6 +713,9 @@ public class BasicChangeTrackerPerfTest {
                                "Max Heap Used: %d MB%n" +
                                "Max Non-Heap Used: %d MB%n" +
                                "Peak Threads: %d%n" +
+                               "Process CPU Time: %d ms%n" +
+                               "Direct Buffer Memory: %d KB%n" +
+                               "Disk Usage: %d KB%n" +
                                "GC Count: %d%n" +
                                "GC Time: %d ms%n" +
                                "Phase 1 (Populate): %d ms%n" +
@@ -716,10 +729,43 @@ public class BasicChangeTrackerPerfTest {
                                "Facet Result: %s",
                                totalTimeMs, contentCreationTimeMs, throughput, memoryUsedBytes / 1024, 
                                maxHeapUsedBytes / (1024 * 1024), maxNonHeapUsedBytes / (1024 * 1024), peakThreadCount,
+                               processCpuTimeMs, directBufferMemoryBytes / 1024, diskUsageBytes / 1024,
                                gcCount, gcTimeMs,
                                phase1TimeMs, phase3TimeMs,
                                queryTimeMs, queryResult1, queryResult2, queryResult3, queryResult4, queryResult5, facetResult);
         }
+    }
+
+    private static long getProcessCpuTime() {
+        java.lang.management.OperatingSystemMXBean osBean = ManagementFactory.getOperatingSystemMXBean();
+        if (osBean instanceof com.sun.management.OperatingSystemMXBean) {
+            return ((com.sun.management.OperatingSystemMXBean) osBean).getProcessCpuTime() / 1_000_000;
+        }
+        return -1;
+    }
+
+    private static long getDirectBufferMemory() {
+        for (BufferPoolMXBean pool : ManagementFactory.getPlatformMXBeans(BufferPoolMXBean.class)) {
+            if (pool.getName().equals("direct")) {
+                return pool.getMemoryUsed();
+            }
+        }
+        return -1;
+    }
+
+    private static long getDiskUsage(PerfContext ctx) {
+        if (ctx.storeDir != null) {
+            try {
+                try (java.util.stream.Stream<Path> walk = Files.walk(ctx.storeDir.toPath())) {
+                    return walk.filter(p -> p.toFile().isFile())
+                            .mapToLong(p -> p.toFile().length())
+                            .sum();
+                }
+            } catch (IOException e) {
+                System.err.println("Error calculating disk usage: " + e.getMessage());
+            }
+        }
+        return 0;
     }
 }
 
