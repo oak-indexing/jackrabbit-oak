@@ -57,6 +57,9 @@ import java.util.List;
 
 import static org.junit.Assert.*;
 
+import org.apache.jackrabbit.oak.plugins.index.lucene.changetracker.ChangeTrackingIndexDefinitionBuilder;
+import org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexDefinition;
+
 /**
  * Basic test demonstrating how to use the Change Tracker system.
  * 
@@ -92,8 +95,37 @@ public class BasicChangeTrackerTest {
         // 1. Create a NodeStore (using MemoryNodeStore for testing)
         nodeStore = new MemoryNodeStore();
         
-        // 2. Create the Lucene directory for the change tracking index
-        changeTrackingDirectory = new RAMDirectory();
+        // Initialize structure
+        NodeBuilder rootBuilder = nodeStore.getRoot().builder();
+        if (!rootBuilder.hasChildNode("oak:index")) {
+            rootBuilder.child("oak:index").setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        }
+        
+        // 2. Create the Lucene directory for the change tracking index in NodeStore
+        NodeBuilder oakIndex = rootBuilder.child("oak:index");
+        ChangeTrackingIndexDefinitionBuilder.createChangeTrackingIndex(oakIndex);
+        
+        // Persist index definition
+        nodeStore.merge(rootBuilder, org.apache.jackrabbit.oak.spi.commit.EmptyHook.INSTANCE, org.apache.jackrabbit.oak.spi.commit.CommitInfo.EMPTY);
+        
+        // Re-fetch root builder to ensure consistency for OakDirectory
+        rootBuilder = nodeStore.getRoot().builder();
+        NodeBuilder persistentIndex = rootBuilder.child("oak:index").child("changeTrackingIndex");
+        
+        // Ensure :data node exists (required for OakDirectory)
+        if (!persistentIndex.hasChildNode(":data")) {
+            persistentIndex.child(":data");
+            // Persist :data node creation
+            nodeStore.merge(rootBuilder, org.apache.jackrabbit.oak.spi.commit.EmptyHook.INSTANCE, org.apache.jackrabbit.oak.spi.commit.CommitInfo.EMPTY);
+            // Re-fetch again
+            rootBuilder = nodeStore.getRoot().builder();
+            persistentIndex = rootBuilder.child("oak:index").child("changeTrackingIndex");
+        }
+        
+        // Create OakDirectory
+        // Note: We use a fresh NodeBuilder for OakDirectory to ensure it writes to the store on commit
+        LuceneIndexDefinition def = new LuceneIndexDefinition(nodeStore.getRoot(), persistentIndex.getNodeState(), "/oak:index/changeTrackingIndex");
+        changeTrackingDirectory = new OakDirectory(persistentIndex, ":data", def, false);
         
         // 3. Create metadata manager for progress tracking
         metadataManager = new IndexProgressMetadataManager(nodeStore);
