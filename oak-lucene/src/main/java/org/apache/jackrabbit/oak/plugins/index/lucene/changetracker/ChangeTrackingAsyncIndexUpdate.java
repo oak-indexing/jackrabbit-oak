@@ -353,8 +353,7 @@ public class ChangeTrackingAsyncIndexUpdate {
                 getChunkSize()
             );
 
-            // Get unprocessed changes
-            // Loop until no more changes are returned
+            // Process changes in chunks until no more changes or limit reached
             List<ChangeEntry> changes;
             int totalProcessedForIndex = 0;
             
@@ -389,35 +388,68 @@ public class ChangeTrackingAsyncIndexUpdate {
                    lastProcessedSerialNumber = lastEntry.getSerialNumber();
                 }
                 
+                // Commit after every chunk (user-configured batch size)
+                if (processedCount > 0) {
+                    LOG.info("Committing chunk of {} changes for index {}", processedCount, indexPath);
+                    
+                    // 1. Commit and close current writer/directory to flush to NodeBuilder
+                    if (luceneWriter != null) {
+                        luceneWriter.commit();
+                        luceneWriter.close();
+                        luceneWriter = null;
+                    }
+                    if (indexDirectory != null) {
+                        indexDirectory.close();
+                        indexDirectory = null;
+                    }
+                    
+                    // 2. Update status on the CURRENT builder
+                    NodeBuilder indexNode = getNodeBuilderAtPath(rootBuilder, indexPath);
+                    NodeBuilder status = indexNode.child(":status");
+                    status.setProperty("lastUpdated", ISO8601.format(Calendar.getInstance()), Type.DATE);
+                    status.setProperty("indexed", true);
+                    
+                    // 3. Merge the changes to NodeStore
+                    nodeStore.merge(rootBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+                    LOG.info("Persisted chunk index changes to NodeStore for {}", indexPath);
+                    
+                    // 4. Persist progress to metadata manager
+                    metadataManager.updateProgress(
+                        indexPath, 
+                        lastProcessedTimestamp, 
+                        lastProcessedSerialNumber, 
+                        totalProcessedForIndex 
+                    );
+                    
+                    // 5. Re-initialize resources for next chunk
+                    rootBuilder = nodeStore.getRoot().builder();
+                    
+                    // Re-open directory and writer with NEW builder
+                    indexDirectory = getIndexDirectory(indexPath, indexDef, rootBuilder);
+                    
+                    // Re-create writer config (analyzer is stateless)
+                    org.apache.lucene.index.IndexWriterConfig newConfig = 
+                        new org.apache.lucene.index.IndexWriterConfig(
+                            org.apache.lucene.util.Version.LUCENE_47,
+                            analyzer
+                        );
+                    newConfig.setOpenMode(org.apache.lucene.index.IndexWriterConfig.OpenMode.APPEND); // Append to existing
+                    newConfig.setRAMBufferSizeMB(32);
+                    
+                    luceneWriter = new org.apache.lucene.index.IndexWriter(indexDirectory, newConfig);
+                    luceneIndexWriter = new SimpleIndexWriterWrapper(luceneWriter);
+                }
+                
             } while (changes.size() == chunkSize);
             
-            if (totalProcessedForIndex > 0) {
-                // Commit and close writer
-                luceneWriter.commit();
+            // Clean up final writer
+            if (luceneWriter != null) {
                 luceneWriter.close();
-                luceneWriter = null; // Prevent double close in finally
+                luceneWriter = null;
+            }
+            if (indexDirectory != null) {
                 indexDirectory.close();
                 indexDirectory = null;
-                
-                // Update the index status so IndexTracker detects the change
-                NodeBuilder indexNode = getNodeBuilderAtPath(rootBuilder, indexPath);
-                NodeBuilder status = indexNode.child(":status");
-                status.setProperty("lastUpdated", ISO8601.format(Calendar.getInstance()), Type.DATE);
-                status.setProperty("indexed", true);
-                
-                // CRITICAL: Merge the changes back to the NodeStore!
-                nodeStore.merge(rootBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
-                LOG.info("Persisted index changes to NodeStore for {}", indexPath);
-                
-                // Persist progress to metadata manager AFTER index commit
-                metadataManager.updateProgress(
-                    indexPath, 
-                    lastProcessedTimestamp, 
-                    lastProcessedSerialNumber, 
-                    totalProcessedForIndex // Note: this might need to be cumulative if metadataManager expects cumulative? 
-                    // updateProgress likely replaces the timestamp/serial, so we pass the LAST timestamp/serial.
-                    // The 'count' arg in updateProgress might be used for stats, not control flow.
-                );
             }
             
         } catch (IOException e) {
