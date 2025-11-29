@@ -203,60 +203,30 @@ public class LuceneChunkedIndexProcessor {
      * @throws IOException if reading or writing fails
      * @throws CommitFailedException if committing changes fails
      */
-    private Map<String, Set<String>> collectRelativePropertyPatterns(IndexDefinition indexDefinition) {
-        Map<String, Set<String>> patterns = new HashMap<>();
-        for (IndexDefinition.IndexingRule rule : indexDefinition.getDefinedRules()) {
-            for (PropertyDefinition pd : rule.getProperties()) {
-                if (pd.relative && pd.ancestors != null && pd.ancestors.length > 0) {
-                    String relativePath = String.join("/", pd.ancestors);
-                    if (pd.nonRelativeName != null && !pd.nonRelativeName.isEmpty()) {
-                        relativePath += "/" + pd.nonRelativeName;
-                    } else {
-                        relativePath += "/" + pd.name;
-                    }
-                    // relativePath is e.g. "jcr:content/metadata/jcr:title"
-                    patterns.computeIfAbsent(relativePath, k -> new HashSet<>()).add(rule.getNodeTypeName());
-                }
-            }
-        }
-        return patterns;
-    }
-
     public int processChangesChunk(@NotNull String indexPath,
                                      @NotNull IndexDefinition indexDefinition,
                                      @NotNull LuceneIndexWriter indexWriter)
             throws IOException, CommitFailedException {
-        
-        // System.out.println("DEBUG: Processing chunk for index " + indexPath); // SYSOUT
         
         // Get current progress
         IndexProgressMetadata progress = metadataManager.getIndexProgress(indexPath);
         long lastTimestamp = progress.getLastProcessedTimestamp();
         long lastSerial = progress.getLastProcessedSerialNumber();
         
-        // LOG.debug("Processing chunk for index {} from timestamp={}, serial={}",
-        //          indexPath, lastTimestamp, lastSerial);
-        
         // Query change tracking index for next chunk of changes using cached query instance
         List<ChangeEntry> changes = changeTrackingQuery.getUnprocessedChanges(
             lastTimestamp, lastSerial, chunkSize);
         
         if (changes.isEmpty()) {
-            // System.out.println("DEBUG: No changes to process for index " + indexPath); // SYSOUT
             return 0;
-        }
-        
-        // System.out.println("DEBUG: Processing " + changes.size() + " changes for index " + indexPath); // SYSOUT
-        for (ChangeEntry change : changes) {
-             // System.out.println("DEBUG: Change to process: " + change.getPath()); 
         }
         
         // Get current repository state and initialize cache (Optimization Strategy 1)
         NodeState root = nodeStore.getRoot();
         ChunkNodeCache nodeCache = new ChunkNodeCache(root);
         
-        // Collect relative property patterns for efficient lookup
-        Map<String, Set<String>> relativePropertyPatterns = collectRelativePropertyPatterns(indexDefinition);
+        // Collect impacted rules map for unified lookup of relative properties and aggregations
+        Map<String, List<IndexDefinition.IndexingRule>> impactedRulesMap = collectImpactedRules(indexDefinition);
         
         // Track paths that need re-indexing (aggregation or relative properties)
         Set<String> parentReindexingPaths = new HashSet<>();
@@ -287,22 +257,16 @@ public class LuceneChunkedIndexProcessor {
                 // Check if path is within index scope
                 boolean isIncluded = indexDefinition.getPathFilter().filter(path) != PathFilter.Result.EXCLUDE;
                 
+                // Check if this path triggers parent re-indexing (relative properties or aggregations)
+                Set<String> impactedParents = findImpactedParents(path, indexDefinition, impactedRulesMap, nodeCache);
+                
+                if (!impactedParents.isEmpty()) {
+                    LOG.trace("Changed path {} impacts parents: {}", path, impactedParents);
+                    parentReindexingPaths.addAll(impactedParents);
+                }
+
                 if (node != null && node.exists()) {
-                    // Node exists
-                    
-                    // Check if this path triggers parent re-indexing (relative properties or aggregations)
-                    Set<String> parentPathsToIndex = findParentNodesForRelativeProperties(path, relativePropertyPatterns, nodeCache);
-                    
-                    if (!parentPathsToIndex.isEmpty()) {
-                        LOG.trace("Changed path {} matches relative properties, queuing {} parent node(s) for re-indexing", 
-                                 path, parentPathsToIndex.size());
-                        parentReindexingPaths.addAll(parentPathsToIndex);
-                    }
-                    
-                    // Check if parent nodes need re-indexing for aggregation
-                    collectAggregationPaths(path, indexDefinition, parentReindexingPaths, nodeCache);
-                    
-                    // Index the node itself if it is included in the index scope
+                    // Node exists - Index the node itself if it is included in the index scope
                     if (isIncluded) {
                         LOG.trace("Indexing changed path: {}", path);
                         
@@ -311,7 +275,6 @@ public class LuceneChunkedIndexProcessor {
                             indexWriter.updateDocument(path, doc);
                         } else {
                             // Node exists but has no indexed content (e.g. rule doesn't match anymore)
-                            // Log error for visibility if it looks like a potential issue
                             LOG.debug("Node exists but createLuceneDocument returned null for {}. Deleting.", path);
                             
                             if (indexWriter instanceof SimpleIndexWriterWrapper) {
@@ -339,20 +302,6 @@ public class LuceneChunkedIndexProcessor {
                         LOG.trace("Removing deleted path from index: {}", path);
                         indexWriter.deleteDocuments(path);
                     }
-                    
-                    // Also check if parent nodes need re-indexing due to relative property deletion
-                    Set<String> parentPathsToIndex = findParentNodesForRelativeProperties(path, relativePropertyPatterns, nodeCache);
-                    Set<String> parentPathsForAggregates = findParentNodesForAggregates(path, indexDefinition, nodeCache);
-                    parentPathsToIndex.addAll(parentPathsForAggregates);
-                    
-                    if (!parentPathsToIndex.isEmpty()) {
-                        LOG.trace("Deletion at {} triggered re-indexing of parents: {}", path, parentPathsToIndex);
-                        parentReindexingPaths.addAll(parentPathsToIndex);
-                    }
-                    
-                    // Check aggregation for deletion (though usually aggregation depends on child existence)
-                    // We conservatively re-index parents if they aggregate this path
-                    collectAggregationPaths(path, indexDefinition, parentReindexingPaths, nodeCache);
                     
                     processed++;
                     successCount++;
@@ -409,7 +358,6 @@ public class LuceneChunkedIndexProcessor {
             for (String parentPath : parentReindexingPaths) {
                 try {
                     // Use cache for re-indexing lookups too
-                    // NodeState parentNode = nodeCache.get(parentPath);
                     NodeState parentNode = getNodeAtPath(root, parentPath);
                     if (parentNode != null && parentNode.exists()) {
                         Document doc = createLuceneDocument(parentPath, parentNode, indexDefinition);
@@ -907,145 +855,155 @@ public class LuceneChunkedIndexProcessor {
     }
     
     /**
-     * Collects parent paths that need re-indexing for aggregations using Oak's Aggregate API.
+     * Calculates the maximum relative depth defined in the index rules (aggregation + relative properties).
+     */
+    private int getRelativeDepth(IndexDefinition indexDefinition) {
+        int maxDepth = 0;
+        for (IndexDefinition.IndexingRule rule : indexDefinition.getDefinedRules()) {
+            Aggregate aggregate = rule.getAggregate();
+            if (aggregate != null) {
+                // Check recursion limit configured for this aggregate
+                if (aggregate.reAggregationLimit > maxDepth) {
+                    maxDepth = aggregate.reAggregationLimit;
+                }
+                
+                // Also check depth of includes
+                for (Aggregate.Include include : aggregate.getIncludes()) {
+                    if (include instanceof Aggregate.NodeInclude) {
+                        // include.maxDepth() returns the number of path elements
+                        int depth = include.maxDepth();
+                        if (depth > maxDepth) {
+                            maxDepth = depth;
+                        }
+                    }
+                }
+            }
+            
+            // Also check relative properties as they imply aggregation/dependency
+            for (PropertyDefinition pd : rule.getProperties()) {
+                if (pd.relative && pd.ancestors != null) {
+                    int depth = pd.ancestors.length;
+                    if (depth > maxDepth) {
+                        maxDepth = depth;
+                    }
+                }
+            }
+        }
+        // Ensure at least a minimum reasonable depth if aggregation is enabled
+        return maxDepth > 0 ? maxDepth : 0;
+    }
+
+    /**
+     * Collects all impacted paths (aggregation includes and relative properties) from the index rules.
      * 
-     * <p>When a node changes, we need to check if any ancestor nodes have aggregation rules
-     * that include this changed node. If so, those ancestors must be re-indexed.
-     * 
-     * <p>This properly handles all aggregation patterns defined in index rules:
-     * <ul>
-     *   <li>nt:file aggregates jcr:content</li>
-     *   <li>dam:Asset aggregates jcr:content/metadata</li>
-     *   <li>Any custom aggregations defined in index configuration</li>
-     * </ul>
-     * 
-     * <p>The implementation traverses up the path hierarchy and uses Oak's {@link Aggregate}
-     * to check if each ancestor has aggregation rules. This mirrors the logic in
-     * {@code FulltextIndexEditor.checkAggregates()}.
+     * @return Map where key is the relative path pattern and value is the list of indexing rules that use this path.
+     */
+    private Map<String, List<IndexDefinition.IndexingRule>> collectImpactedRules(IndexDefinition indexDefinition) {
+        Map<String, List<IndexDefinition.IndexingRule>> impactedRules = new HashMap<>();
+        
+        for (IndexDefinition.IndexingRule rule : indexDefinition.getDefinedRules()) {
+            // 1. Aggregations
+            Aggregate aggregate = rule.getAggregate();
+            if (aggregate != null) {
+                for (Aggregate.Include include : aggregate.getIncludes()) {
+                    if (include instanceof Aggregate.NodeInclude) {
+                        String pattern = ((Aggregate.NodeInclude) include).getPattern();
+                        if (pattern != null && !pattern.isEmpty()) {
+                            impactedRules.computeIfAbsent(pattern, k -> new ArrayList<>()).add(rule);
+                        }
+                    }
+                }
+            }
+            
+            // 2. Relative properties
+            for (PropertyDefinition pd : rule.getProperties()) {
+                if (pd.relative && pd.ancestors != null && pd.ancestors.length > 0) {
+                    String relativePath = String.join("/", pd.ancestors);
+                    if (pd.nonRelativeName != null && !pd.nonRelativeName.isEmpty()) {
+                        relativePath += "/" + pd.nonRelativeName;
+                    } else {
+                        relativePath += "/" + pd.name;
+                    }
+                    impactedRules.computeIfAbsent(relativePath, k -> new ArrayList<>()).add(rule);
+                }
+            }
+        }
+        return impactedRules;
+    }
+
+    /**
+     * Finds parent nodes that need to be indexed when a child path changes.
+     * This unifies logic for both aggregations and relative properties.
      * 
      * @param changedPath the path that changed
-     * @param indexDefinition the index definition with aggregation rules from index configuration
-     * @param aggregationPaths set to collect parent paths that need re-indexing
+     * @param indexDefinition the index definition (for max depth calculation)
+     * @param impactedRulesMap pre-calculated map of relative paths to rules
+     * @param nodeCache cache for node lookups
+     * @return set of parent paths that need to be indexed
      */
-    private void collectAggregationPaths(
+    private Set<String> findImpactedParents(
             String changedPath,
             IndexDefinition indexDefinition,
-            Set<String> aggregationPaths,
+            Map<String, List<IndexDefinition.IndexingRule>> impactedRulesMap,
             ChunkNodeCache nodeCache) {
         
-        // Traverse up the path hierarchy to find aggregating parents
+        Set<String> parentPaths = new HashSet<>();
         String currentPath = changedPath;
         
-        // Check up to N levels (avoid infinite loops, typical aggregations are 1-3 levels deep)
-        int maxLevels = 5;
+        // Dynamically determine max traversal depth based on index rules
+        int maxLevels = getRelativeDepth(indexDefinition) + 2;
         int level = 0;
         
         while (level < maxLevels) {
             String parentPath = getParentPath(currentPath);
-            if (parentPath == null) {
-                break;
-            }
+            if (parentPath == null) break;
             
-            // Get the parent node to check its type and aggregation rules
-            NodeState parentNode = nodeCache.get(parentPath);
-            if (parentNode == null || !parentNode.exists()) {
-                break;
-            }
+            String relativePath = changedPath.substring(parentPath.length() + 1);
             
-            // Check each indexing rule to see if it has aggregations
-            for (IndexDefinition.IndexingRule rule : indexDefinition.getDefinedRules()) {
-                Aggregate aggregate = rule.getAggregate();
-                if (aggregate != null) {
-                    // The parent has an aggregation rule
-                    // Mark it for re-indexing (the aggregation will be recalculated)
-                    // We use a conservative approach: any parent with aggregation rules
-                    // gets re-indexed if a descendant changes
-                    aggregationPaths.add(parentPath);
-                    LOG.trace("Parent {} has aggregation rules - marked for re-indexing due to change at {}", 
-                            parentPath, changedPath);
-                    break; // Found aggregation for this parent, move to next ancestor
+            // Check all patterns to see if this relative path matches any dependency
+            for (Map.Entry<String, List<IndexDefinition.IndexingRule>> entry : impactedRulesMap.entrySet()) {
+                String pattern = entry.getKey();
+                boolean match = false;
+                
+                // 1. Exact match (e.g. property changed)
+                if (relativePath.equals(pattern)) {
+                    match = true;
+                } 
+                // 2. Descendant match (change inside aggregated node)
+                // e.g. pattern="jcr:content", relativePath="jcr:content/metadata"
+                else if (relativePath.startsWith(pattern + "/")) {
+                    match = true;
+                }
+                // 3. Ancestor match (intermediate node changed/deleted)
+                // e.g. pattern="jcr:content/metadata/title", relativePath="jcr:content/metadata"
+                else if (pattern.startsWith(relativePath + "/")) {
+                    match = true;
+                }
+                
+                if (match) {
+                    // Pattern matches, check if parent node exists and matches rule
+                    NodeState parentNode = nodeCache.get(parentPath);
+                    if (parentNode != null && parentNode.exists()) {
+                        for (IndexDefinition.IndexingRule rule : entry.getValue()) {
+                            if (rule.appliesTo(parentNode)) {
+                                parentPaths.add(parentPath);
+                                LOG.trace("Found parent path {} needs re-indexing (rule: {}, pattern: {}, relativePath: {})",
+                                        parentPath, rule.getNodeTypeName(), pattern, relativePath);
+                                break; // Found valid rule for this parent
+                            }
+                        }
+                    }
+                    
+                    if (parentPaths.contains(parentPath)) {
+                        break; // Optimization: Parent already added, move to next ancestor level
+                    }
                 }
             }
             
             currentPath = parentPath;
             level++;
         }
-    }
-    
-    /**
-     * Finds parent nodes that need to be indexed when a child path changes,
-     * based on relative property definitions in the index.
-     * 
-     * <p>This uses patterns to avoid traversing up the hierarchy and hitting NodeStore
-     * for every ancestor. It checks if the changed path ends with any defined relative path.
-     * 
-     * @param changedPath the path that changed
-     * @param relativePropertyPatterns map of relative path patterns to node types
-     * @param nodeCache cache for node lookups
-     * @return set of parent paths that need to be indexed (empty if none)
-     */
-    private Set<String> findParentNodesForRelativeProperties(
-            String changedPath, 
-            Map<String, Set<String>> relativePropertyPatterns, 
-            ChunkNodeCache nodeCache) {
-        
-        Set<String> parentPaths = new HashSet<>();
-        
-        for (Map.Entry<String, Set<String>> entry : relativePropertyPatterns.entrySet()) {
-            String pattern = entry.getKey();
-            Set<String> nodeTypes = entry.getValue();
-            
-            // Check if changedPath matches pattern
-            // We look for pattern at the END of changedPath, preceded by /
-            String suffix = "/" + pattern;
-            int idx = changedPath.lastIndexOf(suffix);
-            
-            if (idx > 0) {
-                // Check if it's an exact match or a descendant match
-                // changedPath: /a/b/jcr:content/metadata/jcr:title
-                // suffix: /jcr:content/metadata/jcr:title
-                // idx points to slash before jcr:content
-                
-                // Verification of suffix match:
-                // We need to ensure we matched the *path segments*.
-                // lastIndexOf ensures we found the string.
-                // We need to check if the match is valid path-wise.
-                
-                // Case 1: Exact match of property path
-                // /a/b + /pattern
-                boolean exactMatch = (idx + suffix.length() == changedPath.length());
-                
-                // Case 2: Descendant match (if property is a node/subtree)
-                // /a/b + /pattern + /foo
-                boolean descendantMatch = (!exactMatch && changedPath.charAt(idx + suffix.length()) == '/');
-                
-                if (exactMatch || descendantMatch) {
-                    String parentPath = changedPath.substring(0, idx);
-                    if (parentPath.isEmpty()) parentPath = "/"; // Should not happen if idx > 0
-                    
-                    // Retrieve parent and check type
-                    // Optimization: We only fetch node if pattern matches
-                    NodeState parent = nodeCache.get(parentPath);
-                    if (parent != null && parent.exists()) {
-                         if (matchesAnyNodeType(parent, nodeTypes)) {
-                             parentPaths.add(parentPath);
-                             LOG.trace("Found parent path {} needs re-indexing for relative property pattern {} (changed: {})",
-                                     parentPath, pattern, changedPath);
-                         }
-                    }
-                }
-            }
-        }
         return parentPaths;
-    }
-    
-    private boolean matchesAnyNodeType(NodeState node, Set<String> nodeTypes) {
-        for (String type : nodeTypes) {
-            if (matchesNodeType(node, type)) {
-                return true;
-            }
-        }
-        return false;
     }
     
     /**
@@ -1056,8 +1014,11 @@ public class LuceneChunkedIndexProcessor {
             return null;
         }
         int lastSlash = path.lastIndexOf('/');
-        if (lastSlash <= 0) {
+        if (lastSlash == 0) {
             return "/";
+        }
+        if (lastSlash == -1) {
+            return null;
         }
         return path.substring(0, lastSlash);
     }
@@ -1208,68 +1169,24 @@ public class LuceneChunkedIndexProcessor {
         return successCount;
     }
 
-    private Set<String> findParentNodesForAggregates(String changedPath, IndexDefinition indexDefinition, ChunkNodeCache nodeCache) {
-        Set<String> parentPaths = new HashSet<>();
-        
-        if (indexDefinition.getAggregates() == null) {
-            return parentPaths;
-        }
-        
-        // Iterate over all defined aggregates
-        for (Map.Entry<String, Aggregate> entry : indexDefinition.getAggregates().entrySet()) {
-            String nodeType = entry.getKey();
-            Aggregate aggregate = entry.getValue();
-            
-            for (Aggregate.Include include : aggregate.getIncludes()) {
-                if (include instanceof Aggregate.NodeInclude) {
-                    String relativePath = ((Aggregate.NodeInclude) include).getPattern();
-                    
-                    if (relativePath != null && !relativePath.isEmpty()) {
-                        // Check if changedPath ends with relativePath
-                        if (changedPath.endsWith("/" + relativePath)) {
-                            String parentPath = changedPath.substring(0, changedPath.length() - relativePath.length() - 1);
-                            if (parentPath.isEmpty()) parentPath = "/";
-                            
-                            // Check if parent exists and matches node type
-                            NodeState parentNode = nodeCache.get(parentPath);
-                            if (parentNode != null && parentNode.exists()) {
-                                // We check if the parent node type matches the aggregate definition
-                                if (matchesNodeType(parentNode, nodeType)) {
-                                    parentPaths.add(parentPath);
-                                    LOG.trace("Found parent path {} needs re-indexing for aggregate {} (changed: {})",
-                                             parentPath, relativePath, changedPath);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return parentPaths;
-    }
-    
-    private boolean matchesNodeType(NodeState node, String requiredType) {
-        String primaryType = node.getName("jcr:primaryType");
-        if (requiredType.equals(primaryType)) {
-            return true;
-        }
-        // Check mixins
-        Iterable<String> mixins = node.getNames("jcr:mixinTypes");
-        for (String mixin : mixins) {
-            if (requiredType.equals(mixin)) {
-                return true;
-            }
-        }
-        return false;
-    }
     
     private static class ChunkNodeCache {
+        private static final String PROP_CACHE_SIZE = "oak.changeTracker.nodeCacheSize";
+        // Default 16MB
+        private static final int DEFAULT_CACHE_SIZE = 16 * 1024 * 1024;
+        
         private final NodeState root;
+        // Limit cache size (bytes) to avoid OOM during large chunk processing
+        private final int maxCacheWeight;
         private final Map<String, NodeState> cache = new HashMap<>();
+        private long currentWeight = 0;
         
         ChunkNodeCache(NodeState root) {
             this.root = root;
+            this.maxCacheWeight = Integer.getInteger(PROP_CACHE_SIZE, DEFAULT_CACHE_SIZE);
             cache.put("/", root);
+            // Initial weight: minimal
+            this.currentWeight = 1024; 
         }
         
         NodeState get(String path) {
@@ -1278,6 +1195,20 @@ public class LuceneChunkedIndexProcessor {
             
             NodeState cached = cache.get(path);
             if (cached != null) return cached;
+            
+            // Check eviction before adding new entry
+            // Estimate weight: path length * 2 (chars) + 1024 bytes overhead per entry
+            // 1KB is a safe upper bound estimate for NodeState reference + Map entry overhead
+            int estimatedWeight = (path.length() * 2) + 1024;
+            
+            // Prevent cache from growing unbounded
+            if (currentWeight + estimatedWeight >= maxCacheWeight) {
+                // Simple eviction strategy: clear all if limit reached
+                // This is acceptable as cache is scoped to a single chunk
+                cache.clear();
+                cache.put("/", root);
+                currentWeight = 1024;
+            }
             
             // Not in cache, find closest ancestor
             String parentPath = getParentPath(path);
@@ -1293,6 +1224,8 @@ public class LuceneChunkedIndexProcessor {
             NodeState node = parent.getChildNode(name);
             // Cache even if it doesn't exist (it will be non-existent NodeState)
             cache.put(path, node);
+            currentWeight += estimatedWeight;
+            
             return node;
         }
         
