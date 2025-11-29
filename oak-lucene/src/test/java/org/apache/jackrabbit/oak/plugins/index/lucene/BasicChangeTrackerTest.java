@@ -99,10 +99,6 @@ public class BasicChangeTrackerTest {
         metadataManager = new IndexProgressMetadataManager(nodeStore);
         
         // 4. Create and initialize the change tracking populator
-        // Enable population via system property
-        System.setProperty("oak.changeTracker.population.enabled", "true");
-        System.setProperty("oak.changeTracker.enabled", "true");
-        
         populator = new ChangeTrackingIndexPopulator(
             nodeStore,
             changeTrackingDirectory,
@@ -188,8 +184,6 @@ public class BasicChangeTrackerTest {
         if (changeTrackingDirectory != null) {
             changeTrackingDirectory.close();
         }
-        System.clearProperty("oak.changeTracker.population.enabled");
-        System.clearProperty("oak.changeTracker.enabled");
     }
     
     

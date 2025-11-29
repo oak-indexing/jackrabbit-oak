@@ -108,11 +108,6 @@ public class ChangeTrackingIndexPopulator implements Runnable {
      */
     public static final String ASYNC_LANE_NAME = ChangeTrackingIndexDefinitionBuilder.ASYNC_LANE;
     
-    /**
-     * Property to enable/disable change tracking population.
-     */
-    private static final String ENABLED_PROPERTY = "oak.changeTracker.population.enabled";
-    
     private final NodeStore nodeStore;
     private final Directory changeTrackingDirectory;
     private final IndexWriter changeTrackingWriter;
@@ -232,16 +227,6 @@ public class ChangeTrackingIndexPopulator implements Runnable {
      */
     @Override
     public void run() {
-        // Check if enabled
-        if (!Boolean.getBoolean(ENABLED_PROPERTY)) {
-            if (!initialized) {
-                // First run - log that it's disabled
-                LOG.info("Change tracking index population is disabled ({}=false)", ENABLED_PROPERTY);
-                initialized = true;  // Set to avoid repeated logging
-            }
-            return;
-        }
-        
         if (!initialized) {
             LOG.warn("ChangeTrackingIndexPopulator not initialized. Call initialize() first.");
             return;

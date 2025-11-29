@@ -128,10 +128,6 @@ public class ChangeTrackingAsyncIndexUpdate {
     
     private static final Logger LOG = LoggerFactory.getLogger(ChangeTrackingAsyncIndexUpdate.class);
     
-    // System property to enable/disable change tracking globally
-    private static final String PROP_ENABLED = "oak.changeTracker.enabled";
-    private static final boolean DEFAULT_ENABLED = false;
-    
     // System property for chunk size
     private static final String PROP_CHUNK_SIZE = "oak.changeTracker.chunkSize";
     private static final int DEFAULT_CHUNK_SIZE = 10000;
@@ -141,7 +137,6 @@ public class ChangeTrackingAsyncIndexUpdate {
     private final IndexProgressMetadataManager metadataManager;
     private final Directory changeTrackingDirectory;
     private final IndexWriter changeTrackingWriter;
-    private final boolean enabled;
     private final int chunkSize;
     
     private long lastRunTimestamp = 0;
@@ -164,11 +159,10 @@ public class ChangeTrackingAsyncIndexUpdate {
         this.changeTrackingDirectory = changeTrackingDirectory;
         this.changeTrackingWriter = changeTrackingWriter;
         this.metadataManager = new IndexProgressMetadataManager(nodeStore);
-        this.enabled = Boolean.getBoolean(PROP_ENABLED);
         this.chunkSize = Integer.getInteger(PROP_CHUNK_SIZE, DEFAULT_CHUNK_SIZE);
         
-        LOG.info("ChangeTrackingAsyncIndexUpdate initialized for lane '{}': enabled={}, chunkSize={}",
-                asyncIndexName, enabled, chunkSize);
+        LOG.info("ChangeTrackingAsyncIndexUpdate initialized for lane '{}': chunkSize={}",
+                asyncIndexName, chunkSize);
     }
     
     /**
@@ -187,12 +181,6 @@ public class ChangeTrackingAsyncIndexUpdate {
      * @throws CommitFailedException if the update fails
      */
     public void run() throws CommitFailedException {
-        if (!enabled) {
-            LOG.warn("Change tracking disabled globally. All indexes will use traditional AsyncIndexUpdate. " +
-                    "To enable: set oak.changeTracker.enabled=true");
-            return;
-        }
-        
         long runStartTime = System.currentTimeMillis();
         LOG.info("Starting change tracking async index update for lane '{}'", asyncIndexName);
         
