@@ -481,6 +481,9 @@ public class ChangeTrackingAsyncIndexUpdate {
             LOG.info("Processed {} changes for index {} using LuceneChunkedIndexProcessor", 
                     processedCount, indexPath);
             
+            System.out.println("DEBUG: Writer numDocs before commit for " + indexPath + ": " + luceneWriter.numDocs()); // DEBUG
+            System.out.println("DEBUG: Writer maxDoc before commit for " + indexPath + ": " + luceneWriter.maxDoc()); // DEBUG
+
             // Commit and close writer
             luceneWriter.commit();
             luceneWriter.close();
@@ -493,10 +496,20 @@ public class ChangeTrackingAsyncIndexUpdate {
             status.setProperty("lastUpdated", ISO8601.format(Calendar.getInstance()), Type.DATE);
             status.setProperty("indexed", true);
             
+            System.out.println("DEBUG: Merging changes to NodeStore for " + indexPath);
+            if (indexNode.hasChildNode(FulltextIndexConstants.INDEX_DATA_CHILD_NAME)) {
+                 System.out.println("DEBUG: :data node exists in builder before merge for " + indexPath);
+                 NodeBuilder data = indexNode.child(FulltextIndexConstants.INDEX_DATA_CHILD_NAME);
+                 System.out.println("DEBUG: :data node child count in builder: " + data.getChildNodeCount(100));
+            } else {
+                 System.out.println("DEBUG: :data node MISSING in builder before merge for " + indexPath);
+            }
+
             // CRITICAL: Merge the changes back to the NodeStore!
             // OakDirectory writes to a NodeBuilder, but those changes need to be persisted
             nodeStore.merge(rootBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
             LOG.info("Persisted index changes to NodeStore for {}", indexPath);
+            System.out.println("DEBUG: Persisted index changes to NodeStore for " + indexPath);
             
             return processedCount;
             

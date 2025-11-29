@@ -45,6 +45,7 @@ class SimpleIndexWriterWrapper implements LuceneIndexWriter {
     public void updateDocument(String path, Iterable<? extends IndexableField> doc) throws IOException {
         // Create a Term for the path field to identify which document to update
         Term pathTerm = new Term(FieldNames.PATH, path);
+        // System.out.println("DEBUG: SimpleIndexWriterWrapper.updateDocument: " + path + ", term: " + pathTerm);
         writer.updateDocument(pathTerm, doc);
         indexUpdated = true;
     }
@@ -55,8 +56,18 @@ class SimpleIndexWriterWrapper implements LuceneIndexWriter {
         Term pathTerm = new Term(FieldNames.PATH, path);
         writer.deleteDocuments(pathTerm);
         
-        // Also delete all child paths
+        // Also delete all child paths (Recursive delete)
         writer.deleteDocuments(new PrefixQuery(new Term(FieldNames.PATH, path + "/")));
+        indexUpdated = true;
+    }
+    
+    /**
+     * Deletes a single document for the given path, without deleting descendants.
+     * Used when a node exists but no longer matches the index rules.
+     */
+    public void deleteDocument(String path) throws IOException {
+        Term pathTerm = new Term(FieldNames.PATH, path);
+        writer.deleteDocuments(pathTerm);
         indexUpdated = true;
     }
     

@@ -227,24 +227,29 @@ public class LuceneChunkedIndexProcessor {
                                      @NotNull LuceneIndexWriter indexWriter)
             throws IOException, CommitFailedException {
         
+        // System.out.println("DEBUG: Processing chunk for index " + indexPath); // SYSOUT
+        
         // Get current progress
         IndexProgressMetadata progress = metadataManager.getIndexProgress(indexPath);
         long lastTimestamp = progress.getLastProcessedTimestamp();
         long lastSerial = progress.getLastProcessedSerialNumber();
         
-        LOG.debug("Processing chunk for index {} from timestamp={}, serial={}",
-                 indexPath, lastTimestamp, lastSerial);
+        // LOG.debug("Processing chunk for index {} from timestamp={}, serial={}",
+        //          indexPath, lastTimestamp, lastSerial);
         
         // Query change tracking index for next chunk of changes using cached query instance
         List<ChangeEntry> changes = changeTrackingQuery.getUnprocessedChanges(
             lastTimestamp, lastSerial, chunkSize);
         
         if (changes.isEmpty()) {
-            LOG.debug("No changes to process for index {}", indexPath);
+            // System.out.println("DEBUG: No changes to process for index " + indexPath); // SYSOUT
             return 0;
         }
         
-        LOG.info("Processing {} changes for index {}", changes.size(), indexPath);
+        // System.out.println("DEBUG: Processing " + changes.size() + " changes for index " + indexPath); // SYSOUT
+        for (ChangeEntry change : changes) {
+             // System.out.println("DEBUG: Change to process: " + change.getPath()); 
+        }
         
         // Get current repository state and initialize cache (Optimization Strategy 1)
         NodeState root = nodeStore.getRoot();
@@ -308,7 +313,13 @@ public class LuceneChunkedIndexProcessor {
                             // Node exists but has no indexed content (e.g. rule doesn't match anymore)
                             // Log error for visibility if it looks like a potential issue
                             LOG.debug("Node exists but createLuceneDocument returned null for {}. Deleting.", path);
-                            indexWriter.deleteDocuments(path);
+                            
+                            if (indexWriter instanceof SimpleIndexWriterWrapper) {
+                                // Delete ONLY this document, do not wipe descendants
+                                ((SimpleIndexWriterWrapper) indexWriter).deleteDocument(path);
+                            } else {
+                                indexWriter.deleteDocuments(path);
+                            }
                         }
                     }
                     
@@ -407,9 +418,18 @@ public class LuceneChunkedIndexProcessor {
                             LOG.trace("Re-indexed parent node {}", parentPath);
                         } else {
                             // Parent exists but has no indexed content (e.g. aggregation removed)
-                            indexWriter.deleteDocuments(parentPath);
+                            if (indexWriter instanceof SimpleIndexWriterWrapper) {
+                                // Delete ONLY this document, do not wipe descendants
+                                ((SimpleIndexWriterWrapper) indexWriter).deleteDocument(parentPath);
+                            } else {
+                                indexWriter.deleteDocuments(parentPath);
+                            }
                             LOG.trace("Removed parent node {} from index (no content)", parentPath);
                         }
+                    } else {
+                        // Parent no longer exists, remove it
+                        indexWriter.deleteDocuments(parentPath);
+                        LOG.trace("Removed non-existent parent node {} from index", parentPath);
                     }
                 } catch (Exception e) {
                     LOG.warn("Error re-indexing parent path {}: {}", parentPath, e.getMessage());
@@ -488,6 +508,7 @@ public class LuceneChunkedIndexProcessor {
         // Step 1: Get node's primary type
         org.apache.jackrabbit.oak.api.PropertyState primaryTypeProp = node.getProperty("jcr:primaryType");
         if (primaryTypeProp == null) {
+            // System.out.println("DEBUG: Skipping " + path + " - no primary type");
             return null;
         }
         String nodeType = primaryTypeProp.getValue(org.apache.jackrabbit.oak.api.Type.STRING);
@@ -495,16 +516,19 @@ public class LuceneChunkedIndexProcessor {
         // Step 2: Get applicable indexing rule for this node type
         IndexDefinition.IndexingRule rule = indexDefinition.getApplicableIndexingRule(nodeType);
         if (rule == null) {
+            // LOG.trace("Skipping {} - no rule for type {}", path, nodeType);
             return null;
         }
         
         // Step 3: Check if node should be indexed (rule conditions)
         if (!rule.appliesTo(node)) {
+             // System.out.println("DEBUG: Skipping " + path + " - rule does not apply to node state");
             return null;
         }
         
         // Step 4: Create Lucene document
         Document doc = new Document();
+        // System.out.println("DEBUG: Creating document for " + path + " (type: " + nodeType + ")"); // SYSOUT
         
         // Always add path field using Oak's factory method
         doc.add(FieldFactory.newPathField(path));
@@ -516,6 +540,7 @@ public class LuceneChunkedIndexProcessor {
                 boolean indexed = indexProperty(doc, node, propDef, path);
                 if (indexed) {
                     hasIndexedContent = true;
+                    // System.out.println("DEBUG: Indexed property: " + propDef.name + " for " + path); // SYSOUT
                 }
             } catch (Exception e) {
                 LOG.warn("Error indexing property {} at path {}: {}", 
@@ -534,11 +559,19 @@ public class LuceneChunkedIndexProcessor {
                 // Use Oak's factory method for consistency
                 doc.add(FieldFactory.newFulltextField(nodeScopedText));
                 hasIndexedContent = true;
+                LOG.trace("Added node-scoped fulltext for {}", path);
+            } else {
+                LOG.trace("No node-scoped fulltext content for {}", path);
             }
         }
         
         // Only return document if it has indexed content beyond just the path
-        return hasIndexedContent ? doc : null;
+        if (hasIndexedContent) {
+             return doc;
+        } else {
+             LOG.trace("No indexed content for {}, returning null doc", path);
+             return null;
+        }
     }
     
     /**
@@ -731,6 +764,7 @@ public class LuceneChunkedIndexProcessor {
                         prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING, index) :
                         prop.getValue(org.apache.jackrabbit.oak.api.Type.STRING);
                     if (value != null && !value.isEmpty()) {
+                        // LOG.trace("Created typed field {}={} for {}", propDef.name, value, propDef.name);
                         return new StringField(propDef.name, value, store);
                     }
             }

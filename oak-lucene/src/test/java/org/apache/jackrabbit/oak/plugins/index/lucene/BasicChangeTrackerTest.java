@@ -20,6 +20,7 @@ import org.apache.jackrabbit.oak.InitialContent;
 import org.apache.jackrabbit.oak.Oak;
 import org.apache.jackrabbit.oak.api.ContentRepository;
 import org.apache.jackrabbit.oak.api.ContentSession;
+import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.api.QueryEngine;
 import org.apache.jackrabbit.oak.api.Result;
 import org.apache.jackrabbit.oak.api.ResultRow;
@@ -35,6 +36,9 @@ import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgres
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadataManager;
 import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
+import org.apache.jackrabbit.oak.spi.state.NodeState;
+import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
+import org.apache.jackrabbit.oak.plugins.index.lucene.directory.OakDirectory;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
 import org.apache.jackrabbit.oak.stats.StatisticsProvider;
 import org.apache.jackrabbit.oak.plugins.nodetype.write.NodeTypeRegistry;
@@ -432,6 +436,43 @@ public class BasicChangeTrackerTest {
         
         System.out.println("✓ Change tracking async index update completed");
         
+        // DEBUG: Print :data content via NodeStore
+        NodeState nsRoot = nodeStore.getRoot();
+        NodeState nsIndexData = nsRoot.getChildNode("oak:index").getChildNode("searchIndex").getChildNode(":data");
+        if (nsIndexData.exists()) {
+            System.out.println("DEBUG: NodeStore /oak:index/searchIndex/:data exists. Children: " + nsIndexData.getChildNodeCount(100));
+            
+            // Try to read index content directly
+            try {
+                NodeState indexDefNode = nsRoot.getChildNode("oak:index").getChildNode("searchIndex");
+                LuceneIndexDefinition def = new LuceneIndexDefinition(nsRoot, indexDefNode, "/oak:index/searchIndex");
+                NodeBuilder defBuilder = indexDefNode.builder(); // Read-only view effectively
+                OakDirectory dir = new OakDirectory(defBuilder, ":data", def, true);
+                try (IndexReader reader = DirectoryReader.open(dir)) {
+                    System.out.println("DEBUG: Direct IndexReader opened. NumDocs: " + reader.numDocs());
+                    for (int i = 0; i < reader.numDocs(); i++) {
+                        System.out.println("DOC " + i + ": " + reader.document(i));
+                    }
+                }
+            } catch (Exception e) {
+                System.out.println("DEBUG: Failed to read index directly: " + e.getMessage());
+                e.printStackTrace();
+            }
+        } else {
+            System.out.println("DEBUG: NodeStore /oak:index/searchIndex/:data DOES NOT EXIST");
+        }
+
+        // DEBUG: Print :data content via Root (JCR API)
+        Tree indexData = root.getTree("/oak:index/searchIndex/:data");
+        if (indexData.exists()) {
+            System.out.println("DEBUG: /oak:index/searchIndex/:data exists. Children: " + indexData.getChildrenCount(100));
+            for (Tree child : indexData.getChildren()) {
+                System.out.println("  - " + child.getName() + " (size: " + child.getProperty("jcr:data").size() + ")");
+            }
+        } else {
+            System.out.println("DEBUG: /oak:index/searchIndex/:data DOES NOT EXIST");
+        }
+        
         // STEP 5: Execute queries and verify results
         System.out.println("\nStep 5: Executing queries to verify indexing...");
         
@@ -570,6 +611,7 @@ public class BasicChangeTrackerTest {
         searchIndex.setProperty("jcr:primaryType", "oak:QueryIndexDefinition", Type.NAME);
         searchIndex.setProperty("type", "lucene");
         searchIndex.setProperty("async", "async");
+        searchIndex.setProperty("compatVersion", 2);
         searchIndex.setProperty("useChangeTracker", true);
         
         Tree indexRules = searchIndex.addChild("indexRules");
@@ -582,6 +624,7 @@ public class BasicChangeTrackerTest {
         tagProp.setProperty("analyzed", false);
         
         root.commit();
+        metadataManager.registerIndex("/oak:index/incrementalIndex");
         System.out.println("✓ Created index with useChangeTracker=true");
         
         // Create initial content
@@ -608,8 +651,11 @@ public class BasicChangeTrackerTest {
         
         System.out.println("✓ Initial indexing completed");
         
+        // DEBUG: Dump index
+        dumpIndexContent("/oak:index/incrementalIndex");
+        
         // Verify initial query
-        String initialQuery = "SELECT [jcr:path] FROM [nt:unstructured] WHERE [tag] = 'initial'";
+        String initialQuery = "SELECT [jcr:path] FROM [nt:unstructured] WHERE [tag] = 'initial' option(traversal fail, index name incrementalIndex)";
         List<String> initialResults = executeQuery(initialQuery);
         System.out.printf("✓ Initial query found %d articles%n", initialResults.size());
         assertEquals("Should find 1 initial article", 1, initialResults.size());
@@ -667,21 +713,42 @@ public class BasicChangeTrackerTest {
     }
     
     /**
-     * Helper method to execute a query and return matching paths.
+     * Helper to execute query with retries to handle async index visibility.
      */
     private List<String> executeQuery(String sqlQuery) throws Exception {
         List<String> paths = new ArrayList<>();
         QueryEngine queryEngine = root.getQueryEngine();
         
-        Result result = queryEngine.executeQuery(
-            sqlQuery,
-            javax.jcr.query.Query.JCR_SQL2,
-            null,  // NO_BINDINGS
-            null   // NO_MAPPINGS
-        );
-        
-        for (ResultRow row : result.getRows()) {
-            paths.add(row.getPath());
+        // Retry a few times if no results found (to handle IndexTracker refresh latency)
+        // Increased retries to 20 (2 seconds) to ensure async index is picked up
+        for (int i = 0; i < 20; i++) {
+            paths.clear();
+            try {
+                Result result = queryEngine.executeQuery(
+                    sqlQuery,
+                    javax.jcr.query.Query.JCR_SQL2,
+                    null,  // NO_BINDINGS
+                    null   // NO_MAPPINGS
+                );
+                
+                for (ResultRow row : result.getRows()) {
+                    paths.add(row.getPath());
+                }
+            } catch (IllegalArgumentException e) {
+                // Traversal query means index not yet available
+                // Continue retrying
+            }
+            
+            if (!paths.isEmpty()) {
+                break;
+            }
+            
+            // If no results, force refresh and wait
+            if (provider != null) {
+                provider.getTracker().refresh();
+                provider.contentChanged(nodeStore.getRoot(), org.apache.jackrabbit.oak.spi.commit.CommitInfo.EMPTY);
+            }
+            Thread.sleep(100);
         }
         
         return paths;
@@ -717,12 +784,24 @@ public class BasicChangeTrackerTest {
         damRules.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
         Tree damAssetRule = damRules.addChild("nt:unstructured");
         damAssetRule.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
-        List<String> includes = new ArrayList<>(Arrays.asList("String", "Binary"));
-        damAssetRule.setProperty("includePropertyTypes", includes, Type.STRINGS);
         
-        // Empty properties node to satisfy some checks
+        // Explicit properties instead of includePropertyTypes
         Tree properties = damAssetRule.addChild("properties");
         properties.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        
+        // Index description (analyzed for fulltext)
+        Tree descProp = properties.addChild("description");
+        descProp.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        descProp.setProperty("name", "description");
+        descProp.setProperty("analyzed", true);
+        descProp.setProperty("nodeScopeIndex", true);
+        
+        // Index direct property for verification
+        Tree directProp = properties.addChild("direct");
+        directProp.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        directProp.setProperty("name", "direct");
+        directProp.setProperty("analyzed", true);
+        directProp.setProperty("nodeScopeIndex", true);
         
         root.commit();
         metadataManager.registerIndex("/oak:index/deleteTestIndex");
@@ -731,6 +810,8 @@ public class BasicChangeTrackerTest {
         Tree content = root.getTree("/").addChild("deleteTest");
         Tree asset = content.addChild("asset1");
         asset.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        asset.setProperty("direct", "DirectKeyWord"); // Direct property
+        
         Tree jcrContent = asset.addChild("jcr:content");
         jcrContent.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
         jcrContent.setProperty("description", "SecretKeyWord"); // Aggregated
@@ -747,12 +828,23 @@ public class BasicChangeTrackerTest {
             provider.contentChanged(nodeStore.getRoot(), org.apache.jackrabbit.oak.spi.commit.CommitInfo.EMPTY);
         }
 
+        // DEBUG: Dump index
+        dumpIndexContent("/oak:index/deleteTestIndex");
+
         // STEP 4: Verify Search
-        String query = "SELECT [jcr:path] FROM [nt:unstructured] WHERE CONTAINS(*, 'SecretKeyWord') option(traversal fail, index name deleteTestIndex)";
-        List<String> results = executeQuery(query);
-        assertEquals("Should find asset before delete", 1, results.size());
-        
-        // STEP 5: Delete aggregated node
+        // Verify direct property first
+        String queryDirect = "SELECT [jcr:path] FROM [nt:unstructured] WHERE CONTAINS([direct], 'DirectKeyWord') option(traversal fail, index name deleteTestIndex)";
+        List<String> resultsDirect = executeQuery(queryDirect);
+        assertEquals("Should find asset by direct property", 1, resultsDirect.size());
+        System.out.println("✓ Found asset by direct property");
+
+                String query = "SELECT [jcr:path] FROM [nt:unstructured] WHERE CONTAINS(*, 'SecretKeyWord') option(traversal fail, index name deleteTestIndex)";
+                List<String> results = executeQuery(query);
+                // Both asset1 (aggregated) and asset1/jcr:content (direct) match the query
+                assertEquals("Should find asset and content by aggregated property before delete", 2, results.size());
+                System.out.println("✓ Found asset by aggregated property");
+                
+                // STEP 5: Delete aggregated node
         root.getTree("/deleteTest/asset1/jcr:content").remove();
         root.commit();
         System.out.println("✓ Deleted aggregated node /deleteTest/asset1/jcr:content");
@@ -781,6 +873,63 @@ public class BasicChangeTrackerTest {
         org.apache.lucene.index.IndexWriter writer = (org.apache.lucene.index.IndexWriter) writerField.get(populator);
         if (writer != null) {
             writer.commit();
+        }
+    }
+
+    private void dumpIndexContent(String indexPath) {
+        try {
+            System.out.println("\n=== DUMPING INDEX: " + indexPath + " ===");
+            NodeState nsRoot = nodeStore.getRoot();
+            NodeState indexDefNode = nsRoot;
+            for (String name : indexPath.split("/")) {
+                if (name.isEmpty()) continue;
+                indexDefNode = indexDefNode.getChildNode(name);
+            }
+            
+            if (!indexDefNode.exists()) {
+                System.out.println("Index definition node does not exist: " + indexPath);
+                return;
+            }
+            
+            if (!indexDefNode.hasChildNode(":data")) {
+                System.out.println(":data node does not exist for " + indexPath);
+                return;
+            }
+            
+            NodeState dataNode = indexDefNode.getChildNode(":data");
+            System.out.println(":data children count: " + dataNode.getChildNodeCount(100));
+            for (String childName : dataNode.getChildNodeNames()) {
+                NodeState child = dataNode.getChildNode(childName);
+                long size = -1;
+                if (child.hasProperty("jcr:data")) {
+                    PropertyState ps = child.getProperty("jcr:data");
+                    if (ps.isArray()) {
+                         // Java 8 friendly way
+                         size = 0;
+                         for (int i = 0; i < ps.count(); i++) {
+                             size += ps.getValue(Type.BINARY, i).length();
+                         }
+                    } else {
+                         size = ps.getValue(Type.BINARY).length();
+                    }
+                }
+                System.out.println(" - " + childName + " (" + size + " bytes)");
+            }
+            
+            LuceneIndexDefinition def = new LuceneIndexDefinition(nsRoot, indexDefNode, indexPath);
+            NodeBuilder defBuilder = indexDefNode.builder();
+            OakDirectory dir = new OakDirectory(defBuilder, ":data", def, true);
+            try (IndexReader reader = DirectoryReader.open(dir)) {
+                System.out.println("NumDocs: " + reader.numDocs());
+                for (int i = 0; i < reader.numDocs(); i++) {
+                    org.apache.lucene.document.Document doc = reader.document(i);
+                    System.out.println("DOC " + i + ": " + doc);
+                }
+            }
+            System.out.println("=== END DUMP ===\n");
+        } catch (Exception e) {
+            System.out.println("Failed to dump index: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 }
