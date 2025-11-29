@@ -24,7 +24,7 @@ import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.apache.jackrabbit.oak.stats.StatisticsProvider;
-import org.apache.lucene.analysis.standard.StandardAnalyzer;
+import org.apache.lucene.analysis.core.KeywordAnalyzer;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.store.Directory;
@@ -135,7 +135,10 @@ public class ChangeTrackingIndexPopulator implements Runnable {
         this.metadataManager = metadataManager;
         
         // Create IndexWriter for change tracking index
-        IndexWriterConfig config = new IndexWriterConfig(Version.LUCENE_47, new StandardAnalyzer(Version.LUCENE_47));
+        // Optimize: Use KeywordAnalyzer (no tokenization needed) and larger RAM buffer
+        IndexWriterConfig config = new IndexWriterConfig(Version.LUCENE_47, new KeywordAnalyzer());
+        config.setOpenMode(IndexWriterConfig.OpenMode.CREATE_OR_APPEND);
+        config.setRAMBufferSizeMB(32); // Increase buffer to reduce flushing
         this.changeTrackingWriter = new IndexWriter(changeTrackingDirectory, config);
         
         // Commit empty index to create initial index structure
@@ -319,6 +322,11 @@ public class ChangeTrackingIndexPopulator implements Runnable {
             
             // Close the AsyncIndexUpdate
             asyncIndexUpdate.close();
+            
+            // Close the IndexWriter
+            if (changeTrackingWriter != null) {
+                changeTrackingWriter.close();
+            }
             
             // Close the directory
             if (changeTrackingDirectory != null) {
