@@ -17,18 +17,13 @@
 package org.apache.jackrabbit.oak.plugins.index.lucene.changetracker;
 
 import org.apache.jackrabbit.oak.api.CommitFailedException;
-import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.plugins.index.AsyncIndexUpdate;
-import org.apache.jackrabbit.oak.plugins.index.IndexConstants;
-import org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexConstants;
 import org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.lucene.directory.OakDirectory;
 import org.apache.jackrabbit.oak.plugins.index.lucene.writer.LuceneIndexWriter;
 import org.apache.jackrabbit.oak.plugins.index.search.FulltextIndexConstants;
-import org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.ChangeEntry;
-import org.apache.jackrabbit.oak.plugins.index.search.changetracker.ChunkedIndexProcessor;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexDefinitionHelper;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadata;
 import org.apache.jackrabbit.oak.plugins.index.search.changetracker.IndexProgressMetadataManager;
@@ -37,8 +32,6 @@ import org.apache.jackrabbit.oak.spi.commit.EmptyHook;
 import org.apache.jackrabbit.util.ISO8601;
 
 import java.util.Calendar;
-import org.apache.jackrabbit.oak.plugins.index.IndexConstants;
-import org.apache.jackrabbit.oak.spi.commit.EditorDiff;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
@@ -53,8 +46,6 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Change tracking async index update that processes only indexes that opt into change tracking.
@@ -307,10 +298,45 @@ public class ChangeTrackingAsyncIndexUpdate {
         LOG.info("Index {} last processed: timestamp={}, serial={}",
                 indexPath, lastProcessedTimestamp, lastProcessedSerialNumber);
         
-        // Query change tracking index for unprocessed changes
+        // Prepare resources: NodeBuilder, IndexWriter, Directory
+        // We do this ONCE per run to avoid opening/closing writer for every chunk
+        org.apache.jackrabbit.oak.spi.state.NodeBuilder rootBuilder = nodeStore.getRoot().builder();
+        org.apache.lucene.store.Directory indexDirectory = null;
+        org.apache.lucene.index.IndexWriter luceneWriter = null;
+        
         IndexReader reader = null;
         ChangeTrackingIndexQuery query = null;
+        
         try {
+             // Get IndexDefinition from the index definition node
+            org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition indexDef = 
+                new org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexDefinition(
+                    nodeStore.getRoot(),
+                    indexDefNode,
+                    indexPath
+                );
+            
+            // Get or create the index directory for this index
+            indexDirectory = getIndexDirectory(indexPath, indexDef, rootBuilder);
+            
+            // Create Lucene index writer config
+            org.apache.lucene.analysis.Analyzer analyzer = 
+                ((org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexDefinition)indexDef).getAnalyzer();
+            
+            org.apache.lucene.index.IndexWriterConfig writerConfig = 
+                new org.apache.lucene.index.IndexWriterConfig(
+                    org.apache.lucene.util.Version.LUCENE_47,
+                    analyzer
+                );
+            
+            // Configure writer for production use
+            writerConfig.setOpenMode(org.apache.lucene.index.IndexWriterConfig.OpenMode.CREATE_OR_APPEND);
+            writerConfig.setRAMBufferSizeMB(32); 
+            
+            luceneWriter = new org.apache.lucene.index.IndexWriter(indexDirectory, writerConfig);
+            LuceneIndexWriter luceneIndexWriter = new SimpleIndexWriterWrapper(luceneWriter);
+
+            // Query change tracking index for unprocessed changes
             if (changeTrackingWriter != null) {
                 // Use NRT reader if writer is available
                 reader = DirectoryReader.open(changeTrackingWriter, true);
@@ -319,9 +345,19 @@ public class ChangeTrackingAsyncIndexUpdate {
             }
             query = new ChangeTrackingIndexQuery(reader);
             
+            // Initialize Chunk Processor
+            LuceneChunkedIndexProcessor processor = new LuceneChunkedIndexProcessor(
+                nodeStore,
+                reader,
+                metadataManager,
+                getChunkSize()
+            );
+
             // Get unprocessed changes
             // Loop until no more changes are returned
             List<ChangeEntry> changes;
+            int totalProcessedForIndex = 0;
+            
             do {
                 // Get next chunk of unprocessed changes
                 changes = query.getUnprocessedChanges(
@@ -337,58 +373,69 @@ public class ChangeTrackingAsyncIndexUpdate {
                 
                 LOG.info("Index {} retrieved {} unprocessed changes", indexPath, changes.size());
                 
-                // Process changes using production LuceneChunkedIndexProcessor
-                int processedCount = processChangesWithChunkedProcessor(
-                    indexPath, 
-                    indexDefNode, 
-                    changes,
-                    reader
-                );
+                // Process changes using chunked processor (reuses open writer)
+                int processedCount = processor.processChangesChunk(indexPath, indexDef, luceneIndexWriter);
                 
                 // Update total processed count
                 this.totalChangesProcessed += processedCount;
+                totalProcessedForIndex += processedCount;
                 
                 LOG.info("Index {} processed {} changes successfully", indexPath, processedCount);
 
-                // IMPORTANT: Update progress tracking variables for the next iteration
+                // Update progress tracking variables for the next iteration
                 if (!changes.isEmpty()) {
                    ChangeEntry lastEntry = changes.get(changes.size() - 1);
                    lastProcessedTimestamp = lastEntry.getDiffProcessingTime();
                    lastProcessedSerialNumber = lastEntry.getSerialNumber();
                 }
                 
-                // Persist progress to metadata manager
+            } while (changes.size() == chunkSize);
+            
+            if (totalProcessedForIndex > 0) {
+                // Commit and close writer
+                luceneWriter.commit();
+                luceneWriter.close();
+                luceneWriter = null; // Prevent double close in finally
+                indexDirectory.close();
+                indexDirectory = null;
+                
+                // Update the index status so IndexTracker detects the change
+                NodeBuilder indexNode = getNodeBuilderAtPath(rootBuilder, indexPath);
+                NodeBuilder status = indexNode.child(":status");
+                status.setProperty("lastUpdated", ISO8601.format(Calendar.getInstance()), Type.DATE);
+                status.setProperty("indexed", true);
+                
+                // CRITICAL: Merge the changes back to the NodeStore!
+                nodeStore.merge(rootBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+                LOG.info("Persisted index changes to NodeStore for {}", indexPath);
+                
+                // Persist progress to metadata manager AFTER index commit
                 metadataManager.updateProgress(
                     indexPath, 
                     lastProcessedTimestamp, 
                     lastProcessedSerialNumber, 
-                    processedCount
+                    totalProcessedForIndex // Note: this might need to be cumulative if metadataManager expects cumulative? 
+                    // updateProgress likely replaces the timestamp/serial, so we pass the LAST timestamp/serial.
+                    // The 'count' arg in updateProgress might be used for stats, not control flow.
                 );
-                
-            } while (changes.size() == chunkSize); // If full chunk, there might be more
-            // Note: Even if changes.size() < chunkSize, we break next iteration on changes.isEmpty()
-            // but checking size == chunkSize is a small optimization to avoid one empty query if exactly chunk size returned.
-            // However, to be safe and simple (e.g. concurrent updates), let's just loop until empty.
+            }
             
         } catch (IOException e) {
             throw new CommitFailedException(
                 CommitFailedException.STATE, 5,
-                "Failed to query change tracking index for: " + indexPath, e);
+                "Failed to query/process change tracking index for: " + indexPath, e);
         } finally {
-            // Close query (which closes its reader)
+            // Resource cleanup
+            if (luceneWriter != null) {
+                try { luceneWriter.close(); } catch (IOException e) { LOG.warn("Error closing IndexWriter", e); }
+            }
+            if (indexDirectory != null) {
+                try { indexDirectory.close(); } catch (IOException e) { LOG.warn("Error closing Directory", e); }
+            }
             if (query != null) {
-                try {
-                    query.close();
-                } catch (IOException e) {
-                    LOG.warn("Failed to close ChangeTrackingIndexQuery", e);
-                }
+                try { query.close(); } catch (IOException e) { LOG.warn("Failed to close ChangeTrackingIndexQuery", e); }
             } else if (reader != null) {
-                // Fallback: close reader directly if query wasn't created
-                try {
-                    reader.close();
-                } catch (IOException e) {
-                    LOG.warn("Failed to close IndexReader for change tracking index", e);
-                }
+                try { reader.close(); } catch (IOException e) { LOG.warn("Failed to close IndexReader", e); }
             }
         }
         
@@ -419,106 +466,6 @@ public class ChangeTrackingAsyncIndexUpdate {
         } catch (IOException e) {
             LOG.error("Failed to cleanup old change tracking entries", e);
             // Non-fatal, continue
-        }
-    }
-    
-    /**
-     * Production processing of changes using LuceneChunkedIndexProcessor.
-     * Creates actual Lucene index writer and processes changes.
-     * 
-     * @param indexPath the index path
-     * @param indexDefNode the index definition node
-     * @param changes the list of changes (not used directly, processor queries again)
-     * @param changeTrackingReader the reader for change tracking index
-     * @return the number of changes processed
-     */
-    private int processChangesWithChunkedProcessor(
-            String indexPath,
-            NodeState indexDefNode,
-            List<ChangeEntry> changes,
-            IndexReader changeTrackingReader) throws CommitFailedException {
-        
-        if (changes.isEmpty()) {
-            return 0;
-        }
-        
-        try {
-            // Get mutable access to the repository to create/access the index directory
-            org.apache.jackrabbit.oak.spi.state.NodeBuilder rootBuilder = nodeStore.getRoot().builder();
-            
-            // Get IndexDefinition from the index definition node
-            org.apache.jackrabbit.oak.plugins.index.search.IndexDefinition indexDef = 
-                new org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexDefinition(
-                    nodeStore.getRoot(),
-                    indexDefNode,
-                    indexPath
-                );
-            
-            // Get or create the index directory for this index
-            // Pass rootBuilder so we can merge changes later
-            org.apache.lucene.store.Directory indexDirectory = getIndexDirectory(indexPath, indexDef, rootBuilder);
-            
-            // Create Lucene index writer config
-            // IMPORTANT: Use the analyzer from the index definition (OakAnalyzer), not StandardAnalyzer
-            // otherwise tokenization will not match query time analysis
-            org.apache.lucene.analysis.Analyzer analyzer = 
-                ((org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexDefinition)indexDef).getAnalyzer();
-            
-            org.apache.lucene.index.IndexWriterConfig writerConfig = 
-                new org.apache.lucene.index.IndexWriterConfig(
-                    org.apache.lucene.util.Version.LUCENE_47,
-                    analyzer
-                );
-            
-            // Configure writer for production use
-            writerConfig.setOpenMode(org.apache.lucene.index.IndexWriterConfig.OpenMode.CREATE_OR_APPEND);
-            writerConfig.setRAMBufferSizeMB(32); // Reasonable buffer size
-            
-            org.apache.lucene.index.IndexWriter luceneWriter = 
-                new org.apache.lucene.index.IndexWriter(indexDirectory, writerConfig);
-            
-            // Create chunked processor with production implementation
-            LuceneChunkedIndexProcessor processor = new LuceneChunkedIndexProcessor(
-                nodeStore,
-                changeTrackingReader,
-                metadataManager,
-                getChunkSize()
-            );
-            
-            LOG.info("Processing changes for index {} using LuceneChunkedIndexProcessor", indexPath);
-            
-            // Wrap the IndexWriter in our LuceneIndexWriter interface
-            LuceneIndexWriter luceneIndexWriter = new SimpleIndexWriterWrapper(luceneWriter);
-            
-            // Actually process the changes using the chunked processor
-            int processedCount = processor.processChangesChunk(indexPath, indexDef, luceneIndexWriter);
-            
-            LOG.info("Processed {} changes for index {} using LuceneChunkedIndexProcessor", 
-                    processedCount, indexPath);
-            
-            // Commit and close writer
-            luceneWriter.commit();
-            luceneWriter.close();
-            indexDirectory.close();
-            
-            // Update the index status so IndexTracker detects the change
-            // This is critical for the query engine to see the updates
-            NodeBuilder indexNode = getNodeBuilderAtPath(rootBuilder, indexPath);
-            NodeBuilder status = indexNode.child(":status");
-            status.setProperty("lastUpdated", ISO8601.format(Calendar.getInstance()), Type.DATE);
-            status.setProperty("indexed", true);
-            
-            // CRITICAL: Merge the changes back to the NodeStore!
-            // OakDirectory writes to a NodeBuilder, but those changes need to be persisted
-            nodeStore.merge(rootBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
-            LOG.info("Persisted index changes to NodeStore for {}", indexPath);
-            
-            return processedCount;
-            
-        } catch (IOException e) {
-            throw new CommitFailedException(
-                CommitFailedException.STATE, 5,
-                "Failed to process changes for index: " + indexPath, e);
         }
     }
     
@@ -573,32 +520,6 @@ public class ChangeTrackingAsyncIndexUpdate {
         
         LOG.debug("Created OakDirectory for index {} (persistent storage in NodeStore)", indexPath);
         return directory;
-    }
-    
-    /**
-     * Gets the NodeState at a given path.
-     * 
-     * @param root the root NodeState
-     * @param path the path to traverse
-     * @return the NodeState at that path (may not exist)
-     */
-    private NodeState getNodeStateAtPath(NodeState root, String path) {
-        NodeState current = root;
-        
-        if (path.equals("/")) {
-            return current;
-        }
-        
-        String[] segments = path.split("/");
-        for (String segment : segments) {
-            if (segment.isEmpty()) continue;
-            current = current.getChildNode(segment);
-            if (!current.exists()) {
-                break;
-            }
-        }
-        
-        return current;
     }
     
     /**
@@ -687,4 +608,3 @@ public class ChangeTrackingAsyncIndexUpdate {
         }
     }
 }
-

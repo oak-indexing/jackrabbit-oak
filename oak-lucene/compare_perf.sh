@@ -39,32 +39,32 @@ echo "Compilation complete."
 # Find breaking points for SEGMENT and DOCUMENT (Mongo) and add aggressive scale-up
 SCENARIOS=(
     # Memory baseline (sanity check)
-    "MEMORY 100 1000"
-    "MEMORY 1000 1000"
-    "MEMORY 10000 2000"
-    "MEMORY 50000 5000"
-    # Segment store: ramp up to break
+    # "MEMORY 100 1000"
+    # "MEMORY 1000 1000"
+    # "MEMORY 10000 2000"
+    # "MEMORY 50000 5000"
+    # # Segment store: ramp up to break
     "SEGMENT 20000 2000"
-    "SEGMENT 50000 5000"
-    "SEGMENT 100000 5000"
-    "SEGMENT 250000 5000"
-    "SEGMENT 500000 5000"
-    "SEGMENT 1000000 5000"
+    # "SEGMENT 50000 5000"
+    # "SEGMENT 100000 5000"
+    # "SEGMENT 250000 5000"
+    # "SEGMENT 500000 5000"
+    # "SEGMENT 1000000 5000"
     # DocumentNodeStore (Mongo): ramp up to break
-    "DOCUMENT 20000 2000"
-    "DOCUMENT 50000 5000"
-    "DOCUMENT 100000 5000"
-    "DOCUMENT 250000 5000"
-    "DOCUMENT 500000 5000"
-    "DOCUMENT 1000000 5000"
+    # "DOCUMENT 20000 2000"
+    # "DOCUMENT 50000 5000"
+    # "DOCUMENT 100000 5000"
+    # "DOCUMENT 250000 5000"
+    # "DOCUMENT 500000 5000"
+    # "DOCUMENT 1000000 5000"
 )
 
 # JVM Configurations to Loop Over
 JVM_CONFIGS=(
     "-Xmx1G -Xms1G"
-    "-Xmx2G -Xms2G"
-    "-Xmx4G -Xms4G"
-    "-Xmx8G -Xms8G"
+    # "-Xmx2G -Xms2G"
+    # "-Xmx4G -Xms4G"
+    # "-Xmx8G -Xms8G"
 )
 
 run_single_scenario() {

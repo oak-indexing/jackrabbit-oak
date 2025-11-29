@@ -224,6 +224,9 @@ public class LuceneChunkedIndexProcessor {
         // Get current repository state
         NodeState root = nodeStore.getRoot();
         
+        // Initialize node cache for this chunk
+        ChunkNodeCache cache = new ChunkNodeCache(root);
+        
         // Collect impacted rules map for unified lookup of relative properties and aggregations
         Map<String, List<IndexDefinition.IndexingRule>> impactedRulesMap = collectImpactedRules(indexDefinition);
         
@@ -250,14 +253,14 @@ public class LuceneChunkedIndexProcessor {
             try {
                 String path = entry.getPath();
                 
-                // Get the node at the changed path
-                NodeState node = getNodeAtPath(root, path);
+                // Get the node at the changed path using cache
+                NodeState node = cache.get(path);
                 
                 // Check if path is within index scope
                 boolean isIncluded = indexDefinition.getPathFilter().filter(path) != PathFilter.Result.EXCLUDE;
                 
                 // Check if this path triggers parent re-indexing (relative properties or aggregations)
-                Set<String> impactedParents = findImpactedParents(path, indexDefinition, impactedRulesMap, root);
+                Set<String> impactedParents = findImpactedParents(path, indexDefinition, impactedRulesMap, root, cache);
                 
                 if (!impactedParents.isEmpty()) {
                     LOG.trace("Changed path {} impacts parents: {}", path, impactedParents);
@@ -269,7 +272,7 @@ public class LuceneChunkedIndexProcessor {
                     if (isIncluded) {
                         LOG.trace("Indexing changed path: {}", path);
                         
-                        Document doc = createLuceneDocument(path, node, indexDefinition);
+                        Document doc = createLuceneDocument(path, node, indexDefinition, cache);
                         if (doc != null) {
                             indexWriter.updateDocument(path, doc);
                         } else {
@@ -357,9 +360,9 @@ public class LuceneChunkedIndexProcessor {
             for (String parentPath : parentReindexingPaths) {
                 try {
                     // Use cache for re-indexing lookups too
-                    NodeState parentNode = getNodeAtPath(root, parentPath);
+                    NodeState parentNode = cache.get(parentPath);
                     if (parentNode != null && parentNode.exists()) {
-                        Document doc = createLuceneDocument(parentPath, parentNode, indexDefinition);
+                        Document doc = createLuceneDocument(parentPath, parentNode, indexDefinition, cache);
                         if (doc != null) {
                             indexWriter.updateDocument(parentPath, doc);
                             LOG.trace("Re-indexed parent node {}", parentPath);
@@ -449,9 +452,10 @@ public class LuceneChunkedIndexProcessor {
      * @param path the path of the node
      * @param node the node state
      * @param indexDefinition the index definition with rules and property definitions
+     * @param cache the chunk node cache
      * @return a Lucene document, or null if the node shouldn't be indexed
      */
-    private Document createLuceneDocument(String path, NodeState node, IndexDefinition indexDefinition) {
+    private Document createLuceneDocument(String path, NodeState node, IndexDefinition indexDefinition, ChunkNodeCache cache) {
         // Step 1: Get node's primary type
         org.apache.jackrabbit.oak.api.PropertyState primaryTypeProp = node.getProperty("jcr:primaryType");
         if (primaryTypeProp == null) {
@@ -484,7 +488,7 @@ public class LuceneChunkedIndexProcessor {
         boolean hasIndexedContent = false;
         for (PropertyDefinition propDef : rule.getProperties()) {
             try {
-                boolean indexed = indexProperty(doc, node, propDef, path);
+                boolean indexed = indexProperty(doc, node, propDef, path, cache);
                 if (indexed) {
                     hasIndexedContent = true;
                     // System.out.println("DEBUG: Indexed property: " + propDef.name + " for " + path); // SYSOUT
@@ -501,7 +505,7 @@ public class LuceneChunkedIndexProcessor {
             // Node-scoped fulltext combines all analyzed properties
             // This enables queries like: SELECT * FROM [nt:base] WHERE CONTAINS(*, 'search')
             // Implementation: Collect all text from analyzed properties into a special field
-            String nodeScopedText = collectNodeScopedText(node, rule, path);
+            String nodeScopedText = collectNodeScopedText(node, rule, path, cache);
             if (nodeScopedText != null && !nodeScopedText.isEmpty()) {
                 // Use Oak's factory method for consistency
                 doc.add(FieldFactory.newFulltextField(nodeScopedText));
@@ -529,16 +533,17 @@ public class LuceneChunkedIndexProcessor {
      * @param node the node being indexed
      * @param propDef the property definition from index rules
      * @param nodePath the node path (for logging/debugging)
+     * @param cache the chunk node cache
      * @return true if the property was indexed, false otherwise
      */
     private boolean indexProperty(Document doc, NodeState node, PropertyDefinition propDef,
-                                  String nodePath) {
+                                  String nodePath, ChunkNodeCache cache) {
         org.apache.jackrabbit.oak.api.PropertyState prop;
         
         // Handle relative properties (e.g., jcr:content/jcr:data for nt:file)
         if (propDef.relative && propDef.ancestors != null && propDef.ancestors.length > 0) {
             String relativePath = String.join("/", propDef.ancestors);
-            NodeState relativeNode = getNodeAtRelativePath(node, relativePath);
+            NodeState relativeNode = getNodeAtRelativePath(node, relativePath, cache);
             if (relativeNode == null || !relativeNode.exists()) {
                 return false;
             }
@@ -728,9 +733,10 @@ public class LuceneChunkedIndexProcessor {
      * 
      * @param base the base node
      * @param relativePath the relative path (e.g., "jcr:content" or "jcr:content/metadata")
+     * @param cache the chunk node cache
      * @return the node at the relative path, or null if it doesn't exist
      */
-    private NodeState getNodeAtRelativePath(NodeState base, String relativePath) {
+    private NodeState getNodeAtRelativePath(NodeState base, String relativePath, ChunkNodeCache cache) {
         if (relativePath == null || relativePath.isEmpty()) {
             return base;
         }
@@ -756,9 +762,10 @@ public class LuceneChunkedIndexProcessor {
      * @param node the node being indexed
      * @param rule the indexing rule
      * @param path the node path
+     * @param cache the chunk node cache
      * @return combined text from all analyzed properties and aggregations, or null if none
      */
-    private String collectNodeScopedText(NodeState node, IndexDefinition.IndexingRule rule, String path) {
+    private String collectNodeScopedText(NodeState node, IndexDefinition.IndexingRule rule, String path, ChunkNodeCache cache) {
         StringBuilder fulltext = new StringBuilder();
         
         // 1. Properties of the current node
@@ -770,7 +777,7 @@ public class LuceneChunkedIndexProcessor {
             org.apache.jackrabbit.oak.api.PropertyState prop;
             if (propDef.relative && propDef.ancestors != null && propDef.ancestors.length > 0) {
                 String relativePath = String.join("/", propDef.ancestors);
-                NodeState relativeNode = getNodeAtRelativePath(node, relativePath);
+                NodeState relativeNode = getNodeAtRelativePath(node, relativePath, cache);
                 if (relativeNode == null || !relativeNode.exists()) {
                     continue;
                 }
@@ -938,13 +945,15 @@ public class LuceneChunkedIndexProcessor {
      * @param indexDefinition the index definition (for max depth calculation)
      * @param impactedRulesMap pre-calculated map of relative paths to rules
      * @param root root node state for lookups
+     * @param cache the chunk node cache
      * @return set of parent paths that need to be indexed
      */
     private Set<String> findImpactedParents(
             String changedPath,
             IndexDefinition indexDefinition,
             Map<String, List<IndexDefinition.IndexingRule>> impactedRulesMap,
-            NodeState root) {
+            NodeState root,
+            ChunkNodeCache cache) {
         
         Set<String> parentPaths = new HashSet<>();
         String currentPath = changedPath;
@@ -981,7 +990,7 @@ public class LuceneChunkedIndexProcessor {
                 
                 if (match) {
                     // Pattern matches, check if parent node exists and matches rule
-                    NodeState parentNode = getNodeAtPath(root, parentPath);
+                    NodeState parentNode = cache.get(parentPath);
                     if (parentNode != null && parentNode.exists()) {
                         for (IndexDefinition.IndexingRule rule : entry.getValue()) {
                             if (rule.appliesTo(parentNode)) {
@@ -1020,34 +1029,6 @@ public class LuceneChunkedIndexProcessor {
             return null;
         }
         return path.substring(0, lastSlash);
-    }
-    
-    /**
-     * Gets a node at the specified path.
-     * 
-     * @param root the root node state
-     * @param path the path to the node
-     * @return the node state, or null if not found
-     */
-    private NodeState getNodeAtPath(NodeState root, String path) {
-        if ("/".equals(path)) {
-            return root;
-        }
-        
-        String[] parts = path.substring(1).split("/");
-        NodeState current = root;
-        
-        for (String part : parts) {
-            if (part.isEmpty()) {
-                continue;
-            }
-            current = current.getChildNode(part);
-            if (!current.exists()) {
-                return null;
-            }
-        }
-        
-        return current;
     }
     
     /**
@@ -1123,6 +1104,7 @@ public class LuceneChunkedIndexProcessor {
         LOG.info("Retrying {} failed entries for index {}", failures.size(), indexPath);
         
         NodeState root = nodeStore.getRoot();
+        ChunkNodeCache cache = new ChunkNodeCache(root);
         List<FailedEntry> stillFailing = new ArrayList<>();
         int successCount = 0;
         
@@ -1132,10 +1114,10 @@ public class LuceneChunkedIndexProcessor {
             
             try {
                 String path = entry.getPath();
-                NodeState node = getNodeAtPath(root, path);
+                NodeState node = cache.get(path);
                 
                 if (node != null && node.exists()) {
-                    Document doc = createLuceneDocument(path, node, indexDefinition);
+                    Document doc = createLuceneDocument(path, node, indexDefinition, cache);
                     if (doc != null) {
                         indexWriter.updateDocument(path, doc);
                     }
