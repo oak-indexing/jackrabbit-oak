@@ -31,7 +31,9 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Editor that writes change tracking entries to a dedicated Lucene index.
@@ -66,7 +68,7 @@ public class ChangeTrackingIndexEditor implements Editor {
     private static final String FIELD_DIFF_PROCESSING_TIME = "ct:diffProcessingTime";
     private static final String FIELD_SERIAL_NUMBER = "ct:serialNumber";
     
-    private final IndexWriter indexWriter;
+    private final AsyncChangeTrackingWriter writer;
     private final String currentPath;
     private final long diffProcessingTime;
     
@@ -88,18 +90,18 @@ public class ChangeTrackingIndexEditor implements Editor {
      */
     public ChangeTrackingIndexEditor(@NotNull IndexWriter indexWriter,
                                       long diffProcessingTime) {
-        this(indexWriter, "/", diffProcessingTime, 
+        this(new AsyncChangeTrackingWriter(indexWriter), "/", diffProcessingTime, 
              new SerialNumberGenerator(diffProcessingTime));
     }
     
     /**
      * Internal constructor for creating child editors.
      */
-    private ChangeTrackingIndexEditor(@NotNull IndexWriter indexWriter,
+    private ChangeTrackingIndexEditor(@NotNull AsyncChangeTrackingWriter writer,
                                        @NotNull String currentPath,
                                        long diffProcessingTime,
                                        @NotNull SerialNumberGenerator serialNumberGenerator) {
-        this.indexWriter = indexWriter;
+        this.writer = writer;
         this.currentPath = currentPath;
         this.diffProcessingTime = diffProcessingTime;
         this.serialNumberGenerator = serialNumberGenerator;
@@ -112,7 +114,10 @@ public class ChangeTrackingIndexEditor implements Editor {
     
     @Override
     public void leave(NodeState before, NodeState after) throws CommitFailedException {
-        // Commit happens externally
+        // If this is the root editor, flush the async writer
+        if ("/".equals(currentPath)) {
+            writer.flush();
+        }
     }
     
     @Override
@@ -174,32 +179,25 @@ public class ChangeTrackingIndexEditor implements Editor {
      * @param path the absolute path of the changed node
      */
     private void recordChangeAtPath(String path) throws CommitFailedException {
-        try {
-            long serialNumber = serialNumberGenerator.next();
-            
-            Document doc = new Document();
-            
-            // ct:path - the changed path
-            doc.add(new StringField(FIELD_PATH, path, Field.Store.YES));
-            
-            // ct:diffProcessingTime - for ordering and retention (Lucene 4.7 uses LongField)
-            doc.add(new LongField(FIELD_DIFF_PROCESSING_TIME, diffProcessingTime, Field.Store.YES));
-            
-            // ct:serialNumber - for unique ordering within same timestamp (Lucene 4.7 uses LongField)
-            doc.add(new LongField(FIELD_SERIAL_NUMBER, serialNumber, Field.Store.YES));
-            
-            // Use updateDocument to ensure path is unique in the index (deduplication)
-            indexWriter.updateDocument(new Term(FIELD_PATH, path), doc);
-            entriesWritten++;
-            
-            if (entriesWritten % 10000 == 0) {
-                LOG.info("Change tracking: recorded {} changes", entriesWritten);
-            }
-            
-        } catch (IOException e) {
-            throw new CommitFailedException(
-                CommitFailedException.STATE, 1,
-                "Failed to write change tracking entry for path: " + path, e);
+        long serialNumber = serialNumberGenerator.next();
+        
+        Document doc = new Document();
+        
+        // ct:path - the changed path
+        doc.add(new StringField(FIELD_PATH, path, Field.Store.YES));
+        
+        // ct:diffProcessingTime - for ordering and retention (Lucene 4.7 uses LongField)
+        doc.add(new LongField(FIELD_DIFF_PROCESSING_TIME, diffProcessingTime, Field.Store.YES));
+        
+        // ct:serialNumber - for unique ordering within same timestamp (Lucene 4.7 uses LongField)
+        doc.add(new LongField(FIELD_SERIAL_NUMBER, serialNumber, Field.Store.YES));
+        
+        // Use async writer to avoid blocking traversal
+        writer.add(doc, new Term(FIELD_PATH, path));
+        entriesWritten++;
+        
+        if (entriesWritten % 10000 == 0) {
+            LOG.info("Change tracking: recorded {} changes", entriesWritten);
         }
     }
     
@@ -209,7 +207,7 @@ public class ChangeTrackingIndexEditor implements Editor {
     private Editor childEditor(String name) {
         String childPath = buildChildPath(name);
         return new ChangeTrackingIndexEditor(
-            indexWriter, childPath, 
+            writer, childPath, 
             diffProcessingTime, serialNumberGenerator);
     }
     
@@ -231,6 +229,78 @@ public class ChangeTrackingIndexEditor implements Editor {
         return entriesWritten;
     }
     
+    /**
+     * Async writer that buffers Lucene updates and writes them in a background thread.
+     * Decouples traversal CPU cost from Lucene I/O/locking.
+     */
+    private static class AsyncChangeTrackingWriter {
+        private final IndexWriter indexWriter;
+        private final BlockingQueue<WriteOp> queue = new LinkedBlockingQueue<>(5000);
+        private final Thread worker;
+        private final AtomicReference<Throwable> error = new AtomicReference<>();
+        
+        private static class WriteOp {
+            final Document doc;
+            final Term term;
+            WriteOp(Document doc, Term term) { this.doc = doc; this.term = term; }
+        }
+        
+        private static final WriteOp STOP_OP = new WriteOp(null, null);
+
+        AsyncChangeTrackingWriter(IndexWriter indexWriter) {
+            this.indexWriter = indexWriter;
+            this.worker = new Thread(this::runWorker, "ChangeTracking-AsyncWriter");
+            this.worker.setDaemon(true);
+            this.worker.start();
+        }
+
+        void add(Document doc, Term term) throws CommitFailedException {
+            checkError();
+            try {
+                queue.put(new WriteOp(doc, term));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new CommitFailedException(CommitFailedException.STATE, 1, "Interrupted while queuing change", e);
+            }
+        }
+
+        void flush() throws CommitFailedException {
+            try {
+                // Signal stop
+                queue.put(STOP_OP);
+                // Wait for worker to finish
+                worker.join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new CommitFailedException(CommitFailedException.STATE, 1, "Interrupted while waiting for async writer", e);
+            }
+            checkError();
+        }
+        
+        private void checkError() throws CommitFailedException {
+            Throwable t = error.get();
+            if (t != null) {
+                throw new CommitFailedException(CommitFailedException.STATE, 1, "Async writer failed", t);
+            }
+        }
+        
+        private void runWorker() {
+            try {
+                while (true) {
+                    WriteOp op = queue.take();
+                    if (op == STOP_OP) {
+                        break;
+                    }
+                    indexWriter.updateDocument(op.term, op.doc);
+                }
+            } catch (Throwable t) {
+                error.set(t);
+                // Drain queue to prevent producer blocking
+                queue.clear(); 
+            }
+        }
+    }
+
     /**
      * Generates unique serial numbers for changes within the same timestamp.
      * Thread-safe for use across multiple editors in a single diff run.
