@@ -26,28 +26,37 @@ echo "==========================================================================
 rm -f "$OUTPUT_FILE"
 rm -f "$SUMMARY_FILE"
 
+echo "Compiling oak-lucene once..."
+mvn clean test-compile -pl oak-lucene -DskipTests > /dev/null 2>&1
+if [ $? -ne 0 ]; then
+    echo "Compilation failed. Exiting."
+    exit 1
+fi
+echo "Compilation complete."
+
 # Define Scenarios as arrays: Store Nodes Chunk
 # Example: "MEMORY 1000 500"
 # Find breaking points for SEGMENT and DOCUMENT (Mongo) and add aggressive scale-up
 SCENARIOS=(
     # Memory baseline (sanity check)
-    "MEMORY 1000 200"
+    "MEMORY 100 1000"
+    "MEMORY 1000 1000"
     "MEMORY 10000 2000"
     "MEMORY 50000 5000"
     # Segment store: ramp up to break
     "SEGMENT 20000 2000"
     "SEGMENT 50000 5000"
     "SEGMENT 100000 5000"
-    "SEGMENT 250000 10000"
-    "SEGMENT 500000 25000"
-    "SEGMENT 1000000 50000"
+    "SEGMENT 250000 5000"
+    "SEGMENT 500000 5000"
+    "SEGMENT 1000000 5000"
     # DocumentNodeStore (Mongo): ramp up to break
     "DOCUMENT 20000 2000"
     "DOCUMENT 50000 5000"
     "DOCUMENT 100000 5000"
-    "DOCUMENT 250000 10000"
-    "DOCUMENT 500000 25000"
-    "DOCUMENT 1000000 50000"
+    "DOCUMENT 250000 5000"
+    "DOCUMENT 500000 5000"
+    "DOCUMENT 1000000 5000"
 )
 
 # JVM Configurations to Loop Over
@@ -70,14 +79,24 @@ run_single_scenario() {
     echo "Running: $STORE, Nodes: $NODES, Chunk: $CHUNK, CT: $CT, JVM: $MEM_CONFIG"
     echo "--------------------------------------------------------------------------------"
     
+    # Ensure fresh report
+    SUREFIRE_OUT="oak-lucene/target/surefire-reports/org.apache.jackrabbit.oak.plugins.index.lucene.BasicChangeTrackerPerfTest-output.txt"
+    rm -f "$SUREFIRE_OUT"
+
     # Capture output to temp file
-    mvn clean test -pl oak-lucene \
+    mvn test -pl oak-lucene \
         -Dtest=BasicChangeTrackerPerfTest \
         -Dsurefire.useFile=false \
         -DfailIfNoTests=false \
         -Dbaseline.skip=true \
-        -DargLine="$MEM_CONFIG -Dperf.nodeStore=$STORE -Dperf.nodeCount=$NODES -Dperf.chunkSize=$CHUNK -Dperf.useChangeTracker=$CT" > "$SCENARIO_NAME.out" 2>&1
+        -Dperf.nodeStore=$STORE -Dperf.nodeCount=$NODES -Dperf.chunkSize=$CHUNK -Dperf.useChangeTracker=$CT \
+        -DargLine="$MEM_CONFIG -XX:+PrintGCDetails" > "$SCENARIO_NAME.out" 2>&1
     
+    # Fix: Append surefire output file if stdout redirection didn't work (common with some surefire configs)
+    if [ -f "$SUREFIRE_OUT" ]; then
+        cat "$SUREFIRE_OUT" >> "$SCENARIO_NAME.out"
+    fi
+
     # Append to main output file
     echo "### SCENARIO: $SCENARIO_NAME (JVM: $MEM_CONFIG) ###" >> "$OUTPUT_FILE"
     cat "$SCENARIO_NAME.out" >> "$OUTPUT_FILE"

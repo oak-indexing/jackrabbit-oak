@@ -481,7 +481,7 @@ public class BasicChangeTrackerPerfTest {
         LuceneIndexProvider provider;
         LuceneIndexEditorProvider editorProvider;
         
-        java.util.concurrent.ExecutorService indexCopierExecutor;
+        ScheduledExecutorService indexCopierExecutor;
         IndexCopier indexCopier;
         
         FileStore fileStore;
@@ -536,7 +536,7 @@ public class BasicChangeTrackerPerfTest {
 
         // Shared IndexCopier
         File indexWorkDir = temporaryFolder.newFolder("indexCopier");
-        ctx.indexCopierExecutor = Executors.newSingleThreadExecutor();
+        ctx.indexCopierExecutor = Executors.newSingleThreadScheduledExecutor();
         ctx.indexCopier = new IndexCopier(ctx.indexCopierExecutor, indexWorkDir, true);
 
         // CT Components

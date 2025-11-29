@@ -162,7 +162,7 @@ public class ChangeTrackingPerformanceTest {
     // ========================================
     
     // Shared IndexCopier components
-    private java.util.concurrent.ExecutorService indexCopierExecutor;
+    private ScheduledExecutorService indexCopierExecutor;
     private IndexCopier indexCopier;
 
     // NodeStore components
@@ -222,7 +222,7 @@ public class ChangeTrackingPerformanceTest {
         
         // Initialize shared IndexCopier
         File indexWorkDir = temporaryFolder.newFolder("indexCopier");
-        indexCopierExecutor = Executors.newSingleThreadExecutor();
+        indexCopierExecutor = Executors.newSingleThreadScheduledExecutor();
         indexCopier = new IndexCopier(indexCopierExecutor, indexWorkDir, true);
         
         repository = createRepository();
