@@ -700,19 +700,313 @@ public class BasicChangeTrackerPerfTest {
         damSha1.setProperty("name", "jcr:content/metadata/dam:sha1");
         damSha1.setProperty("propertyIndex", true);
         
+        // Add ntBaseLucene index (AEM style - ntBaseLucene-2)
+        Tree ntBaseIndex = oakIndex.addChild("ntBaseLucene");
+        ntBaseIndex.setProperty("jcr:primaryType", "oak:QueryIndexDefinition", Type.NAME);
+        ntBaseIndex.setProperty("type", "lucene");
+        ntBaseIndex.setProperty("async", "async"); 
+        ntBaseIndex.setProperty("compatVersion", 2);
+        ntBaseIndex.setProperty("evaluatePathRestrictions", true);
+        ntBaseIndex.setProperty("excludedPaths", Arrays.asList("/oak:index"), Type.STRINGS);
+        
+        if (useChangeTracker) {
+            ntBaseIndex.setProperty("useChangeTracker", true);
+        } else {
+            ntBaseIndex.setProperty("reindex", true);
+        }
+        
+        Tree ntBaseRules = ntBaseIndex.addChild("indexRules");
+        Tree ntBase = ntBaseRules.addChild("nt:base");
+        ntBase.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        Tree ntBaseProps = ntBase.addChild("properties");
+        ntBaseProps.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        
+        // --- Properties from JSON ---
+        
+        Tree p_cqTags = ntBaseProps.addChild("cqTags");
+        p_cqTags.setProperty("name", "cq:tags");
+        p_cqTags.setProperty("propertyIndex", true);
+        p_cqTags.setProperty("type", "String");
+
+        Tree p_slingResource = ntBaseProps.addChild("slingResource");
+        p_slingResource.setProperty("name", "sling:resource");
+        p_slingResource.setProperty("propertyIndex", true);
+        p_slingResource.setProperty("type", "String");
+
+        Tree p_damMetadataSchema = ntBaseProps.addChild("damMetadataSchema");
+        p_damMetadataSchema.setProperty("name", "str:jcr:content/metadataSchema");
+        p_damMetadataSchema.setProperty("propertyIndex", true);
+        p_damMetadataSchema.setProperty("type", "String");
+
+        Tree p_damMetadataProfile = ntBaseProps.addChild("damMetadataProfile");
+        p_damMetadataProfile.setProperty("name", "str:jcr:content/metadataProfile");
+        p_damMetadataProfile.setProperty("propertyIndex", true);
+        p_damMetadataProfile.setProperty("type", "String");
+
+        Tree p_damVideoProfile = ntBaseProps.addChild("damVideoProfile");
+        p_damVideoProfile.setProperty("name", "str:jcr:content/videoProfile");
+        p_damVideoProfile.setProperty("propertyIndex", true);
+        p_damVideoProfile.setProperty("type", "String");
+
+        Tree p_damImageProfile = ntBaseProps.addChild("damImageProfile");
+        p_damImageProfile.setProperty("name", "str:jcr:content/imageProfile");
+        p_damImageProfile.setProperty("propertyIndex", true);
+        p_damImageProfile.setProperty("type", "String");
+
+        Tree p_damResolvedPath = ntBaseProps.addChild("damResolvedPath");
+        p_damResolvedPath.setProperty("name", "str:dam:resolvedPath");
+        p_damResolvedPath.setProperty("propertyIndex", true);
+        p_damResolvedPath.setProperty("type", "String");
+
+        Tree p_afTemplateVersion = ntBaseProps.addChild("afTemplateVersion");
+        p_afTemplateVersion.setProperty("name", "str:jcr:content/afTemplateVersion");
+        p_afTemplateVersion.setProperty("propertyIndex", true);
+        p_afTemplateVersion.setProperty("type", "String");
+
+        Tree p_damAutoTag = ntBaseProps.addChild("damAutoTag");
+        p_damAutoTag.setProperty("name", "str:jcr:content/autotag");
+        p_damAutoTag.setProperty("propertyIndex", true);
+        p_damAutoTag.setProperty("type", "Boolean");
+
+        Tree p_cqLastReplicationAction = ntBaseProps.addChild("cqLastReplicationAction");
+        p_cqLastReplicationAction.setProperty("name", "cq:lastReplicationAction");
+        p_cqLastReplicationAction.setProperty("propertyIndex", true);
+
+        Tree p_status = ntBaseProps.addChild("status");
+        p_status.setProperty("name", "status");
+        p_status.setProperty("propertyIndex", true);
+
+        Tree p_type = ntBaseProps.addChild("type");
+        p_type.setProperty("name", "type");
+        p_type.setProperty("propertyIndex", true);
+
+        Tree p_offTime = ntBaseProps.addChild("offTime");
+        p_offTime.setProperty("name", "offTime");
+        p_offTime.setProperty("propertyIndex", true);
+        p_offTime.setProperty("ordered", true);
+        p_offTime.setProperty("type", "Date");
+
+        Tree p_onTime = ntBaseProps.addChild("onTime");
+        p_onTime.setProperty("name", "onTime");
+        p_onTime.setProperty("propertyIndex", true);
+        p_onTime.setProperty("ordered", true);
+        p_onTime.setProperty("type", "Date");
+
+        Tree p_analytics_pageviews = ntBaseProps.addChild("analytics_pageviews");
+        p_analytics_pageviews.setProperty("name", "analytics_pageviews");
+        p_analytics_pageviews.setProperty("propertyIndex", true);
+        p_analytics_pageviews.setProperty("ordered", true);
+        p_analytics_pageviews.setProperty("type", "Long");
+
+        Tree p_analytics_visitors = ntBaseProps.addChild("analytics_visitors");
+        p_analytics_visitors.setProperty("name", "analytics_visitors");
+        p_analytics_visitors.setProperty("propertyIndex", true);
+        p_analytics_visitors.setProperty("ordered", true);
+        p_analytics_visitors.setProperty("type", "Long");
+
+        Tree p_analytics_averagetimespentonpage = ntBaseProps.addChild("analytics_averagetimespentonpage");
+        p_analytics_averagetimespentonpage.setProperty("name", "analytics_averagetimespentonpage");
+        p_analytics_averagetimespentonpage.setProperty("propertyIndex", true);
+        p_analytics_averagetimespentonpage.setProperty("ordered", true);
+
+        Tree p_lockOwner = ntBaseProps.addChild("lockOwner");
+        p_lockOwner.setProperty("name", "str:jcr:lockOwner");
+        p_lockOwner.setProperty("sync", true);
+
+        Tree p_alias = ntBaseProps.addChild("alias");
+        p_alias.setProperty("name", "sling:alias");
+        p_alias.setProperty("sync", true);
+
+        Tree p_resources = ntBaseProps.addChild("resources");
+        p_resources.setProperty("name", "sling:resources");
+        p_resources.setProperty("sync", true);
+
+        Tree p_resourceType = ntBaseProps.addChild("resourceType");
+        p_resourceType.setProperty("name", "sling:resourceType");
+        p_resourceType.setProperty("sync", true);
+        p_resourceType.setProperty("valueExcludedPrefixes", Arrays.asList("slingevent:Job", "sling:Folder"), Type.STRINGS);
+
+        Tree p_resourceSuperType = ntBaseProps.addChild("resourceSuperType");
+        p_resourceSuperType.setProperty("name", "sling:resourceSuperType");
+        p_resourceSuperType.setProperty("sync", true);
+
+        Tree p_vanityPath = ntBaseProps.addChild("vanityPath");
+        p_vanityPath.setProperty("name", "sling:vanityPath");
+        p_vanityPath.setProperty("sync", true);
+
+        Tree p_cloudserviceconfigs = ntBaseProps.addChild("cloudserviceconfigs");
+        p_cloudserviceconfigs.setProperty("name", "cq:cloudserviceconfigs");
+        p_cloudserviceconfigs.setProperty("sync", true);
+
+        Tree p_cloudserviceconfig = ntBaseProps.addChild("cloudserviceconfig");
+        p_cloudserviceconfig.setProperty("name", "cq:cloudserviceconfig");
+        p_cloudserviceconfig.setProperty("sync", true);
+
+        Tree p_conf = ntBaseProps.addChild("conf");
+        p_conf.setProperty("name", "cq:conf");
+        p_conf.setProperty("sync", true);
+
+        Tree p_cugEnabled = ntBaseProps.addChild("cugEnabled");
+        p_cugEnabled.setProperty("name", "cq:cugEnabled");
+        p_cugEnabled.setProperty("sync", true);
+
+        Tree p_defaultFormFor = ntBaseProps.addChild("defaultFormFor");
+        p_defaultFormFor.setProperty("name", "cq:defaultFormFor");
+        p_defaultFormFor.setProperty("sync", true);
+
+        Tree p_formAlias = ntBaseProps.addChild("formAlias");
+        p_formAlias.setProperty("name", "cq:formAlias");
+        p_formAlias.setProperty("sync", true);
+
+        Tree p_keywords = ntBaseProps.addChild("keywords");
+        p_keywords.setProperty("name", "cq:keywords");
+        p_keywords.setProperty("sync", true);
+
+        Tree p_master = ntBaseProps.addChild("master");
+        p_master.setProperty("name", "cq:master");
+        p_master.setProperty("sync", true);
+
+        Tree p_ownerCanvasPage = ntBaseProps.addChild("ownerCanvasPage");
+        p_ownerCanvasPage.setProperty("name", "cq:ownerCanvasPage");
+        p_ownerCanvasPage.setProperty("sync", true);
+
+        Tree p_segments = ntBaseProps.addChild("segments");
+        p_segments.setProperty("name", "cq:segments");
+        p_segments.setProperty("sync", true);
+
+        Tree p_template = ntBaseProps.addChild("template");
+        p_template.setProperty("name", "cq:template");
+        p_template.setProperty("sync", true);
+
+        Tree p_variantFamily = ntBaseProps.addChild("variantFamily");
+        p_variantFamily.setProperty("name", "cq:variantFamily");
+        p_variantFamily.setProperty("sync", true);
+
+        Tree p_s7Swatch = ntBaseProps.addChild("s7Swatch");
+        p_s7Swatch.setProperty("name", "str:dam:s7Swatch");
+        p_s7Swatch.setProperty("sync", true);
+
+        Tree p_containeeInstanceId = ntBaseProps.addChild("containeeInstanceId");
+        p_containeeInstanceId.setProperty("name", "containeeInstanceId");
+        p_containeeInstanceId.setProperty("sync", true);
+
+        Tree p_contentPath = ntBaseProps.addChild("contentPath");
+        p_contentPath.setProperty("name", "contentPath");
+        p_contentPath.setProperty("sync", true);
+
+        Tree p_extensionType = ntBaseProps.addChild("extensionType");
+        p_extensionType.setProperty("name", "extensionType");
+        p_extensionType.setProperty("sync", true);
+
+        Tree p_lockcreated = ntBaseProps.addChild("lockcreated");
+        p_lockcreated.setProperty("name", "lock.created");
+        p_lockcreated.setProperty("sync", true);
+
+        Tree p_guideComponentType = ntBaseProps.addChild("guideComponentType");
+        p_guideComponentType.setProperty("name", "guideComponentType");
+        p_guideComponentType.setProperty("sync", true);
+
+        Tree p_fpContentType = ntBaseProps.addChild("fpContentType");
+        p_fpContentType.setProperty("name", "fpContentType");
+        p_fpContentType.setProperty("sync", true);
+
+        Tree p_status_27 = ntBaseProps.addChild("status_27");
+        p_status_27.setProperty("name", "str:dam:status");
+        p_status_27.setProperty("sync", true);
+
+        Tree p_verb = ntBaseProps.addChild("verb");
+        p_verb.setProperty("name", "verb");
+        p_verb.setProperty("sync", true);
+
+        Tree p_processingProfile = ntBaseProps.addChild("processingProfile");
+        p_processingProfile.setProperty("name", "processingProfile");
+        p_processingProfile.setProperty("sync", true);
+
+        Tree p_subType = ntBaseProps.addChild("subType");
+        p_subType.setProperty("name", "subType");
+        p_subType.setProperty("sync", true);
+
+        Tree p_campaignpath = ntBaseProps.addChild("campaignpath");
+        p_campaignpath.setProperty("name", "campaignpath");
+        p_campaignpath.setProperty("sync", true);
+
+        Tree p_acUUID = ntBaseProps.addChild("acUUID");
+        p_acUUID.setProperty("name", "cq:acUUID");
+        p_acUUID.setProperty("sync", true);
+
+        Tree p_active = ntBaseProps.addChild("active");
+        p_active.setProperty("name", "active");
+        p_active.setProperty("sync", true);
+
+        Tree p_deviceIdentificationMode = ntBaseProps.addChild("deviceIdentificationMode");
+        p_deviceIdentificationMode.setProperty("name", "cq:deviceIdentificationMode");
+        p_deviceIdentificationMode.setProperty("sync", true);
+
+        Tree p_fragmentPath = ntBaseProps.addChild("fragmentPath");
+        p_fragmentPath.setProperty("name", "fragmentPath");
+        p_fragmentPath.setProperty("sync", true);
+
+        Tree p_masterBuildingBlock = ntBaseProps.addChild("masterBuildingBlock");
+        p_masterBuildingBlock.setProperty("name", "cq:masterBuildingBlock");
+        p_masterBuildingBlock.setProperty("sync", true);
+
+        Tree p_masterBuildingBlockPath = ntBaseProps.addChild("masterBuildingBlockPath");
+        p_masterBuildingBlockPath.setProperty("name", "cq:masterBuildingBlockPath");
+        p_masterBuildingBlockPath.setProperty("sync", true);
+
+        Tree p_postId = ntBaseProps.addChild("postId");
+        p_postId.setProperty("name", "postId");
+        p_postId.setProperty("sync", true);
+
+        Tree p_targetOfferId = ntBaseProps.addChild("targetOfferId");
+        p_targetOfferId.setProperty("name", "cq:targetOfferId");
+        p_targetOfferId.setProperty("sync", true);
+
+        Tree p_ecuuid = ntBaseProps.addChild("ecuuid");
+        p_ecuuid.setProperty("name", "ec-uuid");
+        p_ecuuid.setProperty("sync", true);
+
+        Tree p_isCommunitySite = ntBaseProps.addChild("isCommunitySite");
+        p_isCommunitySite.setProperty("name", "cq:isCommunitySite");
+        p_isCommunitySite.setProperty("sync", true);
+
+        Tree p_nodeType = ntBaseProps.addChild("nodeType");
+        p_nodeType.setProperty("name", "nodeType");
+        p_nodeType.setProperty("sync", true);
+
+        Tree p_sourceRootResource = ntBaseProps.addChild("sourceRootResource");
+        p_sourceRootResource.setProperty("name", "sourceRootResource");
+        p_sourceRootResource.setProperty("propertyIndex", true);
+
+        Tree p_cmConfigurationType = ntBaseProps.addChild("cmConfigurationType");
+        p_cmConfigurationType.setProperty("name", "cmConfigurationType");
+        p_cmConfigurationType.setProperty("propertyIndex", true);
+        p_cmConfigurationType.setProperty("type", "String");
+
+        Tree p_lccapplication = ntBaseProps.addChild("lccapplication");
+        p_lccapplication.setProperty("name", "str:lcc:application");
+        p_lccapplication.setProperty("propertyIndex", true);
+        p_lccapplication.setProperty("type", "String");
+
+        Tree p_lccpath = ntBaseProps.addChild("lccpath");
+        p_lccpath.setProperty("name", "str:lcc:path");
+        p_lccpath.setProperty("sync", true);
+
+        Tree p_lccclassname = ntBaseProps.addChild("lccclassname");
+        p_lccclassname.setProperty("name", "str:lcc:className");
+        p_lccclassname.setProperty("sync", true);
+
+        Tree p_dataModule = ntBaseProps.addChild("dataModule");
+        p_dataModule.setProperty("name", "dataModule");
+        p_dataModule.setProperty("sync", true);
+        
         ctx.root.commit();
         
         // Register index in metadata if needed
         if (useChangeTracker) {
              // CRITICAL: Register the index with the metadata manager.
-             // Failure Analysis:
-             // If this is skipped, ChangeTrackingAsyncIndexUpdate may not be aware of this index 
-             // or wont be able to track its checkpoint state properly.
-             // This leads to a situation where the populator runs (diffs are calculated), 
-             // but the async indexer doesn't process the changes for this specific index 
-             // or fails to commit the index update, resulting in 0 query results.
-             // In E2E tests, this manifested as "Queries returned 0 results after retries".
              ctx.metadataManager.registerIndex("/oak:index/damAssetLucene13");
+             ctx.metadataManager.registerIndex("/oak:index/ntBaseLucene");
         }
 
         // Indexers
