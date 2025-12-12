@@ -1,0 +1,839 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.jackrabbit.oak.plugins.index.lucene.resumeindexing.perf;
+
+import org.apache.jackrabbit.oak.InitialContent;
+import org.apache.jackrabbit.oak.Oak;
+import org.apache.jackrabbit.oak.api.ContentRepository;
+import org.apache.jackrabbit.oak.api.ContentSession;
+import org.apache.jackrabbit.oak.api.Root;
+import org.apache.jackrabbit.oak.api.Tree;
+import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.plugins.blob.datastore.DataStoreBlobStore;
+import org.apache.jackrabbit.oak.plugins.blob.datastore.OakFileDataStore;
+import org.apache.jackrabbit.oak.plugins.document.DocumentMK;
+import org.apache.jackrabbit.oak.plugins.document.DocumentNodeStore;
+import org.apache.jackrabbit.oak.plugins.document.MongoConnectionFactory;
+import org.apache.jackrabbit.oak.plugins.document.MongoUtils;
+import org.apache.jackrabbit.oak.plugins.document.util.MongoConnection;
+import org.apache.jackrabbit.oak.plugins.index.AsyncIndexUpdate;
+import org.apache.jackrabbit.oak.plugins.index.lucene.IndexCopier;
+import org.apache.jackrabbit.oak.plugins.index.lucene.IndexTracker;
+import org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexEditorProvider;
+import org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexProvider;
+import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
+import org.apache.jackrabbit.oak.segment.SegmentNodeStoreBuilders;
+import org.apache.jackrabbit.oak.segment.file.FileStore;
+import org.apache.jackrabbit.oak.segment.file.FileStoreBuilder;
+import org.apache.jackrabbit.oak.spi.blob.BlobStore;
+import org.apache.jackrabbit.oak.spi.commit.Observer;
+import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
+import org.apache.jackrabbit.oak.spi.state.NodeStore;
+import org.apache.jackrabbit.oak.stats.DefaultStatisticsProvider;
+import org.apache.jackrabbit.util.ISO8601;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
+
+import java.io.File;
+import java.io.IOException;
+import java.lang.management.BufferPoolMXBean;
+import java.lang.management.GarbageCollectorMXBean;
+import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryPoolMXBean;
+import java.lang.management.MemoryType;
+import java.lang.management.ThreadMXBean;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Calendar;
+import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeTrue;
+
+/**
+ * Performance test for Resume Indexing - modeled after BasicChangeTrackerPerfTest.
+ * 
+ * <p>Compares Traditional vs Resume-enabled indexing across:
+ * <ul>
+ *   <li>MemoryNodeStore - baseline, no I/O overhead</li>
+ *   <li>SegmentNodeStore - disk I/O with FileDataStore</li>
+ *   <li>DocumentNodeStore (MongoDB) - network + disk overhead</li>
+ * </ul>
+ * 
+ * <p>Metrics captured:
+ * <ul>
+ *   <li>Total indexing time, throughput</li>
+ *   <li>Memory: heap, non-heap, direct buffer</li>
+ *   <li>GC: count and time</li>
+ *   <li>CPU time, peak threads</li>
+ *   <li>Disk usage</li>
+ *   <li>Query verification with index hints</li>
+ * </ul>
+ */
+public class ResumeIndexingPerfTest {
+
+    public enum NodeStoreType {
+        MEMORY, SEGMENT, DOCUMENT
+    }
+
+    @Rule
+    public TemporaryFolder temporaryFolder = new TemporaryFolder(new File("target"));
+
+    @Rule
+    public MongoConnectionFactory connectionFactory = new MongoConnectionFactory();
+
+    // Configurable via system properties
+    private static final NodeStoreType NODE_STORE_TYPE = NodeStoreType.valueOf(
+        System.getProperty("perf.nodeStore", "SEGMENT").toUpperCase());
+    private static final int NODE_COUNT = Math.max(1000, Integer.getInteger("perf.nodeCount", 1000)); // Min 1000
+    private static final int BATCH_SIZE = Integer.getInteger("perf.batchSize", 100);
+    private static final int CHUNK_SIZE = Integer.getInteger("perf.chunkSize", -1);
+    // Time limit in milliseconds for fine-grained control of resume triggers
+    private static final int TIME_LIMIT_MS = Integer.getInteger("perf.timeLimitMs", -1);
+    private static final boolean USE_RESUME = Boolean.parseBoolean(
+        System.getProperty("perf.useResume", "true"));
+    
+    // Fixed query result target - always return ~1000 results regardless of NODE_COUNT
+    private static final int QUERY_TARGET_COUNT = 1000;
+
+    @Test
+    public void runPerformanceTest() throws Exception {
+        System.out.println(String.format("\n========================================"));
+        System.out.println(String.format("RESUME INDEXING PERFORMANCE TEST"));
+        System.out.println(String.format("========================================"));
+        System.out.println(String.format("NodeStore:   %s", NODE_STORE_TYPE));
+        System.out.println(String.format("Node Count:  %d", NODE_COUNT));
+        System.out.println(String.format("Batch Size:  %d", BATCH_SIZE));
+        System.out.println(String.format("Chunk Size:  %d", CHUNK_SIZE));
+        System.out.println(String.format("Time Limit:  %d ms", TIME_LIMIT_MS));
+        System.out.println(String.format("Use Resume:  %s", USE_RESUME));
+        System.out.println(String.format("========================================\n"));
+
+        Result result = runTest(USE_RESUME);
+        
+        System.out.println("\n--- Performance Results ---");
+        System.out.println(result);
+        
+        // Output for script parsing
+        System.out.println("\n--- Script Parseable Output ---");
+        System.out.println("Total Time: " + result.totalTimeMs);
+        System.out.println("Throughput: " + String.format("%.1f", result.throughput));
+        System.out.println("Memory Delta: " + result.memoryUsedBytes);
+        System.out.println("Max Heap Used: " + result.maxHeapUsedBytes);
+        System.out.println("Max Non-Heap Used: " + result.maxNonHeapUsedBytes);
+        System.out.println("Peak Threads: " + result.peakThreadCount);
+        System.out.println("Process CPU Time: " + result.processCpuTimeMs);
+        System.out.println("Direct Buffer Memory: " + result.directBufferMemoryBytes);
+        System.out.println("Disk Usage: " + result.diskUsageBytes);
+        System.out.println("GC Count: " + result.gcCount);
+        System.out.println("GC Time: " + result.gcTimeMs);
+        System.out.println("Run Count: " + result.runCount);
+        System.out.println("Resume Count: " + result.resumeCount);
+        System.out.println("Main Index Size: " + result.mainIndexSizeBytes);
+        System.out.println("Query Time: " + result.queryTimeMs);
+        System.out.println("Query Approved: " + result.queryApproved);
+    }
+
+    private Result runTest(boolean useResume) throws Exception {
+        PerfContext ctx = new PerfContext();
+        setupContext(ctx, useResume);
+
+        try {
+            // === PHASE 1: Create index and complete initial index build ===
+            System.out.println("\n--- Phase 1: Initial Index Creation ---");
+            System.out.println("Running async indexer to complete initial index (reindex=true -> false)...");
+            
+            // Run until reindex becomes false AND no resume state
+            int initialRuns = 0;
+            while (true) {
+                ctx.asyncIndexUpdate.run();
+                ctx.indexTracker.refresh();
+                initialRuns++;
+                
+                org.apache.jackrabbit.oak.spi.state.NodeState rootAfterRun = ctx.nodeStore.getRoot();
+                org.apache.jackrabbit.oak.spi.state.NodeState idxState = 
+                    rootAfterRun.getChildNode("oak:index").getChildNode("damAssetLucene");
+                boolean reindex = idxState.getBoolean("reindex");
+                
+                // Also check for resume state
+                org.apache.jackrabbit.oak.spi.state.NodeState laneNode = 
+                    rootAfterRun.getChildNode(":async").getChildNode("async");
+                boolean hasResumeState = laneNode.exists() && laneNode.hasProperty("targetCheckpoint");
+                
+                if (!reindex && !hasResumeState) {
+                    System.out.println("  Initial index complete after " + initialRuns + " run(s)");
+                    break;
+                }
+                if (initialRuns > 1000) {
+                    throw new RuntimeException("Initial indexing took too many runs (>1000)");
+                }
+            }
+            
+            // Verify checkpoint was created and no resume state
+            String initialCheckpoint = ctx.nodeStore.getRoot().getChildNode(":async").getString("async");
+            System.out.println("  Checkpoint after initial index: " + initialCheckpoint);
+            org.apache.jackrabbit.oak.spi.state.NodeState laneAfterP1 = 
+                ctx.nodeStore.getRoot().getChildNode(":async").getChildNode("async");
+            boolean hasResumeAfterP1 = laneAfterP1.exists() && laneAfterP1.hasProperty("targetCheckpoint");
+            System.out.println("  Resume state after Phase 1: " + hasResumeAfterP1);
+            if (hasResumeAfterP1) {
+                System.out.println("    targetCheckpoint: " + laneAfterP1.getString("targetCheckpoint"));
+                System.out.println("    lastIndexedPath: " + laneAfterP1.getString("lastIndexedPath"));
+            }
+
+            // === PHASE 2: Create content AFTER initial index is built ===
+            System.out.println("\n--- Phase 2: Creating Content ---");
+            long startContent = System.currentTimeMillis();
+            createContent(ctx, NODE_COUNT, BATCH_SIZE);
+            long contentTime = System.currentTimeMillis() - startContent;
+            System.out.println("Content creation: " + contentTime + " ms (" + 
+                String.format("%.1f", NODE_COUNT * 1000.0 / contentTime) + " nodes/sec)");
+
+            // === PHASE 3: Run indexing to process new content (this is where resume triggers) ===
+            System.out.println("\n--- Phase 3: Indexing New Content (Resume Testing) ---");
+            System.out.println("Mode: " + (useResume ? "RESUME INDEXING" : "TRADITIONAL"));
+            System.out.println("oak.async.chunkSize: " + System.getProperty("oak.async.chunkSize", "not set"));
+            System.out.println("oak.async.timeLimitMs: " + System.getProperty("oak.async.timeLimitMs", "not set"));
+
+            ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
+            if (threadBean.isThreadCpuTimeSupported()) {
+                threadBean.setThreadCpuTimeEnabled(true);
+            }
+            threadBean.resetPeakThreadCount();
+
+            long startMem = getUsedMemory();
+            long startGcCount = getGcCount();
+            long startGcTime = getGcTime();
+            long startCpuTime = getProcessCpuTime();
+
+            long startIndexing = System.currentTimeMillis();
+            int runCount = 0;
+            int resumeCount = 0;
+            List<String> resumePaths = new ArrayList<>();
+
+            // Run indexing loop
+            // - Normal mode: run() completes in one call
+            // - Resume mode: run() suspends at chunk/time limit, continues on next run
+            while (true) {
+                long runStart = System.currentTimeMillis();
+                ctx.asyncIndexUpdate.run();  // Runs synchronously until complete or suspended
+                
+                ctx.indexTracker.refresh();
+                ctx.provider.contentChanged(ctx.nodeStore.getRoot(), 
+                    org.apache.jackrabbit.oak.spi.commit.CommitInfo.EMPTY);
+                long runTime = System.currentTimeMillis() - runStart;
+                runCount++;
+
+                // Check repository state after run
+                org.apache.jackrabbit.oak.spi.state.NodeState rootState = ctx.nodeStore.getRoot();
+                org.apache.jackrabbit.oak.spi.state.NodeState asyncNode = rootState.getChildNode(":async");
+                org.apache.jackrabbit.oak.spi.state.NodeState laneNode = asyncNode.getChildNode("async");
+                
+                // Check checkpoint state
+                String currentCheckpoint = asyncNode.getString("async");
+                org.apache.jackrabbit.oak.spi.state.NodeState idxAfterRun = 
+                    rootState.getChildNode("oak:index").getChildNode("damAssetLucene");
+                boolean hasData = idxAfterRun.hasChildNode(":data");
+                
+                // Count files in :data to debug index state
+                long dataChildCount = 0;
+                if (hasData) {
+                    org.apache.jackrabbit.oak.spi.state.NodeState dataNode = idxAfterRun.getChildNode(":data");
+                    dataChildCount = dataNode.getChildNodeCount(1000);
+                }
+                
+                System.out.println("    After run " + runCount + ": checkpoint=" + currentCheckpoint + 
+                    ", hasData=" + hasData + ", dataFiles=" + dataChildCount);
+
+                boolean hasResumeState = laneNode.exists() && laneNode.hasProperty("targetCheckpoint");
+
+                if (hasResumeState) {
+                    // Resume mode: indexer suspended, will continue on next run
+                    resumeCount++;
+                    String lastPath = laneNode.getString("lastIndexedPath");
+                    if (lastPath != null && !resumePaths.contains(lastPath)) {
+                        resumePaths.add(lastPath);
+                    }
+                    System.out.println("  Run " + runCount + ": " + runTime + " ms (resume at: " + lastPath + ")");
+                } else {
+                    // Indexing complete for this cycle
+                    System.out.println("  Run " + runCount + ": " + runTime + " ms (complete)");
+                    break;
+                }
+                
+                // Safety limit
+                if (runCount > 10000) {
+                    System.out.println("WARNING: Exceeded 10000 runs, stopping");
+                    break;
+                }
+            }
+
+            long totalIndexTime = System.currentTimeMillis() - startIndexing;
+
+            long endMem = getUsedMemory();
+            long endGcCount = getGcCount();
+            long endGcTime = getGcTime();
+            long endCpuTime = getProcessCpuTime();
+            long directBufferMem = getDirectBufferMemory();
+            long diskUsage = getDiskUsage(ctx);
+            long mainIndexSize = getMainIndexSize(ctx);
+
+            System.out.println("\nIndexing complete:");
+            System.out.println("  Total time: " + totalIndexTime + " ms");
+            System.out.println("  Total runs: " + runCount);
+            System.out.println("  Resume cycles: " + resumeCount);
+
+            // Debug: Check index state (use nodeStore directly for accurate state)
+            org.apache.jackrabbit.oak.spi.state.NodeState debugRoot = ctx.nodeStore.getRoot();
+            org.apache.jackrabbit.oak.spi.state.NodeState idx = 
+                debugRoot.getChildNode("oak:index").getChildNode("damAssetLucene");
+            System.out.println("\n  DEBUG Index State:");
+            System.out.println("    Exists: " + idx.exists());
+            System.out.println("    Has :data: " + idx.hasChildNode(":data"));
+            if (idx.hasProperty("async")) {
+                System.out.println("    async: " + idx.getProperty("async").getValue(Type.STRING));
+            }
+            if (idx.hasProperty("reindex")) {
+                System.out.println("    reindex: " + idx.getProperty("reindex").getValue(Type.BOOLEAN));
+            }
+            if (idx.hasProperty("reindexCount")) {
+                System.out.println("    reindexCount: " + idx.getProperty("reindexCount").getValue(Type.LONG));
+            }
+            org.apache.jackrabbit.oak.spi.state.NodeState contentState = 
+                debugRoot.getChildNode("content").getChildNode("dam");
+            System.out.println("    Content/dam children: " + contentState.getChildNodeCount(10));
+            
+            // Check :async state
+            org.apache.jackrabbit.oak.spi.state.NodeState asyncState = debugRoot.getChildNode(":async");
+            System.out.println("    :async exists: " + asyncState.exists());
+            if (asyncState.exists()) {
+                System.out.println("    :async checkpoint: " + asyncState.getString("async"));
+            }
+
+            // 4. Verification
+            System.out.println("\n--- Phase 4: Verification ---");
+            long queryStart = System.currentTimeMillis();
+            
+            // Verify index has data
+            org.apache.jackrabbit.oak.spi.state.NodeState idxState = 
+                ctx.nodeStore.getRoot().getChildNode("oak:index").getChildNode("damAssetLucene");
+            boolean hasData = idxState.hasChildNode(":data");
+            System.out.println("  Index has :data: " + hasData);
+            assertTrue("Index should have :data child", hasData);
+            
+            // Refresh index tracker before queries
+            ctx.indexTracker.refresh();
+            ctx.provider.contentChanged(ctx.nodeStore.getRoot(), 
+                org.apache.jackrabbit.oak.spi.commit.CommitInfo.EMPTY);
+            ctx.root = ctx.contentSession.getLatestRoot();
+            
+            // Verify with query using Lucene index (traversal fail ensures index is used)
+            System.out.println("  Running query verification (with traversal fail)...");
+            int queryApproved = executeQueryWithRetry(ctx, 
+                "SELECT * FROM [dam:Asset] WHERE ISDESCENDANTNODE('/content/dam') " +
+                "AND [jcr:content/metadata/dam:status] = 'approved' " +
+                "option(traversal fail, index name damAssetLucene)", 
+                10, 500);
+            System.out.println("    Query result count: " + queryApproved);
+            
+            long queryTime = System.currentTimeMillis() - queryStart;
+            
+            // Assertions
+            assertEquals("Query should return " + QUERY_TARGET_COUNT + " approved nodes", 
+                        QUERY_TARGET_COUNT, queryApproved);
+
+            // Build result
+            Result result = new Result();
+            result.totalTimeMs = totalIndexTime;
+            result.contentCreationTimeMs = contentTime;
+            result.throughput = (double) NODE_COUNT / (totalIndexTime / 1000.0);
+            result.memoryUsedBytes = endMem - startMem;
+            result.gcCount = endGcCount - startGcCount;
+            result.gcTimeMs = endGcTime - startGcTime;
+            result.processCpuTimeMs = (endCpuTime != -1 && startCpuTime != -1) ? (endCpuTime - startCpuTime) : -1;
+            result.directBufferMemoryBytes = directBufferMem;
+            result.diskUsageBytes = diskUsage;
+            result.maxHeapUsedBytes = getMaxHeapUsed();
+            result.maxNonHeapUsedBytes = getMaxNonHeapUsed();
+            result.peakThreadCount = threadBean.getPeakThreadCount();
+            result.queryTimeMs = queryTime;
+            result.runCount = runCount;
+            result.resumeCount = resumeCount;
+            result.mainIndexSizeBytes = mainIndexSize;
+            result.nodeCount = NODE_COUNT;
+            result.queryApproved = queryApproved;
+
+            return result;
+
+        } finally {
+            teardownContext(ctx);
+        }
+    }
+
+    // ========================================
+    // Content Creation (matching BasicChangeTrackerPerfTest)
+    // ========================================
+
+    private void registerDamNodeTypes(Root root) throws Exception {
+        String cnd = 
+            "<dam = 'http://www.day.com/dam/1.0'>\n" +
+            "[dam:Asset] > nt:hierarchyNode\n" +
+            "  + jcr:content (nt:unstructured)\n";
+        
+        java.io.ByteArrayInputStream stream = new java.io.ByteArrayInputStream(cnd.getBytes());
+        org.apache.jackrabbit.oak.plugins.nodetype.write.NodeTypeRegistry.register(root, stream, "dam-nodetypes.cnd");
+        root.commit();
+    }
+
+    private void createContent(PerfContext ctx, int count, int batchSize) throws Exception {
+        Tree content = ctx.root.getTree("/").addChild("content");
+        content.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        
+        Tree dam = content.addChild("dam");
+        dam.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+
+        // Create exactly QUERY_TARGET_COUNT dam:Asset nodes with status="approved"
+        int approvedInterval = Math.max(1, count / QUERY_TARGET_COUNT);
+        int approvedCount = 0;
+
+        for (int i = 0; i < count; i++) {
+            Tree asset = dam.addChild("asset-" + i);
+            asset.setProperty("jcr:primaryType", "dam:Asset", Type.NAME);
+            
+            // Add jcr:content with metadata
+            Tree jcrContent = asset.addChild("jcr:content");
+            jcrContent.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+            
+            Tree metadata = jcrContent.addChild("metadata");
+            metadata.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+            metadata.setProperty("dc:title", "Asset Title " + i);
+            metadata.setProperty("dam:assetId", "asset-" + i);
+            
+            // Set status for exactly QUERY_TARGET_COUNT nodes to "approved"
+            if (i % approvedInterval == 0 && approvedCount < QUERY_TARGET_COUNT) {
+                metadata.setProperty("dam:status", "approved");
+                approvedCount++;
+            } else {
+                metadata.setProperty("dam:status", "draft");
+            }
+
+            if ((i + 1) % batchSize == 0) {
+                ctx.root.commit();
+                if ((i + 1) % (batchSize * 10) == 0) {
+                    System.out.println("  Created " + (i + 1) + "/" + count + " assets");
+                }
+            }
+        }
+        ctx.root.commit();
+        System.out.println("Created " + count + " dam:Asset nodes (" + approvedCount + " with status=approved)");
+    }
+
+    // ========================================
+    // Context Setup/Teardown
+    // ========================================
+
+    private class PerfContext {
+        NodeStore nodeStore;
+        BlobStore blobStore;
+        ContentRepository contentRepository;
+        ContentSession contentSession;
+        Root root;
+        AsyncIndexUpdate asyncIndexUpdate;
+        LuceneIndexProvider provider;
+        LuceneIndexEditorProvider editorProvider;
+        IndexCopier indexCopier;
+        IndexTracker indexTracker;
+        java.util.concurrent.ExecutorService indexCopierExecutor;
+        
+        FileStore fileStore;
+        File storeDir;
+        File indexDir;
+        ScheduledExecutorService scheduledExecutor;
+        MongoConnection mongoConnection;
+        DocumentNodeStore documentNodeStore;
+    }
+
+    private void setupContext(PerfContext ctx, boolean useResume) throws Exception {
+        // NodeStore setup
+        if (NODE_STORE_TYPE == NodeStoreType.MEMORY) {
+            ctx.nodeStore = new MemoryNodeStore();
+        } else if (NODE_STORE_TYPE == NodeStoreType.SEGMENT) {
+            ctx.storeDir = temporaryFolder.newFolder("segment-" + System.nanoTime());
+            ctx.scheduledExecutor = Executors.newSingleThreadScheduledExecutor();
+            DefaultStatisticsProvider statisticsProvider = new DefaultStatisticsProvider(ctx.scheduledExecutor);
+            
+            // FileDataStore for blob storage
+            File blobDir = temporaryFolder.newFolder("blobs-" + System.nanoTime());
+            OakFileDataStore fds = new OakFileDataStore();
+            fds.setPath(blobDir.getAbsolutePath());
+            fds.init(null);
+            ctx.blobStore = new DataStoreBlobStore(fds);
+            
+            ctx.fileStore = FileStoreBuilder.fileStoreBuilder(ctx.storeDir)
+                    .withStatisticsProvider(statisticsProvider)
+                    .withBlobStore(ctx.blobStore)
+                    .withMaxFileSize(256)
+                    .withMemoryMapping(false)
+                    .build();
+            ctx.nodeStore = SegmentNodeStoreBuilders.builder(ctx.fileStore).build();
+        } else if (NODE_STORE_TYPE == NodeStoreType.DOCUMENT) {
+            assumeTrue("MongoDB not available", MongoUtils.isAvailable());
+            ctx.mongoConnection = connectionFactory.getConnection();
+            MongoUtils.dropCollections(ctx.mongoConnection.getDatabase());
+            ctx.documentNodeStore = new DocumentMK.Builder()
+                    .setMongoDB(ctx.mongoConnection.getMongoClient(), ctx.mongoConnection.getDBName())
+                    .setAsyncDelay(0)
+                    .getNodeStore();
+            ctx.nodeStore = ctx.documentNodeStore;
+        }
+
+        // Lucene providers (without IndexCopier to avoid classpath issues)
+        ctx.indexDir = temporaryFolder.newFolder("index-" + System.nanoTime());
+        ctx.indexTracker = new IndexTracker();
+        ctx.provider = new LuceneIndexProvider(ctx.indexTracker);
+        ctx.editorProvider = new LuceneIndexEditorProvider();
+
+        // Repository
+        ctx.contentRepository = new Oak(ctx.nodeStore)
+            .with(new InitialContent())
+            .with(new OpenSecurityProvider())
+            .with((org.apache.jackrabbit.oak.spi.query.QueryIndexProvider) ctx.provider)
+            .with((Observer) ctx.provider)
+            .with(ctx.editorProvider)
+            .with(new org.apache.jackrabbit.oak.plugins.index.property.PropertyIndexEditorProvider())
+            .with(new org.apache.jackrabbit.oak.plugins.index.nodetype.NodeTypeIndexProvider())
+            .createContentRepository();
+
+        ctx.contentSession = ctx.contentRepository.login(null, null);
+        ctx.root = ctx.contentSession.getLatestRoot();
+
+        // Register dam:Asset node type
+        registerDamNodeTypes(ctx.root);
+
+        // Create index definition for dam:Asset
+        createLuceneIndex(ctx.root);
+
+        // Set resume properties
+        if (useResume) {
+            if (CHUNK_SIZE > 0) {
+                System.setProperty("oak.async.chunkSize", String.valueOf(CHUNK_SIZE));
+            }
+            if (TIME_LIMIT_MS > 0) {
+                System.setProperty("oak.async.timeLimitMs", String.valueOf(TIME_LIMIT_MS));
+            }
+        } else {
+            // IMPORTANT: Clear resume properties for non-resume mode
+            // Otherwise they persist from previous runs or command line args
+            System.clearProperty("oak.async.chunkSize");
+            System.clearProperty("oak.async.timeLimitMs");
+        }
+
+        // AsyncIndexUpdate
+        ctx.asyncIndexUpdate = new AsyncIndexUpdate("async", ctx.nodeStore,
+            org.apache.jackrabbit.oak.plugins.index.CompositeIndexEditorProvider.compose(
+                Arrays.asList(
+                    ctx.editorProvider,
+                    new org.apache.jackrabbit.oak.plugins.index.property.PropertyIndexEditorProvider(),
+                    new org.apache.jackrabbit.oak.plugins.index.counter.NodeCounterEditorProvider()
+                )
+            )
+        );
+    }
+
+    private void createLuceneIndex(Root root) throws Exception {
+        Tree oakIndex = root.getTree("/oak:index");
+        Tree index = oakIndex.addChild("damAssetLucene");
+        index.setProperty("jcr:primaryType", "oak:QueryIndexDefinition", Type.NAME);
+        index.setProperty("type", "lucene");
+        index.setProperty("async", "async");
+        index.setProperty("compatVersion", 2);
+        index.setProperty("reindex", true);
+        index.setProperty("evaluatePathRestrictions", true);
+        index.setProperty("includedPaths", Arrays.asList("/content"), Type.STRINGS);
+
+        // Aggregation for dam:Asset - include jcr:content/metadata
+        Tree aggregates = index.addChild("aggregates");
+        aggregates.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        Tree damAssetAgg = aggregates.addChild("dam:Asset");
+        damAssetAgg.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        Tree include0 = damAssetAgg.addChild("include0");
+        include0.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        include0.setProperty("path", "jcr:content");
+        Tree include1 = damAssetAgg.addChild("include1");
+        include1.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        include1.setProperty("path", "jcr:content/metadata");
+
+        // Index Rules for dam:Asset
+        Tree indexRules = index.addChild("indexRules");
+        indexRules.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        Tree damAsset = indexRules.addChild("dam:Asset");
+        damAsset.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        Tree properties = damAsset.addChild("properties");
+        properties.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+
+        // dc:title property (analyzed, fulltext)
+        Tree titleProp = properties.addChild("dcTitle");
+        titleProp.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        titleProp.setProperty("name", "jcr:content/metadata/dc:title");
+        titleProp.setProperty("propertyIndex", true);
+        titleProp.setProperty("analyzed", true);
+        titleProp.setProperty("nodeScopeIndex", true);
+
+        // dam:assetId property
+        Tree assetIdProp = properties.addChild("damAssetId");
+        assetIdProp.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        assetIdProp.setProperty("name", "jcr:content/metadata/dam:assetId");
+        assetIdProp.setProperty("propertyIndex", true);
+
+        // dam:status property (used for query verification)
+        Tree statusProp = properties.addChild("damStatus");
+        statusProp.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+        statusProp.setProperty("name", "jcr:content/metadata/dam:status");
+        statusProp.setProperty("propertyIndex", true);
+
+        root.commit();
+    }
+
+    private void teardownContext(PerfContext ctx) throws Exception {
+        if (ctx.contentSession != null) ctx.contentSession.close();
+        if (ctx.asyncIndexUpdate != null) ctx.asyncIndexUpdate.close();
+        if (ctx.indexCopierExecutor != null) ctx.indexCopierExecutor.shutdown();
+        if (ctx.fileStore != null) ctx.fileStore.close();
+        if (ctx.scheduledExecutor != null) ctx.scheduledExecutor.shutdown();
+        if (ctx.documentNodeStore != null) ctx.documentNodeStore.dispose();
+    }
+
+
+    // ========================================
+    // Query Execution
+    // ========================================
+
+    /**
+     * Execute a query and return the result count.
+     * No limit is applied - use only when result count is expected to be bounded (e.g., filtered by status).
+     */
+    private int executeQuery(PerfContext ctx, String statement) {
+        try {
+            ctx.root.refresh();  // Always refresh before query
+            org.apache.jackrabbit.oak.api.Result result = ctx.root.getQueryEngine().executeQuery(
+                statement, "JCR-SQL2",
+                java.util.Collections.emptyMap(),
+                org.apache.jackrabbit.oak.api.QueryEngine.NO_MAPPINGS
+            );
+            int count = 0;
+            for (org.apache.jackrabbit.oak.api.ResultRow row : result.getRows()) {
+                row.getPath();
+                count++;
+            }
+            return count;
+        } catch (Exception e) {
+            System.out.println("    Query ERROR: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            return -1;
+        }
+    }
+    
+    private int executeQueryWithRetry(PerfContext ctx, String statement, int maxRetries, int delayMs) {
+        for (int i = 0; i < maxRetries; i++) {
+            try {
+                ctx.indexTracker.refresh();
+                ctx.provider.contentChanged(ctx.nodeStore.getRoot(), 
+                    org.apache.jackrabbit.oak.spi.commit.CommitInfo.EMPTY);
+                ctx.root = ctx.contentSession.getLatestRoot();
+                
+                int result = executeQuery(ctx, statement);
+                if (result >= 0) {
+                    return result;
+                }
+            } catch (Exception e) {
+                System.out.println("    Retry " + (i+1) + " failed: " + e.getMessage());
+            }
+            try { Thread.sleep(delayMs); } catch (InterruptedException ie) { break; }
+        }
+        return -1;
+    }
+
+    // ========================================
+    // Metrics Collection
+    // ========================================
+
+    private static long getUsedMemory() {
+        Runtime rt = Runtime.getRuntime();
+        return rt.totalMemory() - rt.freeMemory();
+    }
+
+    private static long getGcCount() {
+        long sum = 0;
+        for (GarbageCollectorMXBean b : ManagementFactory.getGarbageCollectorMXBeans()) {
+            long count = b.getCollectionCount();
+            if (count != -1) sum += count;
+        }
+        return sum;
+    }
+
+    private static long getGcTime() {
+        long sum = 0;
+        for (GarbageCollectorMXBean b : ManagementFactory.getGarbageCollectorMXBeans()) {
+            long time = b.getCollectionTime();
+            if (time != -1) sum += time;
+        }
+        return sum;
+    }
+
+    private static long getMaxHeapUsed() {
+        long sum = 0;
+        for (MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans()) {
+            if (pool.getType() == MemoryType.HEAP) {
+                sum += pool.getPeakUsage().getUsed();
+            }
+        }
+        return sum;
+    }
+
+    private static long getMaxNonHeapUsed() {
+        long sum = 0;
+        for (MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans()) {
+            if (pool.getType() == MemoryType.NON_HEAP) {
+                sum += pool.getPeakUsage().getUsed();
+            }
+        }
+        return sum;
+    }
+
+    private static long getProcessCpuTime() {
+        java.lang.management.OperatingSystemMXBean osBean = ManagementFactory.getOperatingSystemMXBean();
+        if (osBean instanceof com.sun.management.OperatingSystemMXBean) {
+            return ((com.sun.management.OperatingSystemMXBean) osBean).getProcessCpuTime() / 1_000_000;
+        }
+        return -1;
+    }
+
+    private static long getDirectBufferMemory() {
+        for (BufferPoolMXBean pool : ManagementFactory.getPlatformMXBeans(BufferPoolMXBean.class)) {
+            if (pool.getName().equals("direct")) {
+                return pool.getMemoryUsed();
+            }
+        }
+        return -1;
+    }
+
+    private static long getDiskUsage(PerfContext ctx) {
+        if (ctx.storeDir != null) {
+            try (java.util.stream.Stream<Path> walk = Files.walk(ctx.storeDir.toPath())) {
+                return walk.filter(p -> p.toFile().isFile())
+                        .mapToLong(p -> p.toFile().length())
+                        .sum();
+            } catch (IOException e) {
+                return -1;
+            }
+        }
+        return 0;
+    }
+
+    private static long getMainIndexSize(PerfContext ctx) {
+        if (ctx.indexDir != null) {
+            try (java.util.stream.Stream<Path> walk = Files.walk(ctx.indexDir.toPath())) {
+                return walk.filter(p -> p.toFile().isFile())
+                        .mapToLong(p -> p.toFile().length())
+                        .sum();
+            } catch (IOException e) {
+                return -1;
+            }
+        }
+        return 0;
+    }
+
+    // ========================================
+    // Result Class
+    // ========================================
+
+    private static class Result {
+        long totalTimeMs;
+        long contentCreationTimeMs;
+        double throughput;
+        long memoryUsedBytes;
+        long gcCount;
+        long gcTimeMs;
+        long maxHeapUsedBytes;
+        long maxNonHeapUsedBytes;
+        int peakThreadCount;
+        long processCpuTimeMs;
+        long directBufferMemoryBytes;
+        long diskUsageBytes;
+        long mainIndexSizeBytes;
+        long queryTimeMs;
+        int runCount;
+        int resumeCount;
+        int nodeCount;
+        int queryApproved;
+
+        @Override
+        public String toString() {
+            return String.format(
+                "Total Time: %d ms%n" +
+                "Content Creation: %d ms%n" +
+                "Throughput: %.2f nodes/sec%n" +
+                "Memory Delta: %d KB%n" +
+                "Max Heap Used: %d MB%n" +
+                "Max Non-Heap Used: %d MB%n" +
+                "Peak Threads: %d%n" +
+                "Process CPU Time: %d ms%n" +
+                "Direct Buffer Memory: %d KB%n" +
+                "Disk Usage: %d KB%n" +
+                "Main Index Size: %d KB%n" +
+                "GC Count: %d%n" +
+                "GC Time: %d ms%n" +
+                "Run Count: %d%n" +
+                "Resume Count: %d%n" +
+                "Query Time: %d ms%n" +
+                "Node Count: %d%n" +
+                "Query Approved (index): %d",
+                totalTimeMs, contentCreationTimeMs, throughput, 
+                memoryUsedBytes / 1024, maxHeapUsedBytes / (1024 * 1024), 
+                maxNonHeapUsedBytes / (1024 * 1024), peakThreadCount,
+                processCpuTimeMs, directBufferMemoryBytes / 1024, 
+                diskUsageBytes / 1024, mainIndexSizeBytes / 1024,
+                gcCount, gcTimeMs, runCount, resumeCount,
+                queryTimeMs, nodeCount, queryApproved);
+        }
+    }
+
+    // Helper: assertEventually - retry until expected value or timeout
+    @FunctionalInterface
+    private interface IntSupplier {
+        int get() throws Exception;
+    }
+
+    private int assertEventually(IntSupplier supplier, int expected, int maxRetries, int delayMs) 
+            throws Exception {
+        int result = 0;
+        for (int i = 0; i < maxRetries; i++) {
+            result = supplier.get();
+            if (result == expected) {
+                return result;
+            }
+            Thread.sleep(delayMs);
+        }
+        assertEquals("Expected value after " + maxRetries + " retries", expected, result);
+        return result;
+    }
+}
