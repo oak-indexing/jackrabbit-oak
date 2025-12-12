@@ -136,21 +136,21 @@ public class ResumeIndexingPerfTest {
         
         // Output for script parsing
         System.out.println("\n--- Script Parseable Output ---");
-        System.out.println("Total Time: " + result.totalTimeMs);
+        System.out.println("Total Time: " + result.totalTimeMs + " ms");
         System.out.println("Throughput: " + String.format("%.1f", result.throughput));
-        System.out.println("Memory Delta: " + result.memoryUsedBytes);
-        System.out.println("Max Heap Used: " + result.maxHeapUsedBytes);
-        System.out.println("Max Non-Heap Used: " + result.maxNonHeapUsedBytes);
+        System.out.println("Memory Delta: " + (result.memoryUsedBytes / 1024) + " KB");
+        System.out.println("Max Heap Used: " + (result.maxHeapUsedBytes / (1024 * 1024)) + " MB");
+        System.out.println("Max Non-Heap Used: " + (result.maxNonHeapUsedBytes / (1024 * 1024)) + " MB");
         System.out.println("Peak Threads: " + result.peakThreadCount);
-        System.out.println("Process CPU Time: " + result.processCpuTimeMs);
-        System.out.println("Direct Buffer Memory: " + result.directBufferMemoryBytes);
-        System.out.println("Disk Usage: " + result.diskUsageBytes);
+        System.out.println("Process CPU Time: " + result.processCpuTimeMs + " ms");
+        System.out.println("Direct Buffer Memory: " + (result.directBufferMemoryBytes / 1024) + " KB");
+        System.out.println("Disk Usage: " + (result.diskUsageBytes / 1024) + " KB");
         System.out.println("GC Count: " + result.gcCount);
-        System.out.println("GC Time: " + result.gcTimeMs);
+        System.out.println("GC Time: " + result.gcTimeMs + " ms");
         System.out.println("Run Count: " + result.runCount);
         System.out.println("Resume Count: " + result.resumeCount);
-        System.out.println("Main Index Size: " + result.mainIndexSizeBytes);
-        System.out.println("Query Time: " + result.queryTimeMs);
+        System.out.println("Main Index Size: " + (result.mainIndexSizeBytes / 1024) + " KB");
+        System.out.println("Query Time: " + result.queryTimeMs + " ms");
         System.out.println("Query Approved: " + result.queryApproved);
     }
 
