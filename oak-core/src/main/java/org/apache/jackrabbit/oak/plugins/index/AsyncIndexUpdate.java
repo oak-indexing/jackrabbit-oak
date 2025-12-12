@@ -466,37 +466,26 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             // Increment traversal count first
             long nodesRead = indexStats.incTraversal();
             
-            // Check if we should checkpoint progress
-            boolean shouldCheckpoint = false;
+            // Check if we should log progress (continuous mode only)
+            // Traditional mode has no intermediate checkpointing
+            boolean shouldLogProgress = false;
             if (updateLimit > 0 && nodesRead >= updateLimit) {
-                shouldCheckpoint = true;
+                shouldLogProgress = true;
             }
             if (timeLimit > 0 && System.currentTimeMillis() - startTime > timeLimit) {
-                shouldCheckpoint = true;
+                shouldLogProgress = true;
             }
             
-            if (shouldCheckpoint) {
-                if (continuousMode && progressCommitCallback != null) {
-                    // Continuous mode: commit progress and continue traversal
-                    progressCommitCallback.commitProgress(pathSource.getPath());
-                    
-                    // Reset counters for next chunk
-                    indexStats.reset();
-                    startTime = System.currentTimeMillis();
-                    
-                    log.info("[{}] Committed progress at {}, continuing traversal...", 
-                        name, pathSource.getPath());
-                } else {
-                    // Traditional mode: throw exception to exit and re-enter
-                    if (updateLimit > 0 && nodesRead >= updateLimit) {
-                        throw new SuspendException(pathSource.getPath());
-                    }
-                    if (timeLimit > 0) {
-                        log.debug("[{}] Time limit reached: {}ms, suspending at {}", 
-                            name, System.currentTimeMillis() - startTime, pathSource.getPath());
-                        throw new SuspendException(pathSource.getPath());
-                    }
-                }
+            if (shouldLogProgress && continuousMode && progressCommitCallback != null) {
+                // Continuous mode: log progress and continue traversal
+                progressCommitCallback.commitProgress(pathSource.getPath());
+                
+                // Reset counters for next chunk
+                indexStats.reset();
+                startTime = System.currentTimeMillis();
+                
+                log.info("[{}] Progress checkpoint at {}, continuing traversal...", 
+                    name, pathSource.getPath());
             }
 
             if (nodesRead % LEASE_CHECK_INTERVAL == 0 && isLeaseCheckEnabled(leaseTimeOut)) {
@@ -668,41 +657,17 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         String oldThreadName = Thread.currentThread().getName();
         boolean threadNameChanged = false;
 
-        NodeState asyncNode = root.getChildNode(ASYNC);
-        NodeState laneNode = asyncNode.getChildNode(name);
-        String resumeCheckpoint = null;
-        String resumePath = null;
-        if (laneNode.exists() && laneNode.hasProperty("targetCheckpoint")) {
-            resumeCheckpoint = laneNode.getString("targetCheckpoint");
-            resumePath = laneNode.getString("lastIndexedPath");
-        }
-
-        String afterCheckpoint = resumeCheckpoint;
-        if (afterCheckpoint == null) {
-            afterCheckpoint = store.checkpoint(lifetime, Map.of(
-                    "creator", AsyncIndexUpdate.class.getSimpleName(),
-                    "created", afterTime,
-                    "thread", oldThreadName,
-                    "name", name));
-        }
+        String afterCheckpoint = store.checkpoint(lifetime, Map.of(
+                "creator", AsyncIndexUpdate.class.getSimpleName(),
+                "created", afterTime,
+                "thread", oldThreadName,
+                "name", name));
 
         NodeState after = store.retrieve(afterCheckpoint);
         if (after == null) {
             log.debug(
                     "[{}] Unable to retrieve newly created checkpoint {}, skipping the index update",
                     name, afterCheckpoint);
-            if (resumeCheckpoint != null) {
-                NodeBuilder cleanupBuilder = store.getRoot().builder();
-                if (cleanupBuilder.child(ASYNC).hasChildNode(name)) {
-                    cleanupBuilder.child(ASYNC).getChildNode(name).remove();
-                    try {
-                        mergeWithConcurrencyCheck(store, validatorProviders, cleanupBuilder, beforeCheckpoint, callback.lease, name);
-                        log.warn("[{}] Resume checkpoint {} missing. Resetting resume state.", name, resumeCheckpoint);
-                    } catch (CommitFailedException e) {
-                        log.warn("[{}] Failed to reset resume state", name, e);
-                    }
-                }
-            }
             //Do not update the status as technically the run is not complete
             return;
         }
@@ -715,9 +680,9 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             threadNameChanged = true;
             Thread.currentThread().setName(newThreadName);
             updatePostRunStatus = updateIndex(before, beforeCheckpoint, after,
-                    afterCheckpoint, afterTime, callback, checkpointToReleaseRef, resumePath);
+                    afterCheckpoint, afterTime, callback, checkpointToReleaseRef);
 
-            // Only update checkpoint state if update completed (not suspended)
+            // Update checkpoint state if update completed
             if (updatePostRunStatus) {
                 // the update succeeded, i.e. it no longer fails
                 if (indexStats.didLastIndexingCycleFailed()) {
@@ -912,9 +877,14 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
     }
 
     /**
+     * System property to enable continuous processing mode.
+     * When enabled, indexing logs progress at regular intervals without
+     * interrupting the diff traversal.
+     */
+    private static final boolean CONTINUOUS_MODE = Boolean.getBoolean("oak.async.continuousMode");
+
+    /**
      * Updates the index by comparing the before and after state of the repository.
-     * This is a convenience method that calls {@link #updateIndex(NodeState, String, NodeState, String, String, AsyncUpdateCallback, AtomicReference, String)}
-     * with "/" as the default resume path.
      *
      * @param before the before state
      * @param beforeCheckpoint the before checkpoint
@@ -930,37 +900,6 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                                   NodeState after, String afterCheckpoint, String afterTime,
                                   AsyncUpdateCallback callback,
                                   AtomicReference<String> checkpointToReleaseRef) throws CommitFailedException {
-        return updateIndex(before, beforeCheckpoint, after, afterCheckpoint, afterTime, 
-                          callback, checkpointToReleaseRef, null);
-    }
-
-    /**
-     * System property to enable continuous processing mode.
-     * When enabled, indexing continues without exiting the diff traversal,
-     * significantly reducing overhead for large indexes.
-     */
-    private static final boolean CONTINUOUS_MODE = Boolean.getBoolean("oak.async.continuousMode");
-
-    /**
-     * Updates the index by comparing the before and after state of the repository.
-     * Supports resumable indexing by allowing specification of a resume path.
-     *
-     * @param before the before state
-     * @param beforeCheckpoint the before checkpoint
-     * @param after the after state
-     * @param afterCheckpoint the after checkpoint
-     * @param afterTime the time of the after checkpoint
-     * @param callback the callback
-     * @param checkpointToReleaseRef reference to checkpoint to release
-     * @param initialResumePath the path to resume from, or null to start from root
-     * @return true if the index was updated successfully
-     * @throws CommitFailedException if the update failed
-     */
-    protected boolean updateIndex(NodeState before, String beforeCheckpoint,
-                                  NodeState after, String afterCheckpoint, String afterTime,
-                                  AsyncUpdateCallback callback,
-                                  AtomicReference<String> checkpointToReleaseRef,
-                                  String initialResumePath) throws CommitFailedException {
         Stopwatch watch = Stopwatch.createStarted();
         boolean updatePostRunStatus = true;
         boolean progressLogged = false;
@@ -970,14 +909,12 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         callback.prepare(afterCheckpoint);
         
         // Enable continuous mode if configured
-        // In this mode, we don't exit the traversal on chunk/time limits,
-        // completing the entire diff in a single pass. Progress is logged but not saved
-        // to repository (the complete result is saved at the end).
+        // In this mode, progress is logged at regular intervals but the diff
+        // traversal is never interrupted. The complete result is saved at the end.
         if (CONTINUOUS_MODE && (callback.updateLimit > 0 || callback.timeLimit > 0)) {
             final AtomicInteger progressCount = new AtomicInteger(0);
             callback.setContinuousMode(currentPath -> {
-                // In continuous mode, just log progress - don't save to repository
-                // The full result will be saved when the diff completes
+                // Log progress without saving to repository
                 int count = progressCount.incrementAndGet();
                 log.info("[{}] Progress checkpoint #{} at {}", name, count, currentPath);
             });
@@ -1001,25 +938,14 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                     .withMissingProviderStrategy(missingStrategy);
             configureRateEstimator(indexUpdate);
 
-            // Create editor, optionally wrapped with ResumingEditor to skip to resume point
+            // Create editor - no ResumingEditor needed since we don't support suspend/resume
             Editor editor = VisibleEditor.wrap(indexUpdate);
-            if (initialResumePath != null) {
-                List<String> pathElements = new ArrayList<>();
-                for (String element : PathUtils.elements(initialResumePath)) {
-                    pathElements.add(element);
-                }
-                editor = new ResumingEditor(editor, pathElements.iterator());
-                log.debug("[{}] Resuming from path: {}", name, initialResumePath);
-            }
 
-            // Process diff - may throw SuspendException when chunk/time limit reached
+            // Process diff
             diffStartTime = System.currentTimeMillis();
             CommitFailedException exception = EditorDiff.process(editor, before, after);
             long diffTime = System.currentTimeMillis() - diffStartTime;
-            System.out.println("[DIFF-TIME] " + name + " diff completed in " + diffTime + " ms, resumePath=" + initialResumePath);
-            if (initialResumePath != null) {
-                ResumingEditor.printStats();
-            }
+            log.debug("[{}] Diff completed in {} ms", name, diffTime);
             if (exception != null) {
                 throw exception;
             }
@@ -1027,11 +953,6 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             // Diff completed successfully - update checkpoint state
             builder.child(ASYNC).setProperty(name, afterCheckpoint);
             builder.child(ASYNC).setProperty(PropertyStates.createProperty(lastIndexedTo, afterTime, Type.DATE));
-            
-            // Remove resume state since indexing completed
-            if (builder.child(ASYNC).hasChildNode(name)) {
-                builder.child(ASYNC).getChildNode(name).remove();
-            }
 
             if (callback.isDirty() || before == MISSING_NODE) {
                 if (switchOnSync) {
@@ -1080,40 +1001,6 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
 
             corruptIndexHandler.markWorkingIndexes(indexUpdate.getUpdatedIndexPaths());
 
-        } catch (SuspendException e) {
-            // Chunk/time limit reached - save resume state for next run() call
-            long diffTime = System.currentTimeMillis() - diffStartTime;
-            String resumePath = e.getResumePath();
-            System.out.println("[DIFF-TIME] " + name + " diff suspended after " + diffTime + " ms at " + resumePath + ", resumePath=" + initialResumePath);
-            if (initialResumePath != null) {
-                ResumingEditor.printStats();
-            }
-            
-            // IMPORTANT: Call leave() on the root editor to close index writers
-            // Without this, Lucene documents are buffered but never committed
-            // The root editor's leave() will call context.closeWriter() which
-            // closes the shared writer used by all child editors.
-            try {
-                indexUpdate.leave(before, after);
-            } catch (CommitFailedException leaveEx) {
-                log.warn("[{}] Error calling leave() on suspend: {}", name, leaveEx.getMessage());
-            }
-            
-            NodeBuilder laneBuilder = builder.child(ASYNC).child(name);
-            laneBuilder.setProperty("targetCheckpoint", afterCheckpoint);
-            laneBuilder.setProperty("lastIndexedPath", resumePath);
-
-            mergeWithConcurrencyCheck(store, validatorProviders, builder, beforeCheckpoint, callback.lease, name);
-            indexingFailed = false;
-            updatePostRunStatus = false;  // Indicate more work to do
-            
-            // CRITICAL: Clear the checkpoint release reference so we DON'T release
-            // the afterCheckpoint - we need it for resume!
-            checkpointToReleaseRef.set(null);
-            
-            log.info("[{}] Suspended at {}. Processed {} nodes. Call run() again to continue.", 
-                    name, resumePath, indexStats.getNodesReadCount());
-                    
         } finally {
             if (indexUpdate != null) {
                 if (!indexingFailed) {
@@ -1901,173 +1788,4 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         return new CommitFailedException("Async", 1, "Concurrent update detected");
     }
 
-    private static class SuspendException extends CommitFailedException {
-        private final String resumePath;
-
-        public SuspendException(String resumePath) {
-            super("Async", 0, "Suspended execution at " + resumePath);
-            this.resumePath = resumePath;
-        }
-
-        public String getResumePath() {
-            return resumePath;
-        }
-
-        @Override
-        public synchronized Throwable fillInStackTrace() {
-            return this;
-        }
-    }
-
-    /**
-     * Editor that skips to a specific path in the tree before delegating.
-     * This is used for resumable indexing to skip already-processed nodes.
-     * 
-     * Important: We must still call delegate.enter() and delegate.leave()
-     * to properly set up index editors along the path to the resume point.
-     * We only skip SIBLING nodes before the target - not the path ancestors.
-     */
-    private static class ResumingEditor implements Editor {
-        private final Editor delegate;
-        private final String target;
-        private final Iterator<String> nextPath;
-        private boolean found = false;
-        
-        // Static counters for timing analysis (reset by root editor)
-        private static long skippedNodes = 0;
-        private static long resumeStartTime = 0;
-        private static long timeToResumePoint = 0;
-        private static String resumeTargetPath = null;
-        private final boolean isRoot;
-
-        public ResumingEditor(Editor delegate, Iterator<String> nextPath) {
-            this(delegate, nextPath, true);
-        }
-        
-        private ResumingEditor(Editor delegate, Iterator<String> nextPath, boolean isRoot) {
-            this.delegate = delegate;
-            this.nextPath = nextPath;
-            this.target = nextPath.hasNext() ? nextPath.next() : null;
-            this.isRoot = isRoot;
-            if (isRoot) {
-                // Reset counters for new resume operation
-                skippedNodes = 0;
-                resumeStartTime = System.currentTimeMillis();
-                timeToResumePoint = 0;
-            }
-        }
-        
-        public static void printStats() {
-            if (resumeTargetPath != null) {
-                System.out.println("[RESUME-STATS] Skipped " + skippedNodes + " nodes, time to resume point: " + timeToResumePoint + " ms, target: " + resumeTargetPath);
-            }
-        }
-
-        @Override
-        public void enter(NodeState before, NodeState after) throws CommitFailedException {
-            // MUST delegate enter() to set up index editors (collectIndexEditors, etc.)
-            delegate.enter(before, after);
-        }
-
-        @Override
-        public void leave(NodeState before, NodeState after) throws CommitFailedException {
-            // MUST delegate leave() to finalize index editors
-            delegate.leave(before, after);
-        }
-
-        @Override
-        public void propertyAdded(PropertyState after) throws CommitFailedException {
-            // Skip property changes for nodes we're skipping to
-            // Properties of the resume path ancestors don't need to be re-indexed
-        }
-
-        @Override
-        public void propertyChanged(PropertyState before, PropertyState after) throws CommitFailedException {
-            // Skip property changes for nodes we're skipping to
-        }
-
-        @Override
-        public void propertyDeleted(PropertyState before) throws CommitFailedException {
-            // Skip property changes for nodes we're skipping to
-        }
-
-        @Override
-        public Editor childNodeAdded(String name, NodeState after) throws CommitFailedException {
-            if (found) {
-                // After finding target, process all subsequent siblings normally
-                log.trace("ResumingEditor: Processing sibling {} after target {}", name, target);
-                return delegate.childNodeAdded(name, after);
-            }
-            if (name.equals(target)) {
-                found = true;
-                log.trace("ResumingEditor: Found target {}, nextPath.hasNext={}", target, nextPath.hasNext());
-                Editor child = delegate.childNodeAdded(name, after);
-                if (child == null) {
-                    return null;
-                }
-                if (nextPath.hasNext()) {
-                    // More path elements - wrap child to continue skipping
-                    return new ResumingEditor(child, nextPath, false);
-                } else {
-                    // Reached the resume point - record time taken to get here
-                    timeToResumePoint = System.currentTimeMillis() - resumeStartTime;
-                    resumeTargetPath = target;
-                    return child;
-                }
-            }
-            // Skip siblings before the target
-            skippedNodes++;
-            log.trace("ResumingEditor: Skipping {} before target {}", name, target);
-            return null;
-        }
-
-        @Override
-        public Editor childNodeChanged(String name, NodeState before, NodeState after) throws CommitFailedException {
-            if (found) {
-                log.trace("ResumingEditor: Processing changed sibling {} after target {}", name, target);
-                return delegate.childNodeChanged(name, before, after);
-            }
-            if (name.equals(target)) {
-                found = true;
-                log.trace("ResumingEditor: Found changed target {}, nextPath.hasNext={}", target, nextPath.hasNext());
-                Editor child = delegate.childNodeChanged(name, before, after);
-                if (child == null) {
-                    return null;
-                }
-                if (nextPath.hasNext()) {
-                    return new ResumingEditor(child, nextPath, false);
-                } else {
-                    timeToResumePoint = System.currentTimeMillis() - resumeStartTime;
-                    resumeTargetPath = target;
-                    return child;
-                }
-            }
-            skippedNodes++;
-            log.trace("ResumingEditor: Skipping changed {} before target {}", name, target);
-            return null;
-        }
-
-        @Override
-        public Editor childNodeDeleted(String name, NodeState before) throws CommitFailedException {
-            if (found) {
-                return delegate.childNodeDeleted(name, before);
-            }
-            if (name.equals(target)) {
-                found = true;
-                Editor child = delegate.childNodeDeleted(name, before);
-                if (child == null) {
-                    return null;
-                }
-                if (nextPath.hasNext()) {
-                    return new ResumingEditor(child, nextPath, false);
-                } else {
-                    timeToResumePoint = System.currentTimeMillis() - resumeStartTime;
-                    resumeTargetPath = target;
-                    return child;
-                }
-            }
-            skippedNodes++;
-            return null;
-        }
-    }
 }
