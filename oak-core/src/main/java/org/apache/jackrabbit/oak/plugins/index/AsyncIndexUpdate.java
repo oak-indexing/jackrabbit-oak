@@ -945,6 +945,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             diffStartTime = System.currentTimeMillis();
             CommitFailedException exception = EditorDiff.process(editor, before, after);
             long diffTime = System.currentTimeMillis() - diffStartTime;
+            indexStats.setDiffTimeMs(diffTime);
             log.debug("[{}] Diff completed in {} ms", name, diffTime);
             if (exception != null) {
                 throw exception;
@@ -1148,6 +1149,10 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         return indexStats;
     }
 
+    public long getLastDiffTimeMs() {
+        return indexStats.getDiffTimeMs();
+    }
+
     public boolean isFinished() {
         return indexStats.getStatus() == STATUS_DONE;
     }
@@ -1170,6 +1175,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         private volatile boolean forcedLeaseRelease;
         private volatile long updates;
         private volatile long nodesRead;
+        private volatile long diffTimeMs;
         private final Stopwatch watch = Stopwatch.createUnstarted();
         private final ExecutionStats execStats;
 
@@ -1362,6 +1368,14 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         @Override
         public long getNodesReadCount(){
             return nodesRead;
+        }
+
+        void setDiffTimeMs(long diffTimeMs) {
+            this.diffTimeMs = diffTimeMs;
+        }
+
+        public long getDiffTimeMs() {
+            return diffTimeMs;
         }
 
         void setReferenceCheckpoint(String checkpoint) {

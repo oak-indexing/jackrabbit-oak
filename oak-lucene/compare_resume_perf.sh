@@ -1,13 +1,12 @@
 #!/bin/bash
 #
 # ===============================================================================
-# RESUME INDEXING PERFORMANCE COMPARISON SCRIPT
+# ASYNC INDEXING PERFORMANCE COMPARISON SCRIPT
 # ===============================================================================
 #
-# This script compares three async indexing modes:
-#   1. Traditional (trad)     - No resume, baseline performance
-#   2. Suspend/Resume (susp)  - Exits diff on limit, re-enters from root
-#   3. Continuous (cont)      - Single traversal, progress checkpoints
+# This script compares two async indexing modes:
+#   1. Traditional (trad)     - No progress logging, baseline performance
+#   2. Continuous (cont)      - Progress logging without interruption
 #
 # ===============================================================================
 # USAGE
@@ -26,21 +25,14 @@
 # ===============================================================================
 #
 # trad (Traditional)
-#   - No resume capability
+#   - Standard async indexing behavior
+#   - No intermediate progress logging
 #   - Single run to completion
-#   - Baseline performance
-#   - Use: Production systems without crash recovery needs
-#
-# susp (Suspend/Resume)
-#   - Exits diff traversal on chunk/time limit
-#   - Saves resume state to /:async/<lane>
-#   - Re-enters diff from root on next run()
-#   - ~5-10% overhead due to repeated diff traversal
-#   - Use: Development/testing crash recovery
+#   - Use: Default production behavior
 #
 # cont (Continuous) ✨ RECOMMENDED
-#   - Stays in same diff traversal
-#   - Logs progress checkpoints without exiting
+#   - Logs progress at regular intervals
+#   - Does NOT interrupt diff traversal
 #   - Completes entire changeset in single pass
 #   - ~0% overhead (same as traditional)
 #   - Use: Production with progress monitoring
@@ -53,42 +45,13 @@
 # Store      - NodeStore type: SEGMENT, DOCUMENT (MongoDB), MEMORY
 # Nodes      - Total content nodes created for indexing
 # Chunk      - Chunk size limit (-1 = disabled, uses time limit)
-# TLim       - Time limit in seconds before checkpoint/suspend
-# Mode       - trad/susp/cont (see above)
+# TLim       - Time limit in seconds before progress checkpoint
+# Mode       - trad/cont (see above)
 # Time(s)    - Total indexing time in seconds (wall clock)
-# Diff(s)    - Total time in EditorDiff.process() across all runs
-# Skip(s)    - Total time in ResumingEditor fast-forward (susp only)
 # Create(s)  - Content creation time in seconds
+# Diff(s)    - Time spent in diff traversal (seconds)
 # Throughput - Nodes indexed per second
 # Runs       - Number of asyncIndexUpdate.run() calls
-# Resm       - Number of resume cycles (susp mode only)
-# AvgDiff    - Average diff time per run (milliseconds)
-# AvgSkip    - Average skip time per resume (milliseconds, susp only)
-# Skipped    - Total nodes skipped across resumes (susp only)
-#
-# TIME BREAKDOWN FORMULA:
-#   Total Time = Diff + Indexing + Skip + Merge + Other
-#
-#   Where:
-#     Diff(s)       = Traversing repository to find changes (EditorDiff.process)
-#     Skip(s)       = Fast-forwarding to resume point (susp mode only)
-#     Indexing      = Creating Lucene documents, writing to index
-#     Merge         = NodeStore.merge() committing index updates
-#     Other         = Checkpoint creation, stats collection, logging
-#
-# EXAMPLE COMPARISON (500K nodes, 5s time limit):
-#
-#   Mode  | Time(s) | Diff(s) | Skip(s) | Analysis
-#   ------|---------|---------|---------|----------------------------------------
-#   trad  |   36.7s |   16.0s |       - | Diff = 44% of total time
-#   susp  |   38.8s |   31.2s |    1.5s | Diff DOUBLED (re-entry overhead)
-#   cont  |   36.9s |   16.1s |       - | Diff same as trad (single traversal)
-#
-# KEY INSIGHTS:
-#   1. Suspend/Resume mode DOUBLES diff time due to re-entering from root
-#   2. Skip overhead is minimal (~1.5s for 500K nodes)
-#   3. Continuous mode avoids diff doubling by staying in traversal
-#   4. This explains ~5% overhead in susp vs ~0% in cont
 #
 # ===============================================================================
 # TABLE 2: RESOURCE/COMPUTE METRICS
@@ -102,31 +65,6 @@
 # Idx(KB)    - Lucene index size on disk (KB)
 # Threads    - Peak thread count
 # Query(ms)  - Verification query execution time (ms)
-#
-# ===============================================================================
-# ADDITIONAL METRICS (in raw output, not in tables)
-# ===============================================================================
-#
-# Memory Delta    - Net heap memory change during indexing
-# Non-Heap Used   - Metaspace, code cache, JIT compiler memory
-# Direct Buffer   - Off-heap direct memory buffer usage
-#
-# ===============================================================================
-# METRICS WE COULD/SHOULD ADD
-# ===============================================================================
-#
-# Metric               | Why Useful                    | How to Capture
-# ---------------------|-------------------------------|---------------------------
-# Index Write Time     | Separate Lucene from traversal| Time FulltextIndexEditor
-# Documents Indexed    | Index size vs nodes traversed | Counter in LuceneDocumentMaker
-# Commit Latency       | Identify slow merges          | Time each merge() call
-# Checkpoint Time      | Checkpoint creation overhead  | Time store.checkpoint()
-# Index Segment Count  | Lucene merge efficiency       | Query IndexReader.leaves()
-# File Handles         | Resource exhaustion risk      | OperatingSystemMXBean
-# I/O Read/Write Bytes | Disk throughput               | sun.management APIs
-# Compaction Stats     | For Segment store             | SegmentGCOptions
-# MongoDB Op Time      | For Document store            | MongoDB profiler
-# Lock Contention      | Threading efficiency          | ThreadMXBean
 #
 # ===============================================================================
 # QUICK START EXAMPLES
@@ -173,40 +111,36 @@ rm -f target/RESUME_INDEXING_PERF_RESULTS.md
 rm -f target/resume_indexing_perf_data.csv
 
 # Compile test classes (bypassing bundle plugin)
-echo "Compiling test classes..."
-mvn compiler:compile compiler:testCompile -Denforcer.skip=true -q 2>/dev/null
-if [ $? -ne 0 ]; then
-    echo "Compilation failed. Trying full compile..."
-    cd ..
-    mvn clean install -DskipTests -pl oak-lucene -am -q 2>/dev/null
-    cd oak-lucene
+echo "Compiling oak-core and oak-lucene..."
+cd ..
+mvn clean install -DskipTests -Denforcer.skip=true -Drat.skip=true -pl oak-core,oak-lucene -am -q 2>/dev/null
+COMPILE_RESULT=$?
+cd oak-lucene
+if [ $COMPILE_RESULT -ne 0 ]; then
+    echo "WARNING: Full compilation had issues. Trying oak-lucene only..."
+    mvn compiler:compile compiler:testCompile -Denforcer.skip=true -q 2>/dev/null
 fi
 echo "Compilation complete."
 echo ""
 
 # Define Scenarios: "STORE NODES CHUNK TIMELIMIT RESUME CONTINUOUS"
 # Format: NodeStore NodeCount ChunkSize TimeLimitSeconds UseResume ContinuousMode
-# ContinuousMode: true = single traversal with progress checkpoints (no diff overhead)
-#                 false = traditional suspend/resume (re-enters diff on each chunk)
+# Note: Only Traditional and Continuous modes are supported
 SCENARIOS=(
     # === 100K Quick Tests ===
     # "SEGMENT 100000 -1 1 false false"     # Traditional (baseline)
-    # "SEGMENT 100000 -1 1 true false"      # Resume (suspend/re-enter)
-    # "SEGMENT 100000 -1 1 true true"       # Continuous (single traversal)
+    # "SEGMENT 100000 -1 1 true true"       # Continuous (progress logging)
     
     # === 500K Comparison Tests ===
     "SEGMENT 500000 -1 5 false false"      # Traditional (baseline)
-    "SEGMENT 500000 -1 5 true false"       # Resume (suspend/re-enter)
-    "SEGMENT 500000 -1 5 true true"        # Continuous (single traversal) - NEW!
+    "SEGMENT 500000 -1 5 true true"        # Continuous (progress logging)
     
     # === MongoDB Tests (requires MongoDB running) ===
     # "DOCUMENT 50000 -1 5 false false"
-    # "DOCUMENT 50000 -1 5 true false"
     # "DOCUMENT 50000 -1 5 true true"
 
     # === Major Tests (1M nodes) ===
     # "SEGMENT 1000000 -1 5 false false"
-    # "SEGMENT 1000000 -1 5 true false"
     # "SEGMENT 1000000 -1 5 true true"
 )
 
@@ -237,16 +171,14 @@ run_single_scenario() {
     local RESUME=$5
     local CONTINUOUS=${6:-false}  # Continuous mode (optional, default false)
     local MEM_CONFIG=$7
-    local SCENARIO_NAME="${STORE}_${NODES}_${CHUNK}_T${TIMELIMIT}s_R${RESUME}_C${CONTINUOUS}_MEM${MEM_CONFIG// /-}"
+    local SCENARIO_NAME="${STORE}_${NODES}_${CHUNK}_T${TIMELIMIT}s_C${CONTINUOUS}_MEM${MEM_CONFIG// /-}"
     
     # Determine mode name for display
     local MODE_NAME=""
-    if [ "$RESUME" == "false" ]; then
-        MODE_NAME="TRADITIONAL"
-    elif [ "$CONTINUOUS" == "true" ]; then
+    if [ "$CONTINUOUS" == "true" ]; then
         MODE_NAME="CONTINUOUS"
     else
-        MODE_NAME="RESUME"
+        MODE_NAME="TRADITIONAL"
     fi
     
     echo "--------------------------------------------------------------------------------"
@@ -295,7 +227,6 @@ print_stats_from_file() {
     local TIME=""
     local THROUGHPUT=""
     local RUN_COUNT=""
-    local RESUME_COUNT=""
     local GC_TIME=""
     local GC_COUNT=""
     local MAX_HEAP=""
@@ -306,19 +237,15 @@ print_stats_from_file() {
     local CPU_TIME=""
     local DIRECT_BUFFER=""
     local QUERY_TIME=""
-    local AVG_DIFF_TIME=""
-    local AVG_SKIP_TIME=""
-    local TOTAL_SKIPPED=""
     local CONTENT_TIME=""
+    local DIFF_TIME=""
     
     # Determine mode for display
     local MODE=""
-    if [ "$RESUME" == "false" ]; then
-        MODE="trad"
-    elif [ "$CONTINUOUS" == "true" ]; then
+    if [ "$CONTINUOUS" == "true" ]; then
         MODE="cont"
     else
-        MODE="susp"
+        MODE="trad"
     fi
     
     # Parse standard metrics from test output
@@ -326,7 +253,6 @@ print_stats_from_file() {
         if [[ $line == "Total Time:"* ]]; then TIME=$(echo $line | awk '{print $3}'); fi
         if [[ $line == "Throughput:"* ]]; then THROUGHPUT=$(echo $line | awk '{print $2}'); fi
         if [[ $line == "Run Count:"* ]]; then RUN_COUNT=$(echo $line | awk '{print $3}'); fi
-        if [[ $line == "Resume Count:"* ]]; then RESUME_COUNT=$(echo $line | awk '{print $3}'); fi
         if [[ $line == "GC Count:"* ]]; then GC_COUNT=$(echo $line | awk '{print $3}'); fi
         if [[ $line == "GC Time:"* ]]; then GC_TIME=$(echo $line | awk '{print $3}'); fi
         if [[ $line == "Max Heap Used:"* ]]; then MAX_HEAP=$(echo $line | awk '{print $4}'); fi
@@ -337,68 +263,9 @@ print_stats_from_file() {
         if [[ $line == "Process CPU Time:"* ]]; then CPU_TIME=$(echo $line | awk '{print $4}'); fi
         if [[ $line == "Direct Buffer Memory:"* ]]; then DIRECT_BUFFER=$(echo $line | awk '{print $4}'); fi
         if [[ $line == "Query Time:"* ]]; then QUERY_TIME=$(echo $line | awk '{print $3}'); fi
+        if [[ $line == "Diff Time:"* ]]; then DIFF_TIME=$(echo $line | awk '{print $3}'); fi
         if [[ $line == "Content creation:"* ]]; then CONTENT_TIME=$(echo $line | awk '{print $3}'); fi
     done < "$FILE"
-    
-    # Parse diff and resume timing from output
-    local DIFF_COUNT=0
-    local DIFF_TOTAL=0
-    local SKIP_COUNT=0
-    local SKIP_TOTAL=0
-    local SKIPPED_TOTAL=0
-    
-    while IFS= read -r line; do
-        # Parse: [DIFF-TIME] async diff completed/suspended in XXX ms
-        if [[ $line == *"[DIFF-TIME]"*" ms"* ]]; then
-            local ms=$(echo "$line" | grep -oE 'in [0-9]+ ms|after [0-9]+ ms' | grep -oE '[0-9]+')
-            if [ -n "$ms" ]; then
-                DIFF_COUNT=$((DIFF_COUNT + 1))
-                DIFF_TOTAL=$((DIFF_TOTAL + ms))
-            fi
-        fi
-        # Parse: [RESUME-STATS] Skipped XXX nodes, time to resume point: YYY ms
-        if [[ $line == *"[RESUME-STATS]"* ]]; then
-            local skipped=$(echo "$line" | grep -oE 'Skipped [0-9]+' | grep -oE '[0-9]+')
-            local skip_time=$(echo "$line" | grep -oE 'time to resume point: [0-9]+' | grep -oE '[0-9]+')
-            if [ -n "$skipped" ]; then
-                SKIPPED_TOTAL=$((SKIPPED_TOTAL + skipped))
-            fi
-            if [ -n "$skip_time" ]; then
-                SKIP_COUNT=$((SKIP_COUNT + 1))
-                SKIP_TOTAL=$((SKIP_TOTAL + skip_time))
-            fi
-        fi
-    done < "$FILE"
-    
-    # Calculate averages and totals
-    local TOTAL_DIFF_SECONDS=""
-    local TOTAL_SKIP_SECONDS=""
-    
-    if [ "$DIFF_COUNT" -gt 0 ] 2>/dev/null; then
-        AVG_DIFF_TIME=$((DIFF_TOTAL / DIFF_COUNT))
-        # Convert total diff time from ms to seconds
-        TOTAL_DIFF_SECONDS=$(echo "scale=1; $DIFF_TOTAL / 1000" | bc 2>/dev/null || echo "0")
-    fi
-    if [ "$SKIP_COUNT" -gt 0 ] 2>/dev/null; then
-        AVG_SKIP_TIME=$((SKIP_TOTAL / SKIP_COUNT))
-        # Convert total skip time from ms to seconds
-        TOTAL_SKIP_SECONDS=$(echo "scale=1; $SKIP_TOTAL / 1000" | bc 2>/dev/null || echo "0")
-    fi
-    TOTAL_SKIPPED=$SKIPPED_TOTAL
-    
-    # For non-resume mode, skip metrics should be N/A
-    if [ "$RESUME" == "false" ]; then
-        AVG_SKIP_TIME="N/A"
-        TOTAL_SKIPPED="N/A"
-        TOTAL_SKIP_SECONDS="N/A"
-    fi
-    
-    # For continuous mode, skip metrics should be N/A
-    if [ "$CONTINUOUS" == "true" ]; then
-        AVG_SKIP_TIME="N/A"
-        TOTAL_SKIPPED="N/A"
-        TOTAL_SKIP_SECONDS="N/A"
-    fi
     
     # Convert time from ms to seconds
     local TIME_SECONDS=""
@@ -411,33 +278,16 @@ print_stats_from_file() {
         CONTENT_SECONDS=$(echo "scale=1; $CONTENT_TIME / 1000" | bc 2>/dev/null || echo "$CONTENT_TIME")
     fi
     
+    local DIFF_SECONDS=""
+    if [ -n "$DIFF_TIME" ] && [ "$DIFF_TIME" -gt 0 ] 2>/dev/null; then
+        DIFF_SECONDS=$(echo "scale=1; $DIFF_TIME / 1000" | bc 2>/dev/null || echo "$DIFF_TIME")
+    fi
+    
     local MEM_DISPLAY=$(echo $MEM_CONFIG | awk '{print $1}')
     
-    # Calculate accounting time: Time + Diff + Skip overhead
-    # This helps identify where time is spent
-    local TOTAL_ACCOUNTED=""
-    if [ -n "$TIME" ] && [ "$TIME" -gt 0 ] 2>/dev/null; then
-        local DIFF_MS=${DIFF_TOTAL:-0}
-        local SKIP_MS=${SKIP_TOTAL:-0}
-        # Note: TIME already includes diff and indexing, so this is informational
-        # to show the breakdown components
-        TOTAL_ACCOUNTED=$(echo "scale=1; ($TIME + $DIFF_MS + $SKIP_MS) / 1000" | bc 2>/dev/null || echo "N/A")
-    fi
-    
-    # Format skip metrics (use empty string for N/A to align properly)
-    local SKIP_DISPLAY="${AVG_SKIP_TIME:-0}"
-    local SKIPPED_DISPLAY="${TOTAL_SKIPPED:-0}"
-    local TOTAL_SKIP_DISPLAY="${TOTAL_SKIP_SECONDS:-0}"
-    if [ "$RESUME" == "false" ] || [ "$CONTINUOUS" == "true" ]; then
-        # No skip stats for traditional mode or continuous mode
-        SKIP_DISPLAY="-"
-        SKIPPED_DISPLAY="-"
-        TOTAL_SKIP_DISPLAY="-"
-    fi
-    
-    # Table 1: Performance Metrics (with breakdown)
-    printf "%-8s | %-8s | %-8s | %-6s | %-6s | %-6s | %8ss | %8ss | %8ss | %8ss | %10s | %-5s | %-5s | %-8s | %-8s | %-8s\n" \
-           "$MEM_DISPLAY" "$STORE" "$NODES" "$CHUNK" "$TIMELIMIT" "$MODE" "$TIME_SECONDS" "${TOTAL_DIFF_SECONDS:-0}" "$TOTAL_SKIP_DISPLAY" "${CONTENT_SECONDS:-N/A}" "$THROUGHPUT" "$RUN_COUNT" "$RESUME_COUNT" "${AVG_DIFF_TIME:-0}" "$SKIP_DISPLAY" "$SKIPPED_DISPLAY" | tee -a "$SUMMARY_FILE"
+    # Table 1: Performance Metrics (with diff time)
+    printf "%-8s | %-8s | %-8s | %-6s | %-6s | %-6s | %8ss | %8ss | %8ss | %10s | %-5s\n" \
+           "$MEM_DISPLAY" "$STORE" "$NODES" "$CHUNK" "$TIMELIMIT" "$MODE" "$TIME_SECONDS" "${CONTENT_SECONDS:-N/A}" "${DIFF_SECONDS:-N/A}" "$THROUGHPUT" "$RUN_COUNT" | tee -a "$SUMMARY_FILE"
     
     # Table 2: Resource Metrics (append to resource summary)
     printf "%-8s | %-8s | %-8s | %-6s | %8s | %8s | %6s | %8s | %10s | %10s | %8s | %8s\n" \
@@ -455,21 +305,15 @@ echo "  JVM        - JVM heap configuration (e.g., -Xmx4G)"
 echo "  Store      - NodeStore type: SEGMENT, DOCUMENT (MongoDB), or MEMORY"
 echo "  Nodes      - Total number of content nodes created for indexing"
 echo "  Chunk      - Chunk size limit (-1 = disabled, uses time limit instead)"
-echo "  TLim       - Time limit in seconds before checkpoint/suspend"
+echo "  TLim       - Time limit in seconds before progress checkpoint"
 echo "  Mode       - Processing mode:"
-echo "                 trad = Traditional (no resume capability)"
-echo "                 susp = Suspend/Resume (exits diff, re-enters from root)"
-echo "                 cont = Continuous (single traversal, no overhead)"
-echo "  Time(s)    - Total indexing time in seconds (includes all below)"
-echo "  Diff(s)    - Total time spent in EditorDiff.process() across all runs"
-echo "  Skip(s)    - Total time spent in ResumingEditor skipping (susp mode only)"
+echo "                 trad = Traditional (no progress logging)"
+echo "                 cont = Continuous (progress logging without interruption)"
+echo "  Time(s)    - Total indexing time in seconds"
 echo "  Create(s)  - Content creation time in seconds"
+echo "  Diff(s)    - Time spent in diff traversal (seconds)"
 echo "  Throughput - Nodes indexed per second"
 echo "  Runs       - Number of asyncIndexUpdate.run() calls"
-echo "  Resm       - Number of resume cycles (suspend/resume mode only)"
-echo "  AvgDiff    - Average time (ms) spent in EditorDiff.process() per run"
-echo "  AvgSkip    - Average time (ms) for ResumingEditor to skip to resume point"
-echo "  Skipped    - Total nodes skipped across all resume operations"
 echo ""
 echo "TABLE 2 - RESOURCE/COMPUTE METRICS:"
 echo "  Heap(MB)   - Maximum heap memory used (MB)"
@@ -479,18 +323,11 @@ echo "  GC(ms)     - Total time spent in garbage collection (ms)"
 echo "  Disk(KB)   - Total NodeStore disk usage (KB)"
 echo "  Idx(KB)    - Lucene index size on disk (KB)"
 echo ""
-echo "ADDITIONAL METRICS (in raw output file):"
-echo "  Memory Delta    - Net heap memory change during indexing"
-echo "  Non-Heap Used   - Metaspace, code cache, JIT compiler memory"
-echo "  Peak Threads    - Maximum concurrent thread count"
-echo "  Direct Buffer   - Off-heap direct memory buffer usage"
-echo "  Query Time      - Time to execute verification query"
-echo ""
 
 echo "TABLE 1: PERFORMANCE"
-printf "%-8s | %-8s | %-8s | %-6s | %-6s | %-6s | %9s | %9s | %9s | %9s | %10s | %-5s | %-5s | %-8s | %-8s | %-8s\n" \
-       "JVM" "Store" "Nodes" "Chunk" "TLim" "Mode" "Time(s)" "Diff(s)" "Skip(s)" "Create(s)" "Throughput" "Runs" "Resm" "AvgDiff" "AvgSkip" "Skipped" | tee -a "$SUMMARY_FILE"
-echo "---------|----------|----------|--------|--------|--------|-----------|-----------|-----------|-----------|------------|-------|-------|----------|----------|----------" | tee -a "$SUMMARY_FILE"
+printf "%-8s | %-8s | %-8s | %-6s | %-6s | %-6s | %9s | %9s | %9s | %10s | %-5s\n" \
+       "JVM" "Store" "Nodes" "Chunk" "TLim" "Mode" "Time(s)" "Create(s)" "Diff(s)" "Throughput" "Runs" | tee -a "$SUMMARY_FILE"
+echo "---------|----------|----------|--------|--------|--------|-----------|-----------|-----------|------------|-------" | tee -a "$SUMMARY_FILE"
 
 # Initialize resource summary file with header
 rm -f "${SUMMARY_FILE}.resources"
@@ -514,7 +351,7 @@ rm -f "${SUMMARY_FILE}.resources"
 
 echo ""
 echo "================================================================================"
-echo "SPEEDUP ANALYSIS: Traditional vs Resume Indexing"
+echo "COMPARISON: Traditional vs Continuous Mode"
 echo "================================================================================"
 
 # Calculate speedup between traditional and resume runs (bash 3.x compatible)
@@ -569,62 +406,25 @@ echo "==========================================================================
 echo "ANALYSIS & INSIGHTS"
 echo "================================================================================"
 echo ""
-echo "TIME BREAKDOWN EXPLANATION:"
+echo "PROCESSING MODES:"
 echo ""
-echo "  Total Time = Diff + Indexing + Skip + Merge + Other"
+echo "  1. TRADITIONAL MODE"
+echo "     - Standard async indexing behavior"
+echo "     - No intermediate progress logging"
+echo "     - Runs to completion in single pass"
 echo ""
-echo "  Components:"
-echo "    Diff(s)   = Traversing repository to find changes (EditorDiff.process)"
-echo "    Skip(s)   = Fast-forwarding to resume point (susp mode only)"
-echo "    Indexing  = Creating Lucene documents, writing to index"
-echo "    Merge     = NodeStore.merge() committing index updates"
-echo "    Other     = Checkpoint creation, stats collection, logging"
+echo "  2. CONTINUOUS MODE ✨ RECOMMENDED"
+echo "     - Logs progress at regular intervals (chunk/time limit)"
+echo "     - Does NOT interrupt diff traversal"
+echo "     - Same performance as traditional mode (~0% overhead)"
+echo "     - Provides progress visibility for monitoring"
 echo ""
-echo "KEY FINDINGS:"
-echo ""
-echo "  1. SUSPEND/RESUME MODE (~5-10% overhead)"
-echo "     - Diff time DOUBLES because each resume re-enters from root"
-echo "     - Skip overhead is minimal (~1-2s for 500K nodes)"
-echo "     - Example: 500K nodes, 5s limit"
-echo "       * Traditional: Diff=16s of 37s total (43%)"
-echo "       * Suspend:     Diff=31s of 39s total (79%) <- DOUBLED!"
-echo ""
-echo "  2. CONTINUOUS MODE (~0% overhead) ✨ RECOMMENDED"
-echo "     - Stays in same diff traversal (no re-entry)"
-echo "     - Diff time same as traditional mode"
-echo "     - Logs progress checkpoints without exiting"
-echo "     - Example: 500K nodes, 5s limit"
-echo "       * Continuous: Diff=16s of 37s total (43%) <- Same as trad!"
-echo ""
-echo "  3. PRODUCTION RECOMMENDATION"
-echo "     - Use Continuous mode (-Doak.async.continuousMode=true)"
-echo "     - Provides progress visibility with zero overhead"
+echo "PRODUCTION RECOMMENDATION:"
+echo "     - Use Continuous mode for progress visibility"
 echo "     - Set time limit for checkpoint frequency (e.g., 5-10s)"
 echo "     - Example:"
 echo "       -Doak.async.timeLimitMs=5000"
 echo "       -Doak.async.continuousMode=true"
-echo ""
-echo "  4. WHEN TO USE SUSPEND/RESUME MODE"
-echo "     - Development/testing crash recovery scenarios"
-echo "     - When NodeStore merge() is expensive (accept 5-10% overhead)"
-echo "     - Debugging indexing issues with incremental state"
-echo ""
-echo "================================================================================"
-echo "METRICS YOU CAN ADD FOR DEEPER ANALYSIS"
-echo "================================================================================"
-echo ""
-echo "  Metric              | Why Useful                     | How to Capture"
-echo "  --------------------|--------------------------------|-------------------------"
-echo "  Index Write Time    | Separate Lucene from traversal | Time FulltextIndexEditor"
-echo "  Documents Indexed   | Index size vs nodes            | Counter in DocumentMaker"
-echo "  Commit Latency      | Identify slow merges           | Time merge() calls"
-echo "  Checkpoint Time     | Checkpoint overhead            | Time checkpoint()"
-echo "  Index Segments      | Lucene merge efficiency        | IndexReader.leaves()"
-echo "  File Handles        | Resource exhaustion risk       | OperatingSystemMXBean"
-echo "  I/O Read/Write      | Disk throughput                | sun.management APIs"
-echo "  Compaction Stats    | Segment store efficiency       | SegmentGCOptions"
-echo "  MongoDB Op Time     | Document store performance     | MongoDB profiler"
-echo "  Lock Contention     | Threading efficiency           | ThreadMXBean"
 echo ""
 echo "================================================================================"
 echo "TEST COMPLETE"
@@ -633,9 +433,4 @@ echo ""
 echo "Results saved to:"
 echo "  - $OUTPUT_FILE (full output)"
 echo "  - $SUMMARY_FILE (summary table)"
-echo "  - target/RESUME_INDEXING_PERF_RESULTS.md (markdown report)"
-echo "  - target/resume_indexing_perf_data.csv (CSV data)"
-echo ""
-echo "For detailed metrics documentation, see:"
-echo "  - oak-lucene/PERFORMANCE_METRICS_GUIDE.md"
 echo ""

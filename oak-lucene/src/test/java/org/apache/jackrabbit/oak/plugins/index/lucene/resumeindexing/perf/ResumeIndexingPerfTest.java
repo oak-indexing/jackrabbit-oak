@@ -44,7 +44,6 @@ import org.apache.jackrabbit.oak.spi.commit.Observer;
 import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.apache.jackrabbit.oak.stats.DefaultStatisticsProvider;
-import org.apache.jackrabbit.util.ISO8601;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -59,10 +58,7 @@ import java.lang.management.MemoryType;
 import java.lang.management.ThreadMXBean;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Calendar;
-import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
@@ -71,9 +67,9 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
 /**
- * Performance test for Resume Indexing - modeled after BasicChangeTrackerPerfTest.
+ * Performance test for Async Indexing - modeled after BasicChangeTrackerPerfTest.
  * 
- * <p>Compares Traditional vs Resume-enabled indexing across:
+ * <p>Compares Traditional vs Continuous indexing modes across:
  * <ul>
  *   <li>MemoryNodeStore - baseline, no I/O overhead</li>
  *   <li>SegmentNodeStore - disk I/O with FileDataStore</li>
@@ -148,7 +144,7 @@ public class ResumeIndexingPerfTest {
         System.out.println("GC Count: " + result.gcCount);
         System.out.println("GC Time: " + result.gcTimeMs + " ms");
         System.out.println("Run Count: " + result.runCount);
-        System.out.println("Resume Count: " + result.resumeCount);
+        System.out.println("Diff Time: " + result.diffTimeMs + " ms");
         System.out.println("Main Index Size: " + (result.mainIndexSizeBytes / 1024) + " KB");
         System.out.println("Query Time: " + result.queryTimeMs + " ms");
         System.out.println("Query Approved: " + result.queryApproved);
@@ -163,7 +159,7 @@ public class ResumeIndexingPerfTest {
             System.out.println("\n--- Phase 1: Initial Index Creation ---");
             System.out.println("Running async indexer to complete initial index (reindex=true -> false)...");
             
-            // Run until reindex becomes false AND no resume state
+            // Run until reindex becomes false
             int initialRuns = 0;
             while (true) {
                 ctx.asyncIndexUpdate.run();
@@ -175,12 +171,7 @@ public class ResumeIndexingPerfTest {
                     rootAfterRun.getChildNode("oak:index").getChildNode("damAssetLucene");
                 boolean reindex = idxState.getBoolean("reindex");
                 
-                // Also check for resume state
-                org.apache.jackrabbit.oak.spi.state.NodeState laneNode = 
-                    rootAfterRun.getChildNode(":async").getChildNode("async");
-                boolean hasResumeState = laneNode.exists() && laneNode.hasProperty("targetCheckpoint");
-                
-                if (!reindex && !hasResumeState) {
+                if (!reindex) {
                     System.out.println("  Initial index complete after " + initialRuns + " run(s)");
                     break;
                 }
@@ -189,17 +180,9 @@ public class ResumeIndexingPerfTest {
                 }
             }
             
-            // Verify checkpoint was created and no resume state
+            // Verify checkpoint was created
             String initialCheckpoint = ctx.nodeStore.getRoot().getChildNode(":async").getString("async");
             System.out.println("  Checkpoint after initial index: " + initialCheckpoint);
-            org.apache.jackrabbit.oak.spi.state.NodeState laneAfterP1 = 
-                ctx.nodeStore.getRoot().getChildNode(":async").getChildNode("async");
-            boolean hasResumeAfterP1 = laneAfterP1.exists() && laneAfterP1.hasProperty("targetCheckpoint");
-            System.out.println("  Resume state after Phase 1: " + hasResumeAfterP1);
-            if (hasResumeAfterP1) {
-                System.out.println("    targetCheckpoint: " + laneAfterP1.getString("targetCheckpoint"));
-                System.out.println("    lastIndexedPath: " + laneAfterP1.getString("lastIndexedPath"));
-            }
 
             // === PHASE 2: Create content AFTER initial index is built ===
             System.out.println("\n--- Phase 2: Creating Content ---");
@@ -209,11 +192,12 @@ public class ResumeIndexingPerfTest {
             System.out.println("Content creation: " + contentTime + " ms (" + 
                 String.format("%.1f", NODE_COUNT * 1000.0 / contentTime) + " nodes/sec)");
 
-            // === PHASE 3: Run indexing to process new content (this is where resume triggers) ===
-            System.out.println("\n--- Phase 3: Indexing New Content (Resume Testing) ---");
-            System.out.println("Mode: " + (useResume ? "RESUME INDEXING" : "TRADITIONAL"));
+            // === PHASE 3: Run indexing to process new content ===
+            System.out.println("\n--- Phase 3: Indexing New Content ---");
+            System.out.println("Mode: " + (useResume ? "CONTINUOUS MODE" : "TRADITIONAL"));
             System.out.println("oak.async.chunkSize: " + System.getProperty("oak.async.chunkSize", "not set"));
             System.out.println("oak.async.timeLimitMs: " + System.getProperty("oak.async.timeLimitMs", "not set"));
+            System.out.println("oak.async.continuousMode: " + System.getProperty("oak.async.continuousMode", "not set"));
 
             ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
             if (threadBean.isThreadCpuTimeSupported()) {
@@ -228,15 +212,13 @@ public class ResumeIndexingPerfTest {
 
             long startIndexing = System.currentTimeMillis();
             int runCount = 0;
-            int resumeCount = 0;
-            List<String> resumePaths = new ArrayList<>();
 
             // Run indexing loop
-            // - Normal mode: run() completes in one call
-            // - Resume mode: run() suspends at chunk/time limit, continues on next run
+            // - Traditional mode: run() completes in one call
+            // - Continuous mode: run() may log progress but completes in one call
             while (true) {
                 long runStart = System.currentTimeMillis();
-                ctx.asyncIndexUpdate.run();  // Runs synchronously until complete or suspended
+                ctx.asyncIndexUpdate.run();  // Runs synchronously until complete
                 
                 ctx.indexTracker.refresh();
                 ctx.provider.contentChanged(ctx.nodeStore.getRoot(), 
@@ -247,7 +229,6 @@ public class ResumeIndexingPerfTest {
                 // Check repository state after run
                 org.apache.jackrabbit.oak.spi.state.NodeState rootState = ctx.nodeStore.getRoot();
                 org.apache.jackrabbit.oak.spi.state.NodeState asyncNode = rootState.getChildNode(":async");
-                org.apache.jackrabbit.oak.spi.state.NodeState laneNode = asyncNode.getChildNode("async");
                 
                 // Check checkpoint state
                 String currentCheckpoint = asyncNode.getString("async");
@@ -265,27 +246,9 @@ public class ResumeIndexingPerfTest {
                 System.out.println("    After run " + runCount + ": checkpoint=" + currentCheckpoint + 
                     ", hasData=" + hasData + ", dataFiles=" + dataChildCount);
 
-                boolean hasResumeState = laneNode.exists() && laneNode.hasProperty("targetCheckpoint");
-
-                if (hasResumeState) {
-                    // Resume mode: indexer suspended, will continue on next run
-                    resumeCount++;
-                    String lastPath = laneNode.getString("lastIndexedPath");
-                    if (lastPath != null && !resumePaths.contains(lastPath)) {
-                        resumePaths.add(lastPath);
-                    }
-                    System.out.println("  Run " + runCount + ": " + runTime + " ms (resume at: " + lastPath + ")");
-                } else {
-                    // Indexing complete for this cycle
-                    System.out.println("  Run " + runCount + ": " + runTime + " ms (complete)");
-                    break;
-                }
-                
-                // Safety limit
-                if (runCount > 10000) {
-                    System.out.println("WARNING: Exceeded 10000 runs, stopping");
-                    break;
-                }
+                // Indexing complete for this cycle
+                System.out.println("  Run " + runCount + ": " + runTime + " ms (complete)");
+                break;
             }
 
             long totalIndexTime = System.currentTimeMillis() - startIndexing;
@@ -301,7 +264,6 @@ public class ResumeIndexingPerfTest {
             System.out.println("\nIndexing complete:");
             System.out.println("  Total time: " + totalIndexTime + " ms");
             System.out.println("  Total runs: " + runCount);
-            System.out.println("  Resume cycles: " + resumeCount);
 
             // Debug: Check index state (use nodeStore directly for accurate state)
             org.apache.jackrabbit.oak.spi.state.NodeState debugRoot = ctx.nodeStore.getRoot();
@@ -362,6 +324,9 @@ public class ResumeIndexingPerfTest {
             assertEquals("Query should return " + QUERY_TARGET_COUNT + " approved nodes", 
                         QUERY_TARGET_COUNT, queryApproved);
 
+            // Capture diff time from AsyncIndexUpdate
+            long diffTime = ctx.asyncIndexUpdate.getLastDiffTimeMs();
+
             // Build result
             Result result = new Result();
             result.totalTimeMs = totalIndexTime;
@@ -377,8 +342,8 @@ public class ResumeIndexingPerfTest {
             result.maxNonHeapUsedBytes = getMaxNonHeapUsed();
             result.peakThreadCount = threadBean.getPeakThreadCount();
             result.queryTimeMs = queryTime;
+            result.diffTimeMs = diffTime;
             result.runCount = runCount;
-            result.resumeCount = resumeCount;
             result.mainIndexSizeBytes = mainIndexSize;
             result.nodeCount = NODE_COUNT;
             result.queryApproved = queryApproved;
@@ -781,8 +746,8 @@ public class ResumeIndexingPerfTest {
         long diskUsageBytes;
         long mainIndexSizeBytes;
         long queryTimeMs;
+        long diffTimeMs;
         int runCount;
-        int resumeCount;
         int nodeCount;
         int queryApproved;
 
@@ -803,7 +768,7 @@ public class ResumeIndexingPerfTest {
                 "GC Count: %d%n" +
                 "GC Time: %d ms%n" +
                 "Run Count: %d%n" +
-                "Resume Count: %d%n" +
+                "Diff Time: %d ms%n" +
                 "Query Time: %d ms%n" +
                 "Node Count: %d%n" +
                 "Query Approved (index): %d",
@@ -812,7 +777,7 @@ public class ResumeIndexingPerfTest {
                 maxNonHeapUsedBytes / (1024 * 1024), peakThreadCount,
                 processCpuTimeMs, directBufferMemoryBytes / 1024, 
                 diskUsageBytes / 1024, mainIndexSizeBytes / 1024,
-                gcCount, gcTimeMs, runCount, resumeCount,
+                gcCount, gcTimeMs, runCount, diffTimeMs,
                 queryTimeMs, nodeCount, queryApproved);
         }
     }
