@@ -43,14 +43,18 @@ cd oak-lucene
 echo "Compilation complete."
 echo ""
 
-# Test Scenarios: "STORE NODES CHUNK_SIZE"
+# Test Scenarios: "STORE NODES CHUNK_SIZE MODE"
+# MODE: "NORMAL" (no chunking, chunkSize=0) or "CHUNKED" (with chunkSize)
 SCENARIOS=(
-    # Standard test - 10K nodes, 1K per chunk (working configuration)
-    "SEGMENT 10000 1000"
+    # Normal mode (no chunking) - baseline
+    "SEGMENT 1000 0 NORMAL"
     
-    # Larger tests - uncomment to run
-    # "SEGMENT 50000 5000"
-    # "SEGMENT 100000 10000"
+    # Chunked mode - resumable indexing
+    "SEGMENT 1000 100 CHUNKED"
+    
+    # Optional: Larger tests (uncomment to run)
+    # "SEGMENT 5000 0 NORMAL"
+    # "SEGMENT 5000 500 CHUNKED"
 )
 
 # JVM Configuration
@@ -70,10 +74,11 @@ run_single_scenario() {
     local STORE=$1
     local NODES=$2
     local CHUNK=$3
-    local SCENARIO_NAME="${STORE}_${NODES}_C${CHUNK}"
+    local MODE=$4
+    local SCENARIO_NAME="${STORE}_${NODES}_${MODE}"
     
     echo "--------------------------------------------------------------------------------"
-    echo "Running: Store=$STORE, Nodes=$NODES, ChunkSize=$CHUNK"
+    echo "Running: Store=$STORE, Nodes=$NODES, Mode=$MODE, ChunkSize=$CHUNK"
     echo "--------------------------------------------------------------------------------"
     
     # Run test using JUnit directly
@@ -103,7 +108,7 @@ run_single_scenario() {
         echo "" >> "$OUTPUT_FILE"
         
         # Parse and print stats
-        print_stats_from_file "$SCENARIO_NAME.out" "$STORE" "$NODES" "$CHUNK"
+        print_stats_from_file "$SCENARIO_NAME.out" "$STORE" "$NODES" "$CHUNK" "$MODE"
     fi
     
     rm -f "$SCENARIO_NAME.out"
@@ -114,6 +119,7 @@ print_stats_from_file() {
     local STORE=$2
     local NODES=$3
     local CHUNK=$4
+    local MODE=$5
     
     local TIME=""
     local THROUGHPUT=""
@@ -158,8 +164,8 @@ print_stats_from_file() {
     fi
     
     # Print formatted output
-    printf "%-8s | %-8s | %-8s | %9s | %10s | %10s | %-5s\n" \
-           "$STORE" "$NODES" "$CHUNK" "${TIME_SECONDS}s" "$THROUGHPUT" "$QUERY_APPROVED" "$RUN_COUNT" | tee -a "$SUMMARY_FILE"
+    printf "%-8s | %-8s | %-8s | %-8s | %9s | %10s | %10s | %-5s\n" \
+           "$STORE" "$NODES" "$MODE" "$CHUNK" "${TIME_SECONDS}s" "$THROUGHPUT" "$QUERY_APPROVED" "$RUN_COUNT" | tee -a "$SUMMARY_FILE"
     
     # Print incremental searchability results
     if [ "$MAX_INCREMENTAL_RESULTS" != "N/A" ] && [ "$MAX_INCREMENTAL_RESULTS" -gt 0 ] 2>/dev/null; then
@@ -192,14 +198,14 @@ echo "==========================================================================
 echo "RESULTS"
 echo "================================================================================"
 echo ""
-printf "%-8s | %-8s | %-8s | %9s | %10s | %10s | %-5s\n" \
-       "Store" "Nodes" "Chunk" "Time(s)" "Throughput" "Verified" "Runs" | tee -a "$SUMMARY_FILE"
-echo "---------|----------|----------|-----------|------------|------------|-------" | tee -a "$SUMMARY_FILE"
+printf "%-8s | %-8s | %-8s | %-8s | %9s | %10s | %10s | %-5s\n" \
+       "Store" "Nodes" "Mode" "Chunk" "Time(s)" "Throughput" "Verified" "Runs" | tee -a "$SUMMARY_FILE"
+echo "---------|----------|----------|----------|-----------|------------|------------|-------" | tee -a "$SUMMARY_FILE"
 
 # Run scenarios
-    for scenario in "${SCENARIOS[@]}"; do
-    read -r STORE NODES CHUNK <<< "$scenario"
-    run_single_scenario "$STORE" "$NODES" "$CHUNK"
+for scenario in "${SCENARIOS[@]}"; do
+    read -r STORE NODES CHUNK MODE <<< "$scenario"
+    run_single_scenario "$STORE" "$NODES" "$CHUNK" "$MODE"
 done
 
 echo ""
