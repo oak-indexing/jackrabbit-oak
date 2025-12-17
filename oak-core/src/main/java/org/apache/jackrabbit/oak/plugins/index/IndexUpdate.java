@@ -638,6 +638,7 @@ public class IndexUpdate implements Editor, PathSource {
     public void propertyAdded(PropertyState after)
             throws CommitFailedException {
         rootState.propertyChanged(after.getName());
+        // Note: editors are already collected during enter(), skip mode is handled there
         for (Editor editor : editors) {
             editor.propertyAdded(after);
         }
