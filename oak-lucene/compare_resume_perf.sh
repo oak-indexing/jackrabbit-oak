@@ -47,10 +47,10 @@ echo ""
 # MODE: "NORMAL" (no chunking, chunkSize=0) or "CHUNKED" (with chunkSize)
 SCENARIOS=(
     # Normal mode (no chunking) - baseline
-    "SEGMENT 1000 0 NORMAL"
+    "SEGMENT 10000 0 NORMAL"
     
     # Chunked mode - resumable indexing
-    "SEGMENT 1000 100 CHUNKED"
+    "SEGMENT 10000 5000 CHUNKED"
     
     # Optional: Larger tests (uncomment to run)
     # "SEGMENT 5000 0 NORMAL"
@@ -111,7 +111,8 @@ run_single_scenario() {
         print_stats_from_file "$SCENARIO_NAME.out" "$STORE" "$NODES" "$CHUNK" "$MODE"
     fi
     
-    rm -f "$SCENARIO_NAME.out"
+    # Keep output file for debugging - don't remove
+    echo "  Output saved to: $SCENARIO_NAME.out"
 }
 
 print_stats_from_file() {
@@ -176,7 +177,72 @@ print_stats_from_file() {
         echo "  ⚠ Incremental Searchability: NOT WORKING - Index only searchable after final commit"
     fi
     
-    # Print per-chunk results if available
+    # ===============================================================
+    # Parse and display DEBUG timing information
+    # ===============================================================
+    
+    echo ""
+    echo "  DETAILED TIMING BREAKDOWN:"
+    echo "  --------------------------"
+    
+    # PathTree loading times
+    if grep -q "\[DEBUG-PATHTREE\] Load time:" "$FILE" 2>/dev/null; then
+        echo "  PathTree Loading:"
+        grep "\[DEBUG-PATHTREE\] Load time:" "$FILE" | head -5 | while read line; do
+            local loadTime=$(echo $line | sed 's/.*Load time: \([0-9]*\)ms.*/\1/')
+            local nodes=$(echo $line | sed 's/.*nodes: \([0-9]*\).*/\1/')
+            local indexed=$(echo $line | sed 's/.*indexed: \([0-9]*\).*/\1/')
+            local size=$(echo $line | sed 's/.*size: \([0-9]*\).*/\1/')
+            printf "    Load: %4d ms | Nodes: %6d | Indexed: %6d | Size: %8d bytes\n" \
+                   "$loadTime" "$nodes" "$indexed" "$size"
+        done
+    fi
+    
+    # PathTree serialization times
+    if grep -q "\[DEBUG-PATHTREE\] Serialize time:" "$FILE" 2>/dev/null; then
+        echo "  PathTree Serialization:"
+        grep "\[DEBUG-PATHTREE\] Serialize time:" "$FILE" | while read line; do
+            local serTime=$(echo $line | sed 's/.*Serialize time: \([0-9]*\)ms.*/\1/')
+            local nodes=$(echo $line | sed 's/.*nodes: \([0-9]*\).*/\1/')
+            local indexed=$(echo $line | sed 's/.*indexed: \([0-9]*\).*/\1/')
+            printf "    Serialize: %4d ms | Nodes: %6d | Indexed: %6d\n" \
+                   "$serTime" "$nodes" "$indexed"
+        done
+    fi
+    
+    # Resume path timing
+    if grep -q "\[DEBUG-RESUME\]" "$FILE" 2>/dev/null; then
+        echo "  Resume Path Timing:"
+        grep "\[DEBUG-RESUME\] Resume path reached" "$FILE" | while read line; do
+            local resumeTime=$(echo $line | sed 's/.*reached in \([0-9]*\)ms.*/\1/')
+            printf "    Time to reach resume path: %4d ms\n" "$resumeTime"
+        done
+        
+        grep "\[DEBUG-RESUME\] Total diff time:" "$FILE" | head -3 | while read line; do
+            local diffTime=$(echo $line | sed 's/.*Total diff time: \([0-9]*\)ms.*/\1/')
+            local toResume=$(echo $line | sed 's/.*time to resume path: \([0-9]*\)ms.*/\1/')
+            local afterResume=$(echo $line | sed 's/.*indexing time after resume: \([0-9]*\)ms.*/\1/')
+            printf "    Total diff: %4d ms | To resume: %4d ms | After resume: %4d ms\n" \
+                   "$diffTime" "$toResume" "$afterResume"
+        done
+    fi
+    
+    # Chunk commit timing
+    if grep -q "\[DEBUG-TIMING\] CHUNK COMMIT SUMMARY:" "$FILE" 2>/dev/null; then
+        echo "  Per-Chunk Commit Timing:"
+        local chunk_num=0
+        grep "\[DEBUG-TIMING\] CHUNK COMMIT SUMMARY:" "$FILE" | while read line; do
+            chunk_num=$((chunk_num + 1))
+            local flush=$(echo $line | sed 's/.*flush=\([0-9]*\)ms.*/\1/')
+            local merge=$(echo $line | sed 's/.*merge=\([0-9]*\)ms.*/\1/')
+            local save=$(echo $line | sed 's/.*saveState=\([0-9]*\)ms.*/\1/')
+            local total=$(echo $line | sed 's/.*TOTAL=\([0-9]*\)ms.*/\1/')
+            printf "    Chunk %2d: flush=%4dms | merge=%4dms | save=%4dms | TOTAL=%4dms\n" \
+                   "$chunk_num" "$flush" "$merge" "$save" "$total"
+        done
+    fi
+    
+    # Print per-chunk search results if available
     if grep -q "CHUNK_RESULT:" "$FILE" 2>/dev/null; then
         echo ""
         echo "  Per-Chunk Search Results:"
@@ -189,6 +255,17 @@ print_stats_from_file() {
             printf "    Chunk %2d: %4d results (%3d ms) - %s\n" "$cycle" "$results" "$ctime" "$path"
         done
     fi
+    
+    # Check for PathTree dump files
+    if ls pathtree_dump_*.json 2>/dev/null | head -1 > /dev/null; then
+        echo ""
+        echo "  PathTree Dump Files:"
+        echo "  --------------------"
+        ls -la pathtree_dump_*.json 2>/dev/null | while read line; do
+            echo "    $line"
+        done
+    fi
+    
     echo ""
 }
 

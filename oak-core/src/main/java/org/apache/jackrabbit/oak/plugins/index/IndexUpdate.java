@@ -248,13 +248,21 @@ public class IndexUpdate implements Editor, PathSource {
             throws CommitFailedException {
         rootState.nodeRead(this);
         
-        // NOTE: Skip mode optimization is disabled for now.
-        // Deferring collectIndexEditors() causes editors to be empty,
-        // which means property processing doesn't create Lucene documents.
-        // Until we properly implement cascading initialization for all
-        // ancestor nodes when skip mode ends, we always do full initialization.
+        // Check if this node is already indexed in PathTree (from previous chunk)
+        // If so, we can skip the expensive editor initialization and processing
+        ResumeContext ctx = rootState.getResumeContext();
+        if (ctx != null && ctx.getPathTree().isIndexed(getPath())) {
+            // Node already indexed - skip initialization
+            log.trace("[SKIP-INDEXED] Path {} already indexed in PathTree, skipping", getPath());
+            this.skipMode = true;
+            return;
+        }
         
-        // Full initialization - always needed for editors to be set up
+        // Node is NOT indexed - reset skipMode (might have been inherited from parent)
+        // This is critical: even if parent was skipped, this node needs to be processed
+        this.skipMode = false;
+        
+        // Full initialization - needed for editors to be set up
         performFullInitialization(before, after);
     }
     
@@ -685,15 +693,26 @@ public class IndexUpdate implements Editor, PathSource {
     @Override
     public void leave(NodeState before, NodeState after)
             throws CommitFailedException {
+        // If this node was already indexed (skipMode), skip leave processing
+        if (skipMode) {
+            log.trace("[SKIP-LEAVE] Skipping leave at {} (already indexed)", getPath());
+            return;
+        }
+        
         for (Editor editor : editors) {
             editor.leave(before, after);
         }
         
         // Mark this node as indexed in PathTree (only if we actually processed it)
         ResumeContext ctx = rootState.getResumeContext();
-        if (ctx != null && !ctx.shouldSkipNode(getPath())) {
-            // Only mark as indexed if editors were called (not skipped)
+        if (ctx != null) {
+            // Mark as indexed since we completed processing
             ctx.getPathTree().markIndexed(getPath());
+            // Debug: log when we mark a new node as indexed
+            if (ctx.getPathTree().getIndexedNodes() % 1000 == 0) {
+                System.out.println("[DEBUG-INDEX] Marked " + ctx.getPathTree().getIndexedNodes() + 
+                    " nodes as indexed, current path: " + getPath());
+            }
         }
         
         // NOTE: Chunk limits are handled by AsyncUpdateCallback.traversedNode(), not here
@@ -709,10 +728,12 @@ public class IndexUpdate implements Editor, PathSource {
             throws CommitFailedException {
         rootState.propertyChanged(after.getName());
         
-        // NOTE: We do NOT skip property processing based on PathTree.
-        // PathTree is only for optimizing traversal counting, not for skipping
-        // property changes that lead to Lucene document creation.
-        // If we skipped properties, resumed runs wouldn't create Lucene documents.
+        // OPTIMIZATION: Skip property processing if this node was already indexed
+        // This prevents duplicate Lucene document creation during resume
+        if (skipMode) {
+            log.trace("[SKIP-PROP] Skipping propertyAdded at {} (already indexed)", getPath());
+            return;
+        }
         
         for (Editor editor : editors) {
             editor.propertyAdded(after);
@@ -724,8 +745,11 @@ public class IndexUpdate implements Editor, PathSource {
             throws CommitFailedException {
         rootState.propertyChanged(before.getName());
         
-        // NOTE: We do NOT skip property processing based on PathTree.
-        // PathTree is only for optimizing traversal counting.
+        // OPTIMIZATION: Skip property processing if this node was already indexed
+        if (skipMode) {
+            log.trace("[SKIP-PROP] Skipping propertyChanged at {} (already indexed)", getPath());
+            return;
+        }
         
         for (Editor editor : editors) {
             editor.propertyChanged(before, after);
@@ -737,8 +761,11 @@ public class IndexUpdate implements Editor, PathSource {
             throws CommitFailedException {
         rootState.propertyChanged(before.getName());
         
-        // NOTE: We do NOT skip property processing based on PathTree.
-        // PathTree is only for optimizing traversal counting.
+        // OPTIMIZATION: Skip property processing if this node was already indexed
+        if (skipMode) {
+            log.trace("[SKIP-PROP] Skipping propertyDeleted at {} (already indexed)", getPath());
+            return;
+        }
         
         for (Editor editor : editors) {
             editor.propertyDeleted(before);

@@ -1029,12 +1029,25 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             NodeState asyncState = store.getRoot().getChildNode(ASYNC);
             NodeState resumeState = asyncState.getChildNode(resumeNodeName);
             
+            // Track PathTree loading time
+            long pathTreeLoadStartTime = System.currentTimeMillis();
+            long pathTreeSerializedSize = 0;
+            
             if (resumeFromPath != null && !"/".equals(resumeFromPath) && resumeState.exists()) {
                 // Load PathTree from persisted state
                 NodeState pathTreeState = resumeState.getChildNode("pathTree");
                 if (pathTreeState.exists()) {
                     pathTree = PathTree.deserializeFrom(pathTreeState);
-                    log.info("[{}] Loaded PathTree from resume state: {}", name, pathTree);
+                    long pathTreeLoadTime = System.currentTimeMillis() - pathTreeLoadStartTime;
+                    
+                    // Estimate serialized size by counting nodes
+                    pathTreeSerializedSize = pathTree.getTotalNodes() * 50; // Rough estimate: 50 bytes per node
+                    
+                    log.info("[{}] Loaded PathTree from resume state: {} (load time: {}ms, estimated size: {} bytes)", 
+                        name, pathTree, pathTreeLoadTime, pathTreeSerializedSize);
+                    System.out.println("[DEBUG-PATHTREE] Load time: " + pathTreeLoadTime + "ms, nodes: " + 
+                        pathTree.getTotalNodes() + ", indexed: " + pathTree.getIndexedNodes() + 
+                        ", estimated size: " + pathTreeSerializedSize + " bytes");
                 } else {
                     pathTree = new PathTree();
                     log.info("[{}] No PathTree found in resume state, creating new", name);
@@ -1066,15 +1079,30 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             callback.setPathTree(pathTree);
             
             // Set callback state for compatibility (deprecated - use PathTree instead)
-            if (resumeFromPath != null && !"/".equals(resumeFromPath)) {
+            final long diffStartTime = System.currentTimeMillis();
+            final boolean isResuming = resumeFromPath != null && !"/".equals(resumeFromPath);
+            
+            if (isResuming) {
                 callback.setSkipMode(true);
                 callback.setResumePath(resumeFromPath);
                 log.info("[{}] Resuming from path: {} with PathTree ({} indexed nodes)", 
                     name, resumeFromPath, pathTree.getIndexedNodes());
+                System.out.println("[DEBUG-RESUME] Starting resume from path: " + resumeFromPath + 
+                    ", PathTree has " + pathTree.getIndexedNodes() + " indexed nodes");
             } else {
                 callback.setSkipMode(false);
                 callback.setResumePath(null);
                 log.debug("[{}] Starting from root with fresh PathTree", name);
+            }
+            
+            // Track time to reach resume path
+            final long[] resumePathReachedTime = {0};
+            if (isResuming) {
+                resumeContext.setOnResumePointReached(() -> {
+                    resumePathReachedTime[0] = System.currentTimeMillis() - diffStartTime;
+                    System.out.println("[DEBUG-RESUME] Resume path reached in " + resumePathReachedTime[0] + "ms");
+                    log.info("[{}] Resume path {} reached in {}ms", name, resumeFromPath, resumePathReachedTime[0]);
+                });
             }
             
             // Create editor
@@ -1083,10 +1111,18 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             // Process diff using standard EditorDiff
             // ResumeContext is passed to IndexUpdate and handles chunk limits in leave()
             CommitFailedException exception = EditorDiff.process(editor, before, after);
+            long totalDiffTime = System.currentTimeMillis() - diffStartTime;
             indexStats.setDiffTimeMs(watch.elapsed(TimeUnit.MILLISECONDS));
             
-            lastResumeTimeToTarget = 0;
-            lastResumeTotalTime = 0;
+            // Log resume timing
+            if (isResuming) {
+                System.out.println("[DEBUG-RESUME] Total diff time: " + totalDiffTime + "ms, " +
+                    "time to resume path: " + resumePathReachedTime[0] + "ms, " +
+                    "indexing time after resume: " + (totalDiffTime - resumePathReachedTime[0]) + "ms");
+            }
+            
+            lastResumeTimeToTarget = resumePathReachedTime[0];
+            lastResumeTotalTime = totalDiffTime;
             
             // Handle CHUNK_COMPLETE - commit chunk and save resume state, then exit
             // Check for:
@@ -1115,13 +1151,19 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 
                 // 1. Flush Lucene writers - this writes buffered documents to the index
                 //    and updates the builder's :data node with the new index state
+                long flushStartTime = System.currentTimeMillis();
                 log.info("[{}] Flushing Lucene index writers for chunk commit", name);
                 indexUpdate.commitProgress(IndexCommitCallback.IndexProgress.COMMIT_PROGRESS);
+                long flushTime = System.currentTimeMillis() - flushStartTime;
+                System.out.println("[DEBUG-TIMING] Lucene flush time: " + flushTime + "ms");
                 
                 // 2. Merge builder to NodeStore - this makes the flushed index data visible
                 //    The builder now contains updated :data nodes from the flush above
+                long mergeStartTime = System.currentTimeMillis();
                 log.info("[{}] Merging index updates to NodeStore", name);
                 mergeWithConcurrencyCheck(store, validatorProviders, builder, beforeCheckpoint, callback.lease, name);
+                long mergeTime = System.currentTimeMillis() - mergeStartTime;
+                System.out.println("[DEBUG-TIMING] NodeStore merge time: " + mergeTime + "ms");
                 
                 // 3. IMPORTANT: The index is now searchable because:
                 //    - Lucene writers were flushed (documents written to :data)
@@ -1130,6 +1172,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 log.info("[{}] Index committed and incrementally searchable up to: {}", name, chunkPath);
                 
                 // 4. Save resume state (including PathTree) under :async/{lane-name}-resume
+                long saveStateStartTime = System.currentTimeMillis();
                 NodeBuilder resumeBuilder = store.getRoot().builder();
                 String saveResumeNodeName = name + "-resume";
                 NodeBuilder laneBuilder = resumeBuilder.child(ASYNC).child(saveResumeNodeName);
@@ -1139,13 +1182,42 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 
                 // Serialize PathTree for efficient resume
                 PathTree currentPathTree = resumeContext.getPathTree();
+                long serializeStartTime = System.currentTimeMillis();
                 currentPathTree.serializeTo(laneBuilder.child("pathTree"));
-                log.info("[{}] Saving PathTree: {} nodes total, {} indexed", 
-                    name, currentPathTree.getTotalNodes(), currentPathTree.getIndexedNodes());
+                long serializeTime = System.currentTimeMillis() - serializeStartTime;
+                
+                log.info("[{}] Saving PathTree: {} nodes total, {} indexed (serialize time: {}ms)", 
+                    name, currentPathTree.getTotalNodes(), currentPathTree.getIndexedNodes(), serializeTime);
+                System.out.println("[DEBUG-PATHTREE] Serialize time: " + serializeTime + "ms, nodes: " + 
+                    currentPathTree.getTotalNodes() + ", indexed: " + currentPathTree.getIndexedNodes());
+                
+                // Also save PathTree to filesystem for debugging
+                try {
+                    java.io.File pathTreeFile = new java.io.File("pathtree_dump_" + System.currentTimeMillis() + ".json");
+                    try (java.io.PrintWriter writer = new java.io.PrintWriter(pathTreeFile)) {
+                        writer.println("{");
+                        writer.println("  \"totalNodes\": " + currentPathTree.getTotalNodes() + ",");
+                        writer.println("  \"indexedNodes\": " + currentPathTree.getIndexedNodes() + ",");
+                        writer.println("  \"lastPath\": \"" + chunkPath + "\",");
+                        writer.println("  \"serializeTimeMs\": " + serializeTime);
+                        writer.println("}");
+                    }
+                    System.out.println("[DEBUG-PATHTREE] Saved to file: " + pathTreeFile.getAbsolutePath());
+                } catch (Exception e) {
+                    log.warn("[{}] Failed to save PathTree to file: {}", name, e.getMessage());
+                }
                 
                 store.merge(resumeBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+                long saveStateTime = System.currentTimeMillis() - saveStateStartTime;
+                System.out.println("[DEBUG-TIMING] Resume state save time: " + saveStateTime + "ms");
+                
                 log.info("[{}] Saved resume state to :async/{}: path={}, checkpoint={}, tree={}", 
                     name, saveResumeNodeName, chunkPath, afterCheckpoint, currentPathTree);
+                
+                // Print comprehensive timing summary
+                long totalChunkTime = flushTime + mergeTime + saveStateTime;
+                System.out.println("[DEBUG-TIMING] CHUNK COMMIT SUMMARY: flush=" + flushTime + "ms, merge=" + 
+                    mergeTime + "ms, saveState=" + saveStateTime + "ms, TOTAL=" + totalChunkTime + "ms");
                 
                 // Don't release any checkpoints - we need both beforeCheckpoint and afterCheckpoint
                 // They will be cleaned up when indexing completes
