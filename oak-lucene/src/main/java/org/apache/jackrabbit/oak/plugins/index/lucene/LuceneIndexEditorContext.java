@@ -18,6 +18,7 @@ package org.apache.jackrabbit.oak.plugins.index.lucene;
 
 import java.io.IOException;
 
+import org.apache.jackrabbit.oak.plugins.index.IndexCommitCallback;
 import org.apache.jackrabbit.oak.plugins.index.IndexUpdateCallback;
 import org.apache.jackrabbit.oak.plugins.index.IndexingContext;
 import org.apache.jackrabbit.oak.plugins.index.lucene.util.FacetHelper;
@@ -32,8 +33,13 @@ import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.stats.Clock;
 import org.apache.lucene.facet.FacetsConfig;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class LuceneIndexEditorContext extends FulltextIndexEditorContext implements FacetsConfigProvider {
+    
+    private static final Logger LOG = LoggerFactory.getLogger(LuceneIndexEditorContext.class);
+    
     private FacetsConfig facetsConfig;
 
     private final IndexAugmentorFactory augmentorFactory;
@@ -48,6 +54,31 @@ public class LuceneIndexEditorContext extends FulltextIndexEditorContext impleme
         super(root, definition, indexDefinition, updateCallback, indexWriterFactory, extractedTextCache,
             indexingContext, asyncIndexing);
         this.augmentorFactory = augmentorFactory;
+        
+        // Register COMMIT_PROGRESS handler for resumable indexing
+        registerCommitProgressCallback(indexingContext);
+    }
+    
+    /**
+     * Register a callback that flushes the Lucene writer on COMMIT_PROGRESS.
+     * This enables incremental commits during resumable indexing.
+     */
+    private void registerCommitProgressCallback(IndexingContext indexingContext) {
+        indexingContext.registerIndexCommitCallback(new IndexCommitCallback() {
+            @Override
+            public void commitProgress(IndexCommitCallback.IndexProgress indexProgress) {
+                if (indexProgress == IndexCommitCallback.IndexProgress.COMMIT_PROGRESS) {
+                    try {
+                        LOG.info("[COMMIT_PROGRESS] Flushing Lucene writer for index: {}", 
+                                 getDefinition().getIndexPath());
+                        flushWriter();
+                        LOG.info("[COMMIT_PROGRESS] Successfully flushed Lucene writer");
+                    } catch (IOException e) {
+                        LOG.error("[COMMIT_PROGRESS] Failed to flush Lucene writer", e);
+                    }
+                }
+            }
+        });
     }
 
     @Override

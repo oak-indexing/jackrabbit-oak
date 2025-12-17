@@ -77,6 +77,9 @@ import org.apache.jackrabbit.oak.spi.commit.CompositeHook;
 import org.apache.jackrabbit.oak.spi.commit.Editor;
 import org.apache.jackrabbit.oak.spi.commit.EditorDiff;
 import org.apache.jackrabbit.oak.spi.commit.EditorHook;
+import org.apache.jackrabbit.oak.plugins.index.resume.PathTree;
+import org.apache.jackrabbit.oak.plugins.index.resume.ResumeContext;
+import org.apache.jackrabbit.oak.plugins.index.resume.ResumableEditorDiff;
 import org.apache.jackrabbit.oak.spi.commit.EditorProvider;
 import org.apache.jackrabbit.oak.spi.commit.EmptyHook;
 import org.apache.jackrabbit.oak.spi.commit.ResetCommitAttributeHook;
@@ -952,11 +955,8 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 beforeCheckpoint, indexStats, stopFlag);
         callback.setValidatorProviders(validatorProviders);
         
-        // Set chunk size if configured
-        if (configuredChunkSize > 0) {
-            callback.setUpdateLimit((int) configuredChunkSize);
-            log.debug("[{}] Configured chunk size: {}", name, configuredChunkSize);
-        }
+        // NOTE: Chunk limit is set in updateIndex() after we know if it's an initial index
+        // This allows us to skip chunk limits during initial indexing
         
         return callback;
     }
@@ -989,11 +989,15 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         // Prepare callback - resets counters
         callback.prepare(afterCheckpoint);
         
-        // Set chunk size if configured
-        boolean chunkedMode = configuredChunkSize > 0;
-        if (chunkedMode) {
-            callback.setUpdateLimit((int) configuredChunkSize);
-            log.info("[{}] Resumable indexing enabled - chunkSize: {}", name, configuredChunkSize);
+        // IMPORTANT: Chunk limits are DISABLED for now
+        // TODO: Implement proper skip logic that handles non-deterministic traversal order
+        boolean isInitialIndex = before == MISSING_NODE;
+        boolean chunkedMode = false; // Disabled for now
+        
+        // Always disable chunk limits until proper skip implementation is done
+        callback.setUpdateLimit(-1);
+        if (configuredChunkSize > 0) {
+            log.info("[{}] Chunk limits disabled - full indexing will complete in one run", name);
         }
 
         // Check for index tasks split requests
@@ -1008,16 +1012,49 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             CommitInfo info = new CommitInfo(CommitInfo.OAK_UNKNOWN, CommitInfo.OAK_UNKNOWN,
                     Map.of(IndexConstants.CHECKPOINT_CREATION_TIME, afterTime));
             
-            // Create IndexUpdate
-            indexUpdate = new IndexUpdate(provider, name, after, builder, callback, callback, info, corruptIndexHandler)
+            // Create ResumeContext for resumable indexing
+            // Load PathTree if resuming, otherwise create new
+            PathTree pathTree;
+            String resumeNodeName = name + "-resume";
+            NodeState asyncState = store.getRoot().getChildNode(ASYNC);
+            NodeState resumeState = asyncState.getChildNode(resumeNodeName);
+            
+            if (resumeFromPath != null && !"/".equals(resumeFromPath) && resumeState.exists()) {
+                // Load PathTree from persisted state
+                NodeState pathTreeState = resumeState.getChildNode("pathTree");
+                if (pathTreeState.exists()) {
+                    pathTree = PathTree.deserializeFrom(pathTreeState);
+                    log.info("[{}] Loaded PathTree from resume state: {}", name, pathTree);
+                } else {
+                    pathTree = new PathTree();
+                    log.info("[{}] No PathTree found in resume state, creating new", name);
+                }
+            } else {
+                pathTree = new PathTree();
+                log.debug("[{}] Starting fresh run with new PathTree", name);
+            }
+            
+            // Create ResumeContext
+            int chunkLimit = chunkedMode ? (int) configuredChunkSize : 0;
+            ResumeContext resumeContext;
+            if (resumeFromPath != null && !"/".equals(resumeFromPath)) {
+                resumeContext = ResumeContext.createForResume(resumeFromPath, pathTree, chunkLimit);
+                log.info("[{}] Created resume context from path: {}", name, resumeFromPath);
+            } else {
+                resumeContext = ResumeContext.createForFirstRun(chunkLimit);
+                log.debug("[{}] Created first-run resume context", name);
+            }
+            
+            // Create IndexUpdate with ResumeContext
+            indexUpdate = new IndexUpdate(provider, name, after, builder, callback, callback, info, corruptIndexHandler, resumeContext)
                     .withMissingProviderStrategy(missingStrategy);
             configureRateEstimator(indexUpdate);
             
-            // Set resume path if resuming - we'll just skip counting nodes until we reach it
+            // Set callback state for compatibility
             if (resumeFromPath != null && !"/".equals(resumeFromPath)) {
                 callback.setSkipMode(true);
                 callback.setResumePath(resumeFromPath);
-                log.info("[{}] Resuming from path: {} - will skip counting until reached", name, resumeFromPath);
+                log.info("[{}] Resuming from path: {} - will skip indexing until reached", name, resumeFromPath);
             } else {
                 callback.setSkipMode(false);
                 callback.setResumePath(null);
@@ -1027,7 +1064,8 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             // Create editor
             Editor editor = VisibleEditor.wrap(indexUpdate);
 
-            // Process diff - will throw CHUNK_COMPLETE if limit reached
+            // Process diff using standard EditorDiff
+            // ResumeContext is passed to IndexUpdate and handles chunk limits in leave()
             CommitFailedException exception = EditorDiff.process(editor, before, after);
             indexStats.setDiffTimeMs(watch.elapsed(TimeUnit.MILLISECONDS));
             
@@ -1035,8 +1073,26 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             lastResumeTotalTime = 0;
             
             // Handle CHUNK_COMPLETE - commit chunk and save resume state, then exit
-            if (exception == CHUNK_COMPLETE) {
+            // Check for:
+            // 1. Static CHUNK_COMPLETE constant from AsyncUpdateCallback.traversedNode()
+            // 2. CHUNK_COMPLETE: prefix from IndexUpdate.leave() or ResumableEditorDiff
+            boolean isChunkComplete = (exception != null && 
+                (exception == CHUNK_COMPLETE ||
+                 ResumableEditorDiff.isChunkCompleteException(exception) || 
+                 (exception.getMessage() != null && exception.getMessage().startsWith("CHUNK_COMPLETE:"))));
+            
+            if (isChunkComplete) {
+                // Get chunk path from various sources:
+                // 1. From callback (used by static CHUNK_COMPLETE)
+                // 2. From ResumableEditorDiff exception
+                // 3. From ResumeContext
                 String chunkPath = callback.getChunkLastIndexedPath();
+                if (chunkPath == null) {
+                    chunkPath = ResumableEditorDiff.getChunkCompletePath(exception);
+                }
+                if (chunkPath == null && resumeContext != null) {
+                    chunkPath = resumeContext.getLastIndexedPath();
+                }
                 log.info("[{}] Chunk limit reached at path: {} - committing and saving resume state", name, chunkPath);
                 
                 // CRITICAL SEQUENCE FOR INCREMENTAL SEARCHABILITY:
@@ -1057,15 +1113,23 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 //    - Queries will see the new data when they refresh the index tracker
                 log.info("[{}] Index committed and incrementally searchable up to: {}", name, chunkPath);
                 
-                // 4. Save resume state under :async/{lane-name}-resume
+                // 4. Save resume state (including PathTree) under :async/{lane-name}-resume
                 NodeBuilder resumeBuilder = store.getRoot().builder();
-                String resumeNodeName = name + "-resume";
-                NodeBuilder laneBuilder = resumeBuilder.child(ASYNC).child(resumeNodeName);
+                String saveResumeNodeName = name + "-resume";
+                NodeBuilder laneBuilder = resumeBuilder.child(ASYNC).child(saveResumeNodeName);
                 laneBuilder.setProperty("lastIndexedPath", chunkPath);
                 laneBuilder.setProperty("targetCheckpoint", afterCheckpoint);
+                laneBuilder.setProperty("nodesProcessed", resumeContext.getNodesProcessed());
+                
+                // Serialize PathTree for efficient resume
+                PathTree currentPathTree = resumeContext.getPathTree();
+                currentPathTree.serializeTo(laneBuilder.child("pathTree"));
+                log.info("[{}] Saving PathTree: {} nodes total, {} indexed", 
+                    name, currentPathTree.getTotalNodes(), currentPathTree.getIndexedNodes());
+                
                 store.merge(resumeBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
-                log.info("[{}] Saved resume state to :async/{}: path={}, checkpoint={}", 
-                    name, resumeNodeName, chunkPath, afterCheckpoint);
+                log.info("[{}] Saved resume state to :async/{}: path={}, checkpoint={}, tree={}", 
+                    name, saveResumeNodeName, chunkPath, afterCheckpoint, currentPathTree);
                 
                 // Don't release any checkpoints - we need both beforeCheckpoint and afterCheckpoint
                 // They will be cleaned up when indexing completes
@@ -1073,7 +1137,12 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 indexingFailed = false;
                 
                 log.info("[{}] Chunk commit complete - index is incrementally searchable", name);
-                return true;  // Exit - next run() will resume from saved position
+                // IMPORTANT: Return false to indicate "chunk complete but not full completion"
+                // This prevents runWhenPermitted() from:
+                // 1. Updating the main checkpoint property (we only want resume state updated)
+                // 2. Setting checkpointToReleaseRef to beforeCheckpoint (which would release it!)
+                // The next run() will resume from the saved position
+                return false;
             }
             
             // Other exceptions should be thrown
@@ -1131,10 +1200,10 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             // Clear resume state after successful completion (always check, not just when resumeFromPath is set)
             try {
                 NodeBuilder cleanupBuilder = store.getRoot().builder();
-                String resumeNodeName = name + "-resume";
+                String cleanupResumeNodeName = name + "-resume";
                 NodeBuilder asyncBuilder = cleanupBuilder.child(ASYNC);
-                if (asyncBuilder.hasChildNode(resumeNodeName)) {
-                    asyncBuilder.getChildNode(resumeNodeName).remove();
+                if (asyncBuilder.hasChildNode(cleanupResumeNodeName)) {
+                    asyncBuilder.getChildNode(cleanupResumeNodeName).remove();
                     store.merge(cleanupBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
                     log.info("[{}] Cleared resume state after successful completion", name);
                 }

@@ -49,6 +49,7 @@ import org.apache.jackrabbit.oak.commons.collections.SetUtils;
 import org.apache.jackrabbit.oak.plugins.index.IndexCommitCallback.IndexProgress;
 import org.apache.jackrabbit.oak.plugins.index.NodeTraversalCallback.PathSource;
 import org.apache.jackrabbit.oak.plugins.index.progress.IndexingProgressReporter;
+import org.apache.jackrabbit.oak.plugins.index.resume.ResumeContext;
 import org.apache.jackrabbit.oak.plugins.index.progress.NodeCountEstimator;
 import org.apache.jackrabbit.oak.plugins.index.progress.TraversalRateEstimator;
 import org.apache.jackrabbit.oak.plugins.index.upgrade.IndexDisabler;
@@ -199,11 +200,38 @@ public class IndexUpdate implements Editor, PathSource {
             NodeState root, NodeBuilder builder,
             IndexUpdateCallback updateCallback, NodeTraversalCallback traversalCallback,
             CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler) {
+        this(provider, async, root, builder, updateCallback, traversalCallback, commitInfo, corruptIndexHandler, null);
+    }
+    
+    /**
+     * Constructor with ResumeContext for resumable indexing.
+     * 
+     * @param provider the index editor provider
+     * @param async async lane name
+     * @param root the root node state
+     * @param builder the node builder
+     * @param updateCallback callback for index updates
+     * @param traversalCallback callback for node traversal
+     * @param commitInfo commit info
+     * @param corruptIndexHandler handler for corrupt indexes
+     * @param resumeContext context for resumable indexing (can be null)
+     */
+    public IndexUpdate(
+            IndexEditorProvider provider, String async,
+            NodeState root, NodeBuilder builder,
+            IndexUpdateCallback updateCallback, NodeTraversalCallback traversalCallback,
+            CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler,
+            @Nullable ResumeContext resumeContext) {
         this.parent = null;
         this.name = null;
         this.path = "/";
-        this.rootState = new IndexUpdateRootState(provider, async, root, builder, updateCallback, traversalCallback, commitInfo, corruptIndexHandler);
+        this.rootState = new IndexUpdateRootState(provider, async, root, builder, updateCallback, traversalCallback, commitInfo, corruptIndexHandler, resumeContext);
         this.builder = requireNonNull(builder);
+        
+        // If we have a resume context and it's in skip mode, start in skip mode
+        if (resumeContext != null && resumeContext.isInSkipMode()) {
+            this.skipMode = true;
+        }
     }
 
     private IndexUpdate(IndexUpdate parent, String name) {
@@ -231,6 +259,23 @@ public class IndexUpdate implements Editor, PathSource {
         
         // Full initialization
         performFullInitialization(before, after);
+    }
+    
+    /**
+     * Get the ResumeContext from the root state.
+     * 
+     * @return the resume context, or null if not set
+     */
+    @Nullable
+    public ResumeContext getResumeContext() {
+        return rootState.getResumeContext();
+    }
+    
+    /**
+     * Check if this editor is in skip mode.
+     */
+    public boolean isInSkipMode() {
+        return skipMode || rootState.isInSkipMode();
     }
     
     /**
@@ -312,6 +357,24 @@ public class IndexUpdate implements Editor, PathSource {
 
     public boolean isReindexingPerformed() {
         return !getReindexStats().isEmpty();
+    }
+    
+    /**
+     * Check if any reindexing is currently in progress.
+     * Used to disable chunk limits during reindex.
+     * Must check from root to find reindex state.
+     */
+    private boolean isReindexing() {
+        // Check at root level - that's where reindex map is populated
+        if (parent == null) {
+            return !reindex.isEmpty();
+        }
+        // Traverse up to root
+        IndexUpdate root = this;
+        while (root.parent != null) {
+            root = root.parent;
+        }
+        return !root.reindex.isEmpty();
     }
 
     public List<String> getReindexStats() {
@@ -628,6 +691,9 @@ public class IndexUpdate implements Editor, PathSource {
         for (Editor editor : editors) {
             editor.leave(before, after);
         }
+        
+        // NOTE: Chunk limits are handled by AsyncUpdateCallback.traversedNode(), not here
+        // This keeps the IndexUpdate clean and lets AsyncIndexUpdate control chunking
 
         if (parent == null) {
             rootState.progressReporter.logReport();
@@ -638,6 +704,13 @@ public class IndexUpdate implements Editor, PathSource {
     public void propertyAdded(PropertyState after)
             throws CommitFailedException {
         rootState.propertyChanged(after.getName());
+        
+        // Skip property processing when in skip mode (traversing to resume point)
+        if (rootState.isInSkipMode()) {
+            log.trace("[SKIP] Skipping propertyAdded at path: {}", getPath());
+            return;
+        }
+        
         // Note: editors are already collected during enter(), skip mode is handled there
         for (Editor editor : editors) {
             editor.propertyAdded(after);
@@ -648,6 +721,13 @@ public class IndexUpdate implements Editor, PathSource {
     public void propertyChanged(PropertyState before, PropertyState after)
             throws CommitFailedException {
         rootState.propertyChanged(before.getName());
+        
+        // Skip property processing when in skip mode (traversing to resume point)
+        if (rootState.isInSkipMode()) {
+            log.trace("[SKIP] Skipping propertyChanged at path: {}", getPath());
+            return;
+        }
+        
         for (Editor editor : editors) {
             editor.propertyChanged(before, after);
         }
@@ -657,6 +737,13 @@ public class IndexUpdate implements Editor, PathSource {
     public void propertyDeleted(PropertyState before)
             throws CommitFailedException {
         rootState.propertyChanged(before.getName());
+        
+        // Skip property processing when in skip mode (traversing to resume point)
+        if (rootState.isInSkipMode()) {
+            log.trace("[SKIP] Skipping propertyDeleted at path: {}", getPath());
+            return;
+        }
+        
         for (Editor editor : editors) {
             editor.propertyDeleted(before);
         }
@@ -799,11 +886,16 @@ public class IndexUpdate implements Editor, PathSource {
         private int changedNodeCount;
         private int changedPropertyCount;
         private MissingIndexProviderStrategy missingProvider = new MissingIndexProviderStrategy();
+        
+        /** ResumeContext for resumable indexing (can be null) */
+        @Nullable
+        final ResumeContext resumeContext;
 
         private IndexUpdateRootState(IndexEditorProvider provider, String async, NodeState root,
                                      NodeBuilder builder, IndexUpdateCallback updateCallback,
                                      NodeTraversalCallback traversalCallback,
-                                     CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler) {
+                                     CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler,
+                                     @Nullable ResumeContext resumeContext) {
             this.provider = requireNonNull(provider);
             this.async = async;
             this.root = requireNonNull(root);
@@ -811,6 +903,22 @@ public class IndexUpdate implements Editor, PathSource {
             this.corruptIndexHandler = corruptIndexHandler;
             this.indexDisabler = new IndexDisabler(builder);
             this.progressReporter = new IndexingProgressReporter(updateCallback, traversalCallback);
+            this.resumeContext = resumeContext;
+        }
+        
+        /**
+         * Check if we're in skip mode (traversing to resume point).
+         */
+        public boolean isInSkipMode() {
+            return resumeContext != null && resumeContext.isInSkipMode();
+        }
+        
+        /**
+         * Get the resume context.
+         */
+        @Nullable
+        public ResumeContext getResumeContext() {
+            return resumeContext;
         }
 
         public IndexUpdateCallback newCallback(String indexPath, boolean reindex, long estimatedCount) {

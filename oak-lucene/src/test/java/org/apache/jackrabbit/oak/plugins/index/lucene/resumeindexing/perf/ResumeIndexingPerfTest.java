@@ -220,6 +220,13 @@ public class ResumeIndexingPerfTest {
                     rootAfterRun.getChildNode("oak:index").getChildNode("damAssetLucene");
                 boolean reindex = idxState.getBoolean("reindex");
                 
+                // Debug output
+                if (initialRuns <= 5 || initialRuns % 100 == 0) {
+                    System.out.println("  Run #" + initialRuns + ": reindex=" + reindex + 
+                        ", exists=" + idxState.exists() + 
+                        ", checkpoint=" + rootAfterRun.getChildNode(":async").getString("async"));
+                }
+                
                 if (!reindex) {
                     System.out.println("  Initial index complete after " + initialRuns + " run(s)");
                     break;
