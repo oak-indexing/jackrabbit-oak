@@ -117,6 +117,17 @@ public class ResumeContext {
         return inSkipMode;
     }
     
+    /**
+     * Check if a path should be skipped because it's already indexed in PathTree.
+     * This is the primary mechanism for skip during resume.
+     * 
+     * @param path the path to check
+     * @return true if the path should be skipped (already indexed)
+     */
+    public boolean shouldSkipNode(@NotNull String path) {
+        return pathTree.isIndexed(path);
+    }
+    
     @NotNull
     public String getCurrentPath() {
         return currentPath;

@@ -248,16 +248,13 @@ public class IndexUpdate implements Editor, PathSource {
             throws CommitFailedException {
         rootState.nodeRead(this);
         
-        // SKIP MODE OPTIMIZATION: Defer expensive initialization
-        if (skipMode && !fullyInitialized) {
-            // Store states for later initialization when we exit skip mode
-            this.deferredBefore = before;
-            this.deferredAfter = after;
-            log.trace("[SKIP] Deferred initialization at path: {}", getPath());
-            return;
-        }
+        // NOTE: Skip mode optimization is disabled for now.
+        // Deferring collectIndexEditors() causes editors to be empty,
+        // which means property processing doesn't create Lucene documents.
+        // Until we properly implement cascading initialization for all
+        // ancestor nodes when skip mode ends, we always do full initialization.
         
-        // Full initialization
+        // Full initialization - always needed for editors to be set up
         performFullInitialization(before, after);
     }
     
@@ -692,6 +689,13 @@ public class IndexUpdate implements Editor, PathSource {
             editor.leave(before, after);
         }
         
+        // Mark this node as indexed in PathTree (only if we actually processed it)
+        ResumeContext ctx = rootState.getResumeContext();
+        if (ctx != null && !ctx.shouldSkipNode(getPath())) {
+            // Only mark as indexed if editors were called (not skipped)
+            ctx.getPathTree().markIndexed(getPath());
+        }
+        
         // NOTE: Chunk limits are handled by AsyncUpdateCallback.traversedNode(), not here
         // This keeps the IndexUpdate clean and lets AsyncIndexUpdate control chunking
 
@@ -705,13 +709,11 @@ public class IndexUpdate implements Editor, PathSource {
             throws CommitFailedException {
         rootState.propertyChanged(after.getName());
         
-        // Skip property processing when in skip mode (traversing to resume point)
-        if (rootState.isInSkipMode()) {
-            log.trace("[SKIP] Skipping propertyAdded at path: {}", getPath());
-            return;
-        }
+        // NOTE: We do NOT skip property processing based on PathTree.
+        // PathTree is only for optimizing traversal counting, not for skipping
+        // property changes that lead to Lucene document creation.
+        // If we skipped properties, resumed runs wouldn't create Lucene documents.
         
-        // Note: editors are already collected during enter(), skip mode is handled there
         for (Editor editor : editors) {
             editor.propertyAdded(after);
         }
@@ -722,11 +724,8 @@ public class IndexUpdate implements Editor, PathSource {
             throws CommitFailedException {
         rootState.propertyChanged(before.getName());
         
-        // Skip property processing when in skip mode (traversing to resume point)
-        if (rootState.isInSkipMode()) {
-            log.trace("[SKIP] Skipping propertyChanged at path: {}", getPath());
-            return;
-        }
+        // NOTE: We do NOT skip property processing based on PathTree.
+        // PathTree is only for optimizing traversal counting.
         
         for (Editor editor : editors) {
             editor.propertyChanged(before, after);
@@ -738,11 +737,8 @@ public class IndexUpdate implements Editor, PathSource {
             throws CommitFailedException {
         rootState.propertyChanged(before.getName());
         
-        // Skip property processing when in skip mode (traversing to resume point)
-        if (rootState.isInSkipMode()) {
-            log.trace("[SKIP] Skipping propertyDeleted at path: {}", getPath());
-            return;
-        }
+        // NOTE: We do NOT skip property processing based on PathTree.
+        // PathTree is only for optimizing traversal counting.
         
         for (Editor editor : editors) {
             editor.propertyDeleted(before);

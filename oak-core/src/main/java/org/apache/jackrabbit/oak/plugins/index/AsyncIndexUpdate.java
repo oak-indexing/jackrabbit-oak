@@ -349,6 +349,12 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
          * Resume path - when set, we skip indexing until we reach this path.
          */
         private volatile String resumePath = null;
+        
+        /**
+         * PathTree reference for checking if a path is already indexed.
+         * Used to skip counting indexed nodes toward chunk limit.
+         */
+        private volatile PathTree pathTree = null;
 
         public AsyncUpdateCallback(NodeStore store, String name,
                                    long leaseTimeOut, String checkpoint,
@@ -391,6 +397,13 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
          */
         public void setResumePath(String path) {
             this.resumePath = path;
+        }
+        
+        /**
+         * Set the PathTree for checking if paths are already indexed.
+         */
+        public void setPathTree(PathTree pathTree) {
+            this.pathTree = pathTree;
         }
 
         protected void initLease() throws CommitFailedException {
@@ -488,45 +501,40 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         public void traversedNode(PathSource pathSource) throws CommitFailedException{
             checkIfStopped();
             
-            // Check if we've reached the resume point
-            if (inSkipMode && resumePath != null) {
-                String currentPath = pathSource.getPath();
-                if (currentPath.equals(resumePath) || currentPath.startsWith(resumePath + "/")) {
-                    // Reached resume point - start counting from here
-                    inSkipMode = false;
-                    log.info("[{}] Reached resume point: {} - starting chunk counting", name, resumePath);
-                    
-                    // Reset stats to start counting from resume point
-                    indexStats.reset();
-                }
+            String currentPath = pathSource.getPath();
+            
+            // Skip counting if this path is already indexed in PathTree
+            // This is the primary skip mechanism for resumable indexing
+            if (pathTree != null && pathTree.isIndexed(currentPath)) {
+                // Path already indexed - skip counting
+                log.trace("[{}] Skipping already indexed path: {}", name, currentPath);
+                return;
             }
             
-            // Increment traversal count ONLY when NOT in skip mode (i.e., after reaching resume point)
-            if (!inSkipMode) {
-                long nodesRead = indexStats.incTraversal();
+            // Count this node as traversed (new node to index)
+            long nodesRead = indexStats.incTraversal();
+            
+            // Check if chunk limit reached
+            if (updateLimit > 0 && !chunkLimitReached && nodesRead >= updateLimit) {
+                // Set chunk limit flags
+                chunkLimitReached = true;
+                chunkLastIndexedPath = currentPath;
                 
-                // Check if chunk limit reached
-                if (updateLimit > 0 && !chunkLimitReached && nodesRead >= updateLimit) {
-                    // Set chunk limit flags
-                    chunkLimitReached = true;
-                    chunkLastIndexedPath = pathSource.getPath();
-                    
-                    log.info("[{}] Chunk limit reached at path: {} (processed {} nodes)", 
-                        name, chunkLastIndexedPath, nodesRead);
-                    
-                    // Throw CHUNK_COMPLETE to stop EditorDiff and trigger commit
-                    throw CHUNK_COMPLETE;
-                }
+                log.info("[{}] Chunk limit reached at path: {} (processed {} NEW nodes)", 
+                    name, chunkLastIndexedPath, nodesRead);
+                
+                // Throw CHUNK_COMPLETE to stop EditorDiff and trigger commit
+                throw CHUNK_COMPLETE;
+            }
 
-                if (nodesRead % LEASE_CHECK_INTERVAL == 0 && isLeaseCheckEnabled(leaseTimeOut)) {
-                    long now = getTime();
-                    if (now + leaseTimeOut > lease) {
-                        long newLease = now + 2 * leaseTimeOut;
-                        NodeBuilder builder = store.getRoot().builder();
-                        builder.child(ASYNC).setProperty(leaseName, newLease);
-                        mergeWithConcurrencyCheck(store, validatorProviders, builder, checkpoint, lease, name);
-                        lease = newLease;
-                    }
+            if (nodesRead % LEASE_CHECK_INTERVAL == 0 && isLeaseCheckEnabled(leaseTimeOut)) {
+                long now = getTime();
+                if (now + leaseTimeOut > lease) {
+                    long newLease = now + 2 * leaseTimeOut;
+                    NodeBuilder builder = store.getRoot().builder();
+                    builder.child(ASYNC).setProperty(leaseName, newLease);
+                    mergeWithConcurrencyCheck(store, validatorProviders, builder, checkpoint, lease, name);
+                    lease = newLease;
                 }
             }
         }
@@ -989,15 +997,17 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         // Prepare callback - resets counters
         callback.prepare(afterCheckpoint);
         
-        // IMPORTANT: Chunk limits are DISABLED for now
-        // TODO: Implement proper skip logic that handles non-deterministic traversal order
+        // Chunk-based resumable indexing using PathTree
         boolean isInitialIndex = before == MISSING_NODE;
-        boolean chunkedMode = false; // Disabled for now
+        boolean chunkedMode = configuredChunkSize > 0 && !isInitialIndex;
         
-        // Always disable chunk limits until proper skip implementation is done
-        callback.setUpdateLimit(-1);
-        if (configuredChunkSize > 0) {
-            log.info("[{}] Chunk limits disabled - full indexing will complete in one run", name);
+        if (chunkedMode) {
+            callback.setUpdateLimit((int) configuredChunkSize);
+            log.info("[{}] Chunk-based indexing enabled - chunkSize: {}", name, configuredChunkSize);
+        } else if (isInitialIndex) {
+            // Disable chunk limits during initial index - let it complete fully
+            callback.setUpdateLimit(-1);
+            log.info("[{}] Initial index - chunk limits disabled until complete", name);
         }
 
         // Check for index tasks split requests
@@ -1034,15 +1044,17 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 log.debug("[{}] Starting fresh run with new PathTree", name);
             }
             
-            // Create ResumeContext
+            // Create ResumeContext with PathTree
             int chunkLimit = chunkedMode ? (int) configuredChunkSize : 0;
             ResumeContext resumeContext;
             if (resumeFromPath != null && !"/".equals(resumeFromPath)) {
                 resumeContext = ResumeContext.createForResume(resumeFromPath, pathTree, chunkLimit);
-                log.info("[{}] Created resume context from path: {}", name, resumeFromPath);
+                log.info("[{}] Created resume context from path: {} (PathTree has {} indexed nodes)", 
+                    name, resumeFromPath, pathTree.getIndexedNodes());
             } else {
-                resumeContext = ResumeContext.createForFirstRun(chunkLimit);
-                log.debug("[{}] Created first-run resume context", name);
+                // For first run or non-resume, still use the PathTree to track what we index
+                resumeContext = new ResumeContext(null, pathTree, chunkLimit);
+                log.debug("[{}] Created first-run resume context with PathTree", name);
             }
             
             // Create IndexUpdate with ResumeContext
@@ -1050,15 +1062,19 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                     .withMissingProviderStrategy(missingStrategy);
             configureRateEstimator(indexUpdate);
             
-            // Set callback state for compatibility
+            // Pass PathTree to callback for skip counting
+            callback.setPathTree(pathTree);
+            
+            // Set callback state for compatibility (deprecated - use PathTree instead)
             if (resumeFromPath != null && !"/".equals(resumeFromPath)) {
                 callback.setSkipMode(true);
                 callback.setResumePath(resumeFromPath);
-                log.info("[{}] Resuming from path: {} - will skip indexing until reached", name, resumeFromPath);
+                log.info("[{}] Resuming from path: {} with PathTree ({} indexed nodes)", 
+                    name, resumeFromPath, pathTree.getIndexedNodes());
             } else {
                 callback.setSkipMode(false);
                 callback.setResumePath(null);
-                log.debug("[{}] Starting from root", name);
+                log.debug("[{}] Starting from root with fresh PathTree", name);
             }
             
             // Create editor
