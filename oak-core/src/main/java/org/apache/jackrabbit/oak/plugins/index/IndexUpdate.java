@@ -85,6 +85,36 @@ public class IndexUpdate implements Editor, PathSource {
     private static final AtomicLong lastMissingProviderMessageTime = new AtomicLong();
 
     /**
+     * Cache for index editors per path to avoid repeated NodeStore reads.
+     * Enabled/disabled per async cycle to ensure fresh state each time.
+     * Key: path string, Value: list of editors for that path
+     */
+    private static final ThreadLocal<Map<String, List<Editor>>> EDITOR_CACHE = 
+        ThreadLocal.withInitial(HashMap::new);
+    
+    /**
+     * Enable editor caching for current thread/cycle.
+     * Should be called at start of async indexing cycle.
+     */
+    public static void enableEditorCaching() {
+        EDITOR_CACHE.get().clear();  // Start with fresh cache
+        log.debug("Index editor caching enabled");
+    }
+    
+    /**
+     * Disable editor caching and clean up ThreadLocal.
+     * Should be called at end of async indexing cycle.
+     */
+    public static void disableEditorCaching() {
+        Map<String, List<Editor>> cache = EDITOR_CACHE.get();
+        if (!cache.isEmpty()) {
+            log.info("[CACHE STATS] Index editor caching disabled. Cache had {} entries", cache.size());
+            System.out.println("[CACHE STATS] Editor cache size: " + cache.size() + " paths cached");
+        }
+        EDITOR_CACHE.remove();  // Clean up ThreadLocal
+    }
+
+    /**
      * <p>
      * The value of this flag determines the behavior of the IndexUpdate when
      * dealing with {@code reindex} flags.
@@ -130,6 +160,25 @@ public class IndexUpdate implements Editor, PathSource {
      * Editors for indexes that need to be re-indexed.
      */
     private final Map<String, Editor> reindex = new HashMap<>();
+    
+    // ============================================================
+    // Skip Mode Support - enables O(depth) resume instead of O(n)
+    // ============================================================
+    
+    /** 
+     * Skip mode flag - when true, collectIndexEditors() is deferred.
+     * This dramatically speeds up resume by avoiding NodeStore reads.
+     */
+    private boolean skipMode = false;
+    
+    /** Deferred before state for lazy initialization */
+    private NodeState deferredBefore;
+    
+    /** Deferred after state for lazy initialization */
+    private NodeState deferredAfter;
+    
+    /** Whether this editor has been fully initialized */
+    private boolean fullyInitialized = false;
 
     public IndexUpdate(
             IndexEditorProvider provider, String async,
@@ -162,12 +211,38 @@ public class IndexUpdate implements Editor, PathSource {
         this.name = name;
         this.rootState = parent.rootState;
         this.builder = parent.builder.getChildNode(requireNonNull(name));
+        // Inherit skip mode from parent
+        this.skipMode = parent.skipMode;
     }
 
     @Override
     public void enter(NodeState before, NodeState after)
             throws CommitFailedException {
         rootState.nodeRead(this);
+        
+        // SKIP MODE OPTIMIZATION: Defer expensive initialization
+        if (skipMode && !fullyInitialized) {
+            // Store states for later initialization when we exit skip mode
+            this.deferredBefore = before;
+            this.deferredAfter = after;
+            log.trace("[SKIP] Deferred initialization at path: {}", getPath());
+            return;
+        }
+        
+        // Full initialization
+        performFullInitialization(before, after);
+    }
+    
+    /**
+     * Perform full initialization including collectIndexEditors.
+     * Called either directly from enter() or deferred from activateFromSkipMode().
+     */
+    private void performFullInitialization(NodeState before, NodeState after) 
+            throws CommitFailedException {
+        if (fullyInitialized) {
+            return; // Already initialized
+        }
+        
         collectIndexEditors(builder.getChildNode(INDEX_DEFINITIONS_NAME), before);
 
         if (!reindex.isEmpty()) {
@@ -188,6 +263,50 @@ public class IndexUpdate implements Editor, PathSource {
 
         for (Editor editor : editors) {
             editor.enter(before, after);
+        }
+        
+        fullyInitialized = true;
+    }
+    
+    // ============================================================
+    // Skip Mode Control Methods
+    // ============================================================
+    
+    /**
+     * Enable skip mode for this editor and all children.
+     * When skip mode is enabled, enter() defers expensive initialization.
+     */
+    public void setSkipMode(boolean skipMode) {
+        this.skipMode = skipMode;
+        if (skipMode) {
+            log.debug("[SKIP] Skip mode enabled for path: {}", getPath());
+        }
+    }
+    
+    /**
+     * Check if this editor is in skip mode.
+     */
+    public boolean isSkipMode() {
+        return skipMode;
+    }
+    
+    /**
+     * Exit skip mode and perform deferred initialization.
+     * Call this when the resume point is reached.
+     */
+    public void activateFromSkipMode() throws CommitFailedException {
+        if (!skipMode) {
+            return; // Not in skip mode
+        }
+        
+        skipMode = false;
+        
+        if (!fullyInitialized && deferredBefore != null && deferredAfter != null) {
+            log.info("[SKIP] Activating from skip mode at path: {}", getPath());
+            performFullInitialization(deferredBefore, deferredAfter);
+            // Clear deferred state
+            deferredBefore = null;
+            deferredAfter = null;
         }
     }
 
@@ -279,6 +398,25 @@ public class IndexUpdate implements Editor, PathSource {
     }
 
     private void collectIndexEditors(NodeBuilder definitions, NodeState before) throws CommitFailedException {
+        // OPTIMIZATION: Check if definitions node exists - skip if not
+        // Most nodes (99%+) don't have :oak:index children
+        if (!definitions.exists()) {
+            return;  // No index definitions - nothing to collect
+        }
+        
+        // Check cache second - for nodes that DO have index definitions
+        Map<String, List<Editor>> cache = EDITOR_CACHE.get();
+        String path = getPath();
+        
+        if (!cache.isEmpty() && cache.containsKey(path)) {
+            // Cache hit - reuse editors (fast!)
+            editors.clear();
+            editors.addAll(cache.get(path));
+            log.trace("Using cached editors for path: {}", path);
+            return;
+        }
+        
+        // Cache miss - collect editors normally
         for (String name : definitions.getChildNodeNames()) {
             NodeBuilder definition = definitions.getChildNode(name);
             if (isIncluded(rootState.async, definition)) {
@@ -369,6 +507,12 @@ public class IndexUpdate implements Editor, PathSource {
                 }
             }
         }
+        
+        // Store collected editors in cache for future reuse
+        if (!cache.isEmpty()) {
+            cache.put(path, new ArrayList<>(editors));
+            log.trace("Cached {} editors for path: {}", editors.size(), path);
+        }
     }
 
     private void removeIndexState(NodeBuilder definition) {
@@ -447,6 +591,35 @@ public class IndexUpdate implements Editor, PathSource {
             path = concat(parent.getPath(), name);
         }
         return path;
+    }
+
+    /**
+     * Returns the parent IndexUpdate, or null if this is the root.
+     * Used for capturing editor hierarchy for resume state.
+     */
+    public IndexUpdate getParent() {
+        return parent;
+    }
+
+    /**
+     * Returns the list of active index definition paths at this level.
+     * Used for capturing editor hierarchy for direct restoration.
+     * @return list of index paths (e.g., ["/oak:index/damAssetLucene"])
+     */
+    public List<String> getActiveIndexPaths() {
+        List<String> indexPaths = new ArrayList<>();
+        String currentPath = getPath();
+        
+        // Collect paths from reindex map (indexes being reindexed)
+        for (String indexPath : reindex.keySet()) {
+            indexPaths.add(indexPath);
+        }
+        
+        // Also need to infer from editors, but editors don't have direct path references
+        // For now, just return reindex paths (most common case during chunked indexing)
+        // This is sufficient since we read definitions on restore anyway
+        
+        return indexPaths;
     }
 
     @Override

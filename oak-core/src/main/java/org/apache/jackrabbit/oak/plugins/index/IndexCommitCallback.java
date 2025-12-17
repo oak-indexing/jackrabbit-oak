@@ -32,6 +32,7 @@ public interface IndexCommitCallback {
     enum IndexProgress {
         COMMIT_SUCCEDED,
         COMMIT_FAILED,
-        ABORT_REQUESTED
+        ABORT_REQUESTED,
+        COMMIT_PROGRESS  // For flushing during chunked commits
     }
 }
