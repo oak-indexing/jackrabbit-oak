@@ -45,10 +45,10 @@ echo ""
 
 # Test Scenarios: "STORE NODES CHUNK_SIZE"
 SCENARIOS=(
-    # Quick test - 10K nodes, 1K per chunk = 10 runs
+    # Standard test - 10K nodes, 1K per chunk (working configuration)
     "SEGMENT 10000 1000"
     
-    # Larger test - uncomment to run
+    # Larger tests - uncomment to run
     # "SEGMENT 50000 5000"
     # "SEGMENT 100000 10000"
 )
@@ -119,6 +119,9 @@ print_stats_from_file() {
     local THROUGHPUT=""
     local RUN_COUNT=""
     local QUERY_APPROVED=""
+    local MAX_INCREMENTAL_RESULTS=""
+    local TOTAL_CHUNKS=""
+    local CHUNKS_WITH_RESULTS=""
     
     # Parse metrics from test output
     while IFS= read -r line; do
@@ -126,6 +129,12 @@ print_stats_from_file() {
         if [[ $line == "Throughput:"* ]]; then THROUGHPUT=$(echo $line | awk '{print $2}'); fi
         if [[ $line == "Run Count:"* ]]; then RUN_COUNT=$(echo $line | awk '{print $3}'); fi
         if [[ $line == "Query Approved (index):"* ]]; then QUERY_APPROVED=$(echo $line | awk '{print $4}'); fi
+        if [[ $line == "Max results seen in incremental queries:"* ]]; then MAX_INCREMENTAL_RESULTS=$(echo $line | awk '{print $7}'); fi
+        if [[ $line == "INCREMENTAL_SUMMARY:"* ]]; then
+            MAX_INCREMENTAL_RESULTS=$(echo $line | sed 's/.*maxResults=\([0-9]*\).*/\1/')
+            TOTAL_CHUNKS=$(echo $line | sed 's/.*totalChunks=\([0-9]*\).*/\1/')
+            CHUNKS_WITH_RESULTS=$(echo $line | sed 's/.*chunksWithResults=\([0-9]*\).*/\1/')
+        fi
     done < "$FILE"
     
     # Convert time from ms to seconds
@@ -138,6 +147,9 @@ print_stats_from_file() {
     [ -z "$THROUGHPUT" ] && THROUGHPUT="N/A"
     [ -z "$RUN_COUNT" ] && RUN_COUNT="N/A"
     [ -z "$QUERY_APPROVED" ] && QUERY_APPROVED="N/A"
+    [ -z "$MAX_INCREMENTAL_RESULTS" ] && MAX_INCREMENTAL_RESULTS="0"
+    [ -z "$TOTAL_CHUNKS" ] && TOTAL_CHUNKS="N/A"
+    [ -z "$CHUNKS_WITH_RESULTS" ] && CHUNKS_WITH_RESULTS="N/A"
     
     # Warn if critical metrics are missing
     if [ "$TIME_SECONDS" = "N/A" ] || [ "$THROUGHPUT" = "N/A" ]; then
@@ -148,6 +160,30 @@ print_stats_from_file() {
     # Print formatted output
     printf "%-8s | %-8s | %-8s | %9s | %10s | %10s | %-5s\n" \
            "$STORE" "$NODES" "$CHUNK" "${TIME_SECONDS}s" "$THROUGHPUT" "$QUERY_APPROVED" "$RUN_COUNT" | tee -a "$SUMMARY_FILE"
+    
+    # Print incremental searchability results
+    if [ "$MAX_INCREMENTAL_RESULTS" != "N/A" ] && [ "$MAX_INCREMENTAL_RESULTS" -gt 0 ] 2>/dev/null; then
+        echo "  ✓ Incremental Searchability: WORKING"
+        echo "    Max results during indexing: $MAX_INCREMENTAL_RESULTS / $QUERY_APPROVED"
+        echo "    Chunks with search results: $CHUNKS_WITH_RESULTS / $TOTAL_CHUNKS"
+    elif [ "$MAX_INCREMENTAL_RESULTS" = "0" ]; then
+        echo "  ⚠ Incremental Searchability: NOT WORKING - Index only searchable after final commit"
+    fi
+    
+    # Print per-chunk results if available
+    if grep -q "CHUNK_RESULT:" "$FILE" 2>/dev/null; then
+        echo ""
+        echo "  Per-Chunk Search Results:"
+        echo "  -------------------------"
+        grep "CHUNK_RESULT:" "$FILE" | while read line; do
+            local cycle=$(echo $line | sed 's/.*cycle=\([0-9]*\).*/\1/')
+            local results=$(echo $line | sed 's/.*results=\([0-9-]*\).*/\1/')
+            local ctime=$(echo $line | sed 's/.*time=\([0-9]*\).*/\1/')
+            local path=$(echo $line | sed 's/.*path=\(.*\)/\1/')
+            printf "    Chunk %2d: %4d results (%3d ms) - %s\n" "$cycle" "$results" "$ctime" "$path"
+        done
+    fi
+    echo ""
 }
 
 # Print header
@@ -161,7 +197,7 @@ printf "%-8s | %-8s | %-8s | %9s | %10s | %10s | %-5s\n" \
 echo "---------|----------|----------|-----------|------------|------------|-------" | tee -a "$SUMMARY_FILE"
 
 # Run scenarios
-for scenario in "${SCENARIOS[@]}"; do
+    for scenario in "${SCENARIOS[@]}"; do
     read -r STORE NODES CHUNK <<< "$scenario"
     run_single_scenario "$STORE" "$NODES" "$CHUNK"
 done
