@@ -269,24 +269,32 @@ public class IndexUpdate implements Editor, PathSource {
         if (ctx != null) {
             String currentPath = getPath();
             
-            // Check if fully processed - skip ALL processing including nodeRead()
+            // IMPORTANT: Only skip nodes that are FULLY PROCESSED (leaveCompleted=true)
+            // This ensures:
+            // 1. Properties were processed (they happen after enter, before leave)
+            // 2. All child nodes were traversed
+            // 3. The Lucene document was actually created
+            //
+            // We do NOT skip on just isIndexed() anymore because:
+            // - enterCompleted alone doesn't guarantee properties were processed
+            // - Nodes interrupted mid-processing need to be re-processed
+            
             if (ctx.getPathTree().isFullyProcessed(currentPath)) {
                 // Node fully processed in previous run - skip completely
                 skipFullCount.incrementAndGet();
-                log.trace("[SKIP-FULL] Path {} fully processed (enter+leave), skipping nodeRead()", currentPath);
+                log.trace("[SKIP-FULL] Path {} fully processed (enter+leave), skipping entirely", currentPath);
                 this.skipMode = true;
                 return;
             }
             
-            // Check if only indexed (enter done, leave pending from crash?)
-            // Still need to call nodeRead for counting, but can skip editor init
-            if (ctx.getPathTree().isIndexed(currentPath)) {
-                // Node indexed but not fully processed - call nodeRead but skip editors
+            // Check if only enterCompleted (enter done but leave never called - interrupted?)
+            // These nodes need to be re-processed because their properties may not have been indexed
+            if (ctx.getPathTree().isEnterCompleted(currentPath)) {
+                // Enter was called but leave wasn't - this node was interrupted mid-processing
+                // We still need to process it, but log for debugging
                 skipIndexedCount.incrementAndGet();
-                rootState.nodeRead(this);
-                log.trace("[SKIP-INDEXED] Path {} indexed but not fully processed, skipping editors", currentPath);
-                this.skipMode = true;
-                return;
+                log.trace("[RE-PROCESS] Path {} has enterCompleted but not leaveCompleted, re-processing", currentPath);
+                // DON'T set skipMode - let this node be fully processed
             }
         }
         
@@ -301,15 +309,15 @@ public class IndexUpdate implements Editor, PathSource {
         // Full initialization - needed for editors to be set up
         performFullInitialization(before, after);
         
-        // Mark enter completed in PathTree AND mark as indexed
-        // CRITICAL: We mark as indexed here because leave() may never be called
-        // if CHUNK_COMPLETE exception is thrown during traversal
+        // Mark enter completed in PathTree
+        // NOTE: We do NOT mark as indexed here anymore because:
+        // 1. "indexed" should mean properties have been processed
+        // 2. Properties are processed AFTER enter() by EditorDiff
+        // 3. Marking as indexed here caused nodes to be skipped before their properties were indexed
+        // 4. The node will be marked as indexed in leave() via markLeaveCompleted()
         if (ctx != null) {
             PathTree pathTree = ctx.getPathTree();
             pathTree.markEnterCompleted(getPath());
-            // Also mark as indexed here - leave() may not be called due to chunking
-            // Use the PathTree method to properly increment the counter
-            pathTree.markIndexed(getPath());
         }
     }
     

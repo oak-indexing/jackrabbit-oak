@@ -532,18 +532,18 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             String currentPath = pathSource.getPath();
             
             // OPTIMIZATION: Skip counting if this path is FULLY PROCESSED (enter+leave done)
-            // This means we can completely skip this node without any NodeStore access
+            // This means:
+            // 1. enter() was called (markEnterCompleted)
+            // 2. All properties were processed (happens between enter and leave)
+            // 3. All children were traversed  
+            // 4. leave() was called (markLeaveCompleted)
+            // 5. The node's content is definitely in Lucene
+            //
+            // We do NOT skip on just isIndexed() anymore because nodes with
+            // enterCompleted but not leaveCompleted need to be re-processed
             if (pathTree != null && pathTree.isFullyProcessed(currentPath)) {
                 // Path fully processed - skip entirely
                 log.trace("[{}] Skipping fully processed path: {}", name, currentPath);
-                return;
-            }
-            
-            // Skip counting if this path is already indexed in PathTree
-            // This is the primary skip mechanism for resumable indexing
-            if (pathTree != null && pathTree.isIndexed(currentPath)) {
-                // Path already indexed - skip counting
-                log.trace("[{}] Skipping already indexed path: {}", name, currentPath);
                 return;
             }
             
