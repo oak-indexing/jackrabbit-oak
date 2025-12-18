@@ -68,13 +68,17 @@ echo ""
 # PT_TRAVERSAL: "false" (standard EditorDiff) or "true" (use PathTree for traversal)
 SCENARIOS=(
     # Normal mode - traditional indexing (no chunking, no resume)
-    "SEGMENT 10000 0 0 false false"
+    # Format: STORE NODES CHUNK CHUNK_TIME RESUME PATHTREE_TRAVERSAL SLIM_FORMAT
+    "SEGMENT 10000 0 0 false false false"
     
-    # Resume mode - chunk-based (node count) with PathTree traversal
-    "SEGMENT 10000 2000 0 true true"
+    # Resume mode - FULL PathTree format (larger storage, works reliably)
+    "SEGMENT 10000 2000 0 true true false"
+    
+    # Resume mode - SLIM/Frontier PathTree format (minimal storage, optimized!)
+    "SEGMENT 10000 2000 0 true true true"
 
     # Example: 10K nodes, 2000 node chunks OR 5000ms chunks (whichever first)
-# ./compare_resume_perf.sh custom SEGMENT 10000 2000 5000 true true
+# ./compare_resume_perf.sh custom SEGMENT 10000 2000 5000 true true true
 
 # Example: Time-only chunking (5 second chunks)
 # ./compare_resume_perf.sh custom SEGMENT 10000 0 5000 true true
@@ -530,10 +534,11 @@ print_stats_from_file() {
 if [ "$1" = "custom" ]; then
     # Custom single scenario mode
     if [ $# -lt 7 ]; then
-        echo "Usage: $0 custom STORE NODES CHUNK_SIZE CHUNK_TIME_MS RESUME PT_TRAVERSAL"
+        echo "Usage: $0 custom STORE NODES CHUNK_SIZE CHUNK_TIME_MS RESUME PT_TRAVERSAL [SLIM_FORMAT]"
         echo ""
-        echo "Example: $0 custom SEGMENT 10000 2000 5000 true true"
+        echo "Example: $0 custom SEGMENT 10000 2000 5000 true true true"
         echo "         (2000 nodes OR 5 seconds per chunk, whichever first)"
+        echo "         SLIM_FORMAT=true uses frontier-based PathTree (minimal storage)"
         exit 1
     fi
     
@@ -543,6 +548,7 @@ if [ "$1" = "custom" ]; then
     CHUNK_TIME="$5"
     RESUME="$6"
     PATHTREE_TRAVERSAL="$7"
+    SLIM_FORMAT="${8:-false}"
     
     echo ""
     echo "================================================================================"
@@ -550,7 +556,7 @@ if [ "$1" = "custom" ]; then
     echo "================================================================================"
     echo ""
     
-    run_single_scenario "$STORE" "$NODES" "$CHUNK" "$CHUNK_TIME" "$RESUME" "$PATHTREE_TRAVERSAL"
+    run_single_scenario "$STORE" "$NODES" "$CHUNK" "$CHUNK_TIME" "$RESUME" "$PATHTREE_TRAVERSAL" "$SLIM_FORMAT"
     
     echo ""
     echo "================================================================================"
@@ -570,8 +576,8 @@ echo "---------|----------|----------|----------|----------|--------|-----------
 
 # Run scenarios
 for scenario in "${SCENARIOS[@]}"; do
-    read -r STORE NODES CHUNK CHUNK_TIME RESUME PATHTREE_TRAVERSAL <<< "$scenario"
-    run_single_scenario "$STORE" "$NODES" "$CHUNK" "$CHUNK_TIME" "$RESUME" "$PATHTREE_TRAVERSAL"
+    read -r STORE NODES CHUNK CHUNK_TIME RESUME PATHTREE_TRAVERSAL SLIM_FORMAT <<< "$scenario"
+    run_single_scenario "$STORE" "$NODES" "$CHUNK" "$CHUNK_TIME" "$RESUME" "$PATHTREE_TRAVERSAL" "$SLIM_FORMAT"
 done
 
 echo ""

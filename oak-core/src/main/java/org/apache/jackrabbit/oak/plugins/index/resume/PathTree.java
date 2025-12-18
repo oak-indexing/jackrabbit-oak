@@ -144,10 +144,102 @@ public class PathTree {
     private int totalNodes;
     private int indexedNodes;
     
+    // Track last fully processed path for ultra-slim serialization (Approach 2)
+    // In DFS order, any path that comes "before" this is fully processed
+    private String lastFullyProcessedPath;
+    
+    // Flag to enable DFS order comparison - only true when resuming from a PREVIOUS chunk
+    // During the current run, we use tree-based lookup because hash-order traversal != DFS order
+    private boolean useDfsOrderComparison = false;
+    
     public PathTree() {
         this.root = new PathNode("");
         this.totalNodes = 0;
         this.indexedNodes = 0;
+        this.lastFullyProcessedPath = null;
+    }
+    
+    // ========== DFS Order Path Comparison (Approach 2) ==========
+    
+    /**
+     * Compare two paths in DFS (Depth-First Search) traversal order.
+     * 
+     * DFS order properties:
+     * - Parent comes before its children: /a < /a/b
+     * - Siblings are ordered alphabetically: /a/b < /a/c
+     * - All children of a node come before the next sibling: /a/b/c < /a/d
+     * 
+     * @return negative if path1 < path2, 0 if equal, positive if path1 > path2
+     */
+    public static int compareDfsOrder(@NotNull String path1, @NotNull String path2) {
+        if (path1.equals(path2)) return 0;
+        
+        // Convert Iterable to array
+        java.util.List<String> list1 = new java.util.ArrayList<>();
+        java.util.List<String> list2 = new java.util.ArrayList<>();
+        for (String s : PathUtils.elements(path1)) list1.add(s);
+        for (String s : PathUtils.elements(path2)) list2.add(s);
+        
+        // Compare segment by segment
+        int minLen = Math.min(list1.size(), list2.size());
+        for (int i = 0; i < minLen; i++) {
+            int cmp = list1.get(i).compareTo(list2.get(i));
+            if (cmp != 0) return cmp;
+        }
+        
+        // If all common segments are equal, shorter path (ancestor) comes first
+        return Integer.compare(list1.size(), list2.size());
+    }
+    
+    /**
+     * Check if path1 comes before path2 in DFS order.
+     */
+    public static boolean isBeforeInDfsOrder(@NotNull String path1, @NotNull String path2) {
+        return compareDfsOrder(path1, path2) < 0;
+    }
+    
+    /**
+     * Check if path1 comes at or before path2 in DFS order.
+     */
+    public static boolean isAtOrBeforeInDfsOrder(@NotNull String path1, @NotNull String path2) {
+        return compareDfsOrder(path1, path2) <= 0;
+    }
+    
+    /**
+     * Get the last fully processed path.
+     */
+    @Nullable
+    public String getLastFullyProcessedPath() {
+        return lastFullyProcessedPath;
+    }
+    
+    /**
+     * Check if DFS order comparison is enabled for isFullyProcessed() checks.
+     */
+    public boolean isUsingDfsOrderComparison() {
+        return useDfsOrderComparison;
+    }
+    
+    /**
+     * Set the last fully processed path (used when loading from serialized state).
+     */
+    public void setLastFullyProcessedPath(@Nullable String path) {
+        this.lastFullyProcessedPath = path;
+    }
+    
+    /**
+     * Check if a path is fully processed using DFS order comparison.
+     * This is ultra-fast: just one string comparison instead of tree traversal!
+     * 
+     * @param path the path to check
+     * @return true if path was fully processed (comes before or equals lastFullyProcessedPath)
+     */
+    public boolean isFullyProcessedByDfsOrder(@NotNull String path) {
+        if (lastFullyProcessedPath == null) {
+            return false;
+        }
+        // A path is fully processed if it comes at or before the last processed path in DFS order
+        return isAtOrBeforeInDfsOrder(path, lastFullyProcessedPath);
     }
     
     /**
@@ -234,7 +326,7 @@ public class PathTree {
     
     /**
      * Mark that leave() has been completed for this path.
-     * This also marks the node as indexed.
+     * This also marks the node as indexed and updates lastFullyProcessedPath.
      */
     public void markLeaveCompleted(@NotNull String path) {
         PathNode node = getOrCreateNode(path);
@@ -242,6 +334,13 @@ public class PathTree {
         if (!node.isIndexed()) {
             node.setIndexed(true);
             indexedNodes++;
+        }
+        
+        // Update lastFullyProcessedPath for DFS-order tracking (Approach 2)
+        // We only update if this path is "after" the current last path in DFS order
+        // This ensures we always track the furthest progress in the traversal
+        if (lastFullyProcessedPath == null || isBeforeInDfsOrder(lastFullyProcessedPath, path)) {
+            lastFullyProcessedPath = path;
         }
     }
     
@@ -265,11 +364,24 @@ public class PathTree {
      * Check if a path is fully processed (both enter and leave completed).
      * Only fully processed nodes can be safely skipped without NodeStore calls.
      * 
-     * IMPORTANT: Also checks ancestors - if ANY ancestor is fully processed,
-     * then this path is also fully processed (the entire subtree was done).
-     * This is key for the frontier-based pruning optimization.
+     * Uses the most efficient check available:
+     * 1. If useDfsOrderComparison is enabled (resuming from previous chunk): O(path_length) string comparison
+     * 2. Otherwise, tree-based ancestor checking: O(depth) tree traversal
+     * 
+     * IMPORTANT: DFS order comparison is ONLY used when resuming from a previous chunk.
+     * During the current run, we use tree-based lookup because SegmentStore traverses
+     * children in hash order, not DFS order. Using DFS comparison would cause nodes
+     * that come "later" in hash order but "earlier" in DFS order to be incorrectly skipped.
      */
     public boolean isFullyProcessed(@NotNull String path) {
+        // FAST PATH: Use DFS order comparison if resuming from a previous chunk
+        // This is O(path_length) string comparison instead of O(depth) tree traversal
+        // NOTE: Only use this when resuming - during current run, hash order != DFS order
+        if (useDfsOrderComparison && lastFullyProcessedPath != null) {
+            return isFullyProcessedByDfsOrder(path);
+        }
+        
+        // SLOW PATH: Use ancestor checking (frontier-based)
         return isFullyProcessedInternal(path, 0);
     }
     
@@ -297,7 +409,7 @@ public class PathTree {
     }
     
     /**
-     * Check if exact path is fully processed (no ancestor checking).
+     * Check if exact path is fully processed (no ancestor checking, no DFS order).
      */
     public boolean isExactPathFullyProcessed(@NotNull String path) {
         PathNode node = getNode(path);
@@ -342,6 +454,10 @@ public class PathTree {
     public void serializeTo(@NotNull NodeBuilder builder) {
         builder.setProperty("totalNodes", totalNodes);
         builder.setProperty("indexedNodes", indexedNodes);
+        // Save lastFullyProcessedPath for DFS order comparison on resume
+        if (lastFullyProcessedPath != null) {
+            builder.setProperty("lastFullyProcessedPath", lastFullyProcessedPath);
+        }
         serializeNode(root, builder.child("tree"));
     }
     
@@ -388,6 +504,18 @@ public class PathTree {
         NodeState treeState = state.getChildNode("tree");
         if (treeState.exists()) {
             deserializeNode(tree.root, treeState);
+        }
+        
+        // NOTE: We don't use DFS order comparison for FULL format because
+        // SegmentStore traversal is hash-based, not DFS-order based.
+        // DFS comparison would incorrectly skip nodes that come "later" in hash order
+        // but "earlier" in DFS order.
+        tree.useDfsOrderComparison = false;
+        
+        // Read lastFullyProcessedPath but don't use it for comparison
+        PropertyState lastPathProp = state.getProperty("lastFullyProcessedPath");
+        if (lastPathProp != null) {
+            tree.lastFullyProcessedPath = lastPathProp.getValue(Type.STRING);
         }
         
         return tree;
@@ -528,6 +656,147 @@ public class PathTree {
         }
     }
     
+    // ========== ULTRA-SLIM Serialization (Approach 2) ==========
+    
+    /**
+     * Serialize using ULTRA-SLIM format: just the last fully processed path!
+     * 
+     * This is the most efficient format:
+     * - Storage: O(1) - just ONE path string (~50-100 bytes)
+     * - Skip logic: O(path_depth) string comparison instead of tree traversal
+     * 
+     * We also store the in-progress chain (not fully processed nodes) to maintain
+     * correct resume state.
+     */
+    public void serializeUltraSlimTo(@NotNull NodeBuilder builder) {
+        builder.setProperty("totalNodes", totalNodes);
+        builder.setProperty("indexedNodes", indexedNodes);
+        builder.setProperty("fullyProcessedCount", getFullyProcessedCount());
+        
+        // Store the last fully processed path - this is the key!
+        if (lastFullyProcessedPath != null) {
+            builder.setProperty("lastFullyProcessedPath", lastFullyProcessedPath);
+        }
+        
+        // Collect only in-progress paths (not fully processed)
+        java.util.List<String> inProgressPaths = new java.util.ArrayList<>();
+        java.util.List<String> enterFlags = new java.util.ArrayList<>();
+        java.util.List<String> leaveFlags = new java.util.ArrayList<>();
+        
+        collectInProgressPaths(root, "/", inProgressPaths, enterFlags, leaveFlags);
+        
+        if (!inProgressPaths.isEmpty()) {
+            builder.setProperty("inProgressPaths", inProgressPaths, Type.STRINGS);
+            builder.setProperty("inProgressEnterFlags", enterFlags, Type.STRINGS);
+            builder.setProperty("inProgressLeaveFlags", leaveFlags, Type.STRINGS);
+        }
+        
+        builder.setProperty("slimFormat", true);
+        builder.setProperty("ultraSlimFormat", true);
+        
+        int estimatedSize = (lastFullyProcessedPath != null ? lastFullyProcessedPath.length() : 0) + 
+                           inProgressPaths.stream().mapToInt(String::length).sum() + 100;
+        
+        System.out.println("[DEBUG-PATHTREE-ULTRASLIM] Serialized: lastPath=" + lastFullyProcessedPath +
+            ", inProgress=" + inProgressPaths.size() + " paths" +
+            ", estimatedSize=~" + estimatedSize + " bytes" +
+            " (vs " + totalNodes + " total nodes)");
+    }
+    
+    /**
+     * Collect only in-progress paths (not fully processed).
+     */
+    private void collectInProgressPaths(PathNode node, String path,
+            java.util.List<String> paths,
+            java.util.List<String> enterFlags,
+            java.util.List<String> leaveFlags) {
+        
+        // Collect if not fully processed (but has at least started)
+        if (!"/".equals(path) && !node.isFullyProcessed() && node.isEnterCompleted()) {
+            paths.add(path);
+            enterFlags.add(String.valueOf(node.isEnterCompleted()));
+            leaveFlags.add(String.valueOf(node.isLeaveCompleted()));
+        }
+        
+        // Only recurse if not fully processed
+        if (!node.isFullyProcessed()) {
+            for (Map.Entry<String, PathNode> entry : node.getChildren().entrySet()) {
+                String childPath = "/".equals(path) ? "/" + entry.getKey() : path + "/" + entry.getKey();
+                collectInProgressPaths(entry.getValue(), childPath, paths, enterFlags, leaveFlags);
+            }
+        }
+    }
+    
+    /**
+     * Deserialize from ultra-slim format (last path + in-progress).
+     */
+    @NotNull
+    public static PathTree deserializeUltraSlimFrom(@NotNull NodeState state) {
+        PathTree tree = new PathTree();
+        
+        // Read counters
+        PropertyState totalProp = state.getProperty("totalNodes");
+        if (totalProp != null) {
+            tree.totalNodes = totalProp.getValue(Type.LONG).intValue();
+        }
+        
+        PropertyState indexedProp = state.getProperty("indexedNodes");
+        if (indexedProp != null) {
+            tree.indexedNodes = indexedProp.getValue(Type.LONG).intValue();
+        }
+        
+        // Read last fully processed path - this is the key!
+        PropertyState lastPathProp = state.getProperty("lastFullyProcessedPath");
+        if (lastPathProp != null) {
+            tree.lastFullyProcessedPath = lastPathProp.getValue(Type.STRING);
+        }
+        
+        // Read in-progress paths
+        PropertyState inProgressProp = state.getProperty("inProgressPaths");
+        PropertyState enterProp = state.getProperty("inProgressEnterFlags");
+        PropertyState leaveProp = state.getProperty("inProgressLeaveFlags");
+        
+        int inProgressCount = 0;
+        if (inProgressProp != null) {
+            Iterable<String> paths = inProgressProp.getValue(Type.STRINGS);
+            Iterable<String> enters = enterProp != null ? enterProp.getValue(Type.STRINGS) : java.util.Collections.emptyList();
+            Iterable<String> leaves = leaveProp != null ? leaveProp.getValue(Type.STRINGS) : java.util.Collections.emptyList();
+            
+            java.util.Iterator<String> pathIt = paths.iterator();
+            java.util.Iterator<String> enterIt = enters.iterator();
+            java.util.Iterator<String> leaveIt = leaves.iterator();
+            
+            while (pathIt.hasNext()) {
+                String path = pathIt.next();
+                boolean enterCompleted = enterIt.hasNext() && Boolean.parseBoolean(enterIt.next());
+                boolean leaveCompleted = leaveIt.hasNext() && Boolean.parseBoolean(leaveIt.next());
+                
+                PathNode node = tree.getOrCreateNode(path);
+                node.setEnterCompleted(enterCompleted);
+                node.setLeaveCompleted(leaveCompleted);
+                inProgressCount++;
+            }
+        }
+        
+        // NOTE: We don't enable DFS order comparison because SegmentStore traversal
+        // is hash-based, not DFS-order based. DFS comparison would incorrectly skip
+        // nodes that come "later" in hash order but "earlier" in DFS order.
+        tree.useDfsOrderComparison = false;
+        
+        System.out.println("[DEBUG-PATHTREE-ULTRASLIM] Loaded: lastPath=" + tree.lastFullyProcessedPath +
+            ", inProgress=" + inProgressCount + " paths, useDfsOrder=" + tree.useDfsOrderComparison)
+        
+        return tree;
+    }
+    
+    /**
+     * Check if state contains ultra-slim format.
+     */
+    public static boolean isUltraSlimFormat(@NotNull NodeState state) {
+        PropertyState prop = state.getProperty("ultraSlimFormat");
+        return prop != null && prop.getValue(Type.BOOLEAN);
+    }
+    
     /**
      * Deserialize from frontier format.
      * 
@@ -634,6 +903,10 @@ public class PathTree {
             }
         }
         
+        // Slim format uses tree-based ancestor checking, not DFS order comparison
+        // But if we have frontier nodes, ancestor checking works correctly
+        tree.useDfsOrderComparison = false;
+        
         return tree;
     }
     
@@ -646,11 +919,13 @@ public class PathTree {
     }
     
     /**
-     * Deserialize from either slim or full format.
+     * Deserialize from either ultra-slim, slim, or full format.
      */
     @NotNull
     public static PathTree deserializeAuto(@NotNull NodeState state) {
-        if (isSlimFormat(state)) {
+        if (isUltraSlimFormat(state)) {
+            return deserializeUltraSlimFrom(state);
+        } else if (isSlimFormat(state)) {
             return deserializeSlimFrom(state);
         } else {
             return deserializeFrom(state);

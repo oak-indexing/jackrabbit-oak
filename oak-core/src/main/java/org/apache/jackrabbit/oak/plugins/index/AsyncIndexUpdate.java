@@ -1063,11 +1063,13 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             ", resumeEnabled=" + resumeEnabled + 
             ", chunkSize=" + configuredChunkSize + 
             ", chunkTimeMs=" + chunkTimeMs +
-            ", isInitialIndex=" + isInitialIndex);
+            ", isInitialIndex=" + isInitialIndex +
+            ", chunkedMode=" + chunkedMode);
         
         if (chunkedMode) {
             callback.setUpdateLimit((int) configuredChunkSize);
             callback.setTimeLimit(chunkTimeMs);
+            System.out.println("[DEBUG-CHUNK] Chunk mode enabled - updateLimit=" + configuredChunkSize + ", timeLimit=" + chunkTimeMs);
             log.info("[{}] Chunk-based indexing enabled - chunkSize: {}, chunkTimeMs: {}", name, configuredChunkSize, chunkTimeMs);
         } else if (isInitialIndex) {
             // Disable chunk limits during initial index - let it complete fully
@@ -1309,26 +1311,34 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 int fullSizeEstimate = currentPathTree.getEstimatedSerializedSize(false);
                 int slimSizeEstimate = currentPathTree.getEstimatedSerializedSize(true);
                 
-                // NOTE: Using FULL format for now because SLIM format breaks the skip optimization
-                // SLIM format: Only stores unprocessed paths (~5 nodes)
-                // FULL format: Stores all nodes (~30K nodes) but enables proper skipping
-                // TODO: Implement hybrid approach that stores enough state for skip optimization
+                // Serialization format options:
+                // ULTRA_SLIM: Just last processed path + in-progress chain (~100 bytes) - uses DFS order comparison
+                // SLIM: Frontier nodes + in-progress chain (~200-500 bytes) - uses ancestor checking
+                // FULL: All nodes (~1.5MB) - uses exact path lookup
                 boolean useSlimFormat = Boolean.getBoolean("oak.async.pathTreeSlimFormat");
+                boolean useUltraSlimFormat = Boolean.getBoolean("oak.async.pathTreeUltraSlimFormat");
                 
                 long serializeStartTime = System.currentTimeMillis();
-                if (useSlimFormat) {
+                String formatUsed;
+                if (useUltraSlimFormat) {
+                    currentPathTree.serializeUltraSlimTo(laneBuilder.child("pathTree"));
+                    formatUsed = "ULTRA_SLIM";
+                } else if (useSlimFormat) {
                     currentPathTree.serializeSlimTo(laneBuilder.child("pathTree"));
+                    formatUsed = "SLIM";
                 } else {
                     currentPathTree.serializeTo(laneBuilder.child("pathTree"));
+                    formatUsed = "FULL";
                 }
                 long serializeTime = System.currentTimeMillis() - serializeStartTime;
                 
                 log.info("[{}] Saving PathTree ({}): {} total nodes, {} fullyProcessed, {} unprocessed (serialize time: {}ms)", 
-                    name, useSlimFormat ? "SLIM" : "FULL", totalNodes, fullyProcessedCount, notFullyProcessedCount, serializeTime);
+                    name, formatUsed, totalNodes, fullyProcessedCount, notFullyProcessedCount, serializeTime);
                 System.out.println("[DEBUG-PATHTREE] Serialize time: " + serializeTime + "ms (format: " + 
-                    (useSlimFormat ? "SLIM" : "FULL") + "), total: " + 
+                    formatUsed + "), total: " + 
                     totalNodes + ", fullyProcessed: " + fullyProcessedCount + 
-                    ", unprocessed: " + notFullyProcessedCount);
+                    ", unprocessed: " + notFullyProcessedCount +
+                    (useUltraSlimFormat ? ", lastPath: " + currentPathTree.getLastFullyProcessedPath() : ""));
                 System.out.println("[DEBUG-PATHTREE-SIZE] Full: ~" + fullSizeEstimate + " bytes, " +
                     "SLIM: ~" + slimSizeEstimate + " bytes (potential savings: " + 
                     (fullSizeEstimate > 0 ? (100 - slimSizeEstimate * 100 / fullSizeEstimate) : 0) + "%)");
