@@ -1292,13 +1292,14 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 // Serialize PathTree for efficient resume
                 PathTree currentPathTree = resumeContext.getPathTree();
                 
-                // Prune fully processed leaf nodes to reduce storage
+                // NOTE: Pruning is DISABLED during chunked indexing because:
+                // 1. Pruned nodes are no longer tracked in PathTree
+                // 2. In the next chunk, they appear as "new" and get re-indexed
+                // 3. This causes duplicate indexing and infinite loops
+                // TODO: Implement a separate "indexed set" if storage becomes a concern
                 int nodesBeforePrune = currentPathTree.getTotalNodes();
-                long pruneStartTime = System.currentTimeMillis();
-                int prunedCount = currentPathTree.pruneFullyProcessedLeaves();
-                long pruneTime = System.currentTimeMillis() - pruneStartTime;
-                System.out.println("[DEBUG-PATHTREE] Prune time: " + pruneTime + "ms, pruned: " + prunedCount + 
-                    " nodes (before: " + nodesBeforePrune + ", after: " + currentPathTree.getTotalNodes() + ")");
+                int prunedCount = 0;  // Disabled: currentPathTree.pruneFullyProcessedLeaves();
+                System.out.println("[DEBUG-PATHTREE] Pruning DISABLED during chunked indexing (nodes: " + nodesBeforePrune + ")");
                 
                 long serializeStartTime = System.currentTimeMillis();
                 currentPathTree.serializeTo(laneBuilder.child("pathTree"));

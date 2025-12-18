@@ -740,21 +740,25 @@ public class IndexUpdate implements Editor, PathSource {
     @Override
     public void leave(NodeState before, NodeState after)
             throws CommitFailedException {
-        // If this node was already indexed (skipMode), skip leave processing
-        if (skipMode) {
-            log.trace("[SKIP-LEAVE] Skipping leave at {} (already indexed/processed)", getPath());
-            return;
-        }
+        // CRITICAL: Always mark node as leave-completed in PathTree for proper resume tracking
+        // This must happen even in skipMode to ensure fullyProcessed state is accurate
+        ResumeContext ctx = rootState.getResumeContext();
         
         try {
+            // If this node was already indexed (skipMode), skip actual editor processing
+            if (skipMode) {
+                log.trace("[SKIP-LEAVE] Skipping leave at {} (already indexed/processed)", getPath());
+                return;
+            }
+            
             for (Editor editor : editors) {
                 editor.leave(before, after);
             }
         } finally {
-            // CRITICAL: Mark this node as FULLY PROCESSED in PathTree ALWAYS
-            // This must happen even if CHUNK_COMPLETE exception is thrown
-            // Otherwise nodes won't be marked as fully processed and resume gets stuck
-            ResumeContext ctx = rootState.getResumeContext();
+            // Mark this node as FULLY PROCESSED in PathTree ALWAYS
+            // This must happen:
+            // 1. Even if skipMode=true (to mark already-indexed nodes as leave-completed)
+            // 2. Even if CHUNK_COMPLETE exception is thrown (for proper resume)
             if (ctx != null) {
                 // Mark leave completed - this also marks as indexed
                 ctx.getPathTree().markLeaveCompleted(getPath());
