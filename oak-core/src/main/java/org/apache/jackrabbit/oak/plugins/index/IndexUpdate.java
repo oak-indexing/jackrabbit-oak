@@ -746,21 +746,25 @@ public class IndexUpdate implements Editor, PathSource {
             return;
         }
         
-        for (Editor editor : editors) {
-            editor.leave(before, after);
-        }
-        
-        // Mark this node as FULLY PROCESSED in PathTree (both enter and leave done)
-        ResumeContext ctx = rootState.getResumeContext();
-        if (ctx != null) {
-            // Mark leave completed - this also marks as indexed
-            ctx.getPathTree().markLeaveCompleted(getPath());
-            
-            // Debug: log progress periodically
-            int fullyProcessed = ctx.getPathTree().getFullyProcessedCount();
-            if (fullyProcessed % 1000 == 0 && fullyProcessed > 0) {
-                System.out.println("[DEBUG-INDEX] Fully processed " + fullyProcessed + 
-                    " nodes, current path: " + getPath());
+        try {
+            for (Editor editor : editors) {
+                editor.leave(before, after);
+            }
+        } finally {
+            // CRITICAL: Mark this node as FULLY PROCESSED in PathTree ALWAYS
+            // This must happen even if CHUNK_COMPLETE exception is thrown
+            // Otherwise nodes won't be marked as fully processed and resume gets stuck
+            ResumeContext ctx = rootState.getResumeContext();
+            if (ctx != null) {
+                // Mark leave completed - this also marks as indexed
+                ctx.getPathTree().markLeaveCompleted(getPath());
+                
+                // Debug: log progress periodically
+                int fullyProcessed = ctx.getPathTree().getFullyProcessedCount();
+                if (fullyProcessed % 1000 == 0 && fullyProcessed > 0) {
+                    System.out.println("[DEBUG-INDEX] Fully processed " + fullyProcessed + 
+                        " nodes, current path: " + getPath());
+                }
             }
         }
         

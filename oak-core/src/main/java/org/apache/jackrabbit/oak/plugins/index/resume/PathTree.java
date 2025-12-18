@@ -164,9 +164,13 @@ public class PathTree {
         
         PathNode current = root;
         for (String segment : PathUtils.elements(path)) {
-            current = current.getOrCreateChild(segment);
+            PathNode child = current.getChild(segment);
+            if (child == null) {
+                child = current.getOrCreateChild(segment);
+                totalNodes++;  // Increment for EACH new node created
+            }
+            current = child;
         }
-        totalNodes++;
         return current;
     }
     
@@ -528,7 +532,8 @@ public class PathTree {
                 it.remove();
                 prunedCount[0]++;
                 totalNodes--;
-                indexedNodes--;
+                // NOTE: Don't decrement indexedNodes - pruning removes tree structure
+                // for storage efficiency, but the content remains indexed in Lucene
             }
         }
     }
