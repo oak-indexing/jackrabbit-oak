@@ -146,58 +146,59 @@ public class PathTreeEditorDiff {
                 segmentStoreTraversals.incrementAndGet();
             }
             
-            // Call enter - this will skip in IndexUpdate if fully processed
-            long callbackStart = System.nanoTime();
-            editor.enter(before, after);
-            editorCallbackTimeNanos.addAndGet(System.nanoTime() - callbackStart);
-            
-            // OPTIMIZATION: If this entire subtree is fully processed, we can skip
-            // all properties and children entirely - just call enter/leave
-            if (!isFullyProcessed) {
-                // Not fully processed - need to process properties and children
-                
-                // Process properties from after state (only if not fully processed)
-                // This involves SegmentStore reads for property values
-                if (!usePathTree && before != MISSING_NODE && after != MISSING_NODE) {
-                    long propStart = System.nanoTime();
-                    for (PropertyState afterProp : after.getProperties()) {
-                        PropertyState beforeProp = before.getProperty(afterProp.getName());
-                        if (beforeProp == null) {
-                            editor.propertyAdded(afterProp);
-                        } else if (!beforeProp.equals(afterProp)) {
-                            editor.propertyChanged(beforeProp, afterProp);
-                        }
-                    }
-                    
-                    // Check for deleted properties
-                    for (PropertyState beforeProp : before.getProperties()) {
-                        if (!after.hasProperty(beforeProp.getName())) {
-                            editor.propertyDeleted(beforeProp);
-                        }
-                    }
-                    segmentStoreReadTimeNanos.addAndGet(System.nanoTime() - propStart);
-                }
-                
-                // Process child nodes
-                CommitFailedException childException = processChildren(
-                    editor, pathTree, path, before, after, usePathTree);
-                
-                if (childException != null) {
-                    return childException;
-                }
-            } else {
-                // Fully processed - recursively process children from PathTree only
-                // This allows IndexUpdate to call enter/leave on all nodes (for skip tracking)
-                // but avoids ANY SegmentStore access - key performance optimization!
+            // MAJOR OPTIMIZATION: For fully-processed nodes, skip ALL editor calls
+            // The IndexUpdate.enter() would just return immediately anyway, so we avoid:
+            // 1. Function call overhead
+            // 2. PathTree lookups in enter()
+            // 3. Leave() marking (already done)
+            // This is safe because fully-processed means the node is already in Lucene
+            if (isFullyProcessed) {
+                // Skip editor.enter() and editor.leave() entirely
+                // Just process children from PathTree (which will also be skipped)
                 CommitFailedException childException = processFullyProcessedChildren(
                     editor, pathTree, path);
                 
                 if (childException != null) {
                     return childException;
                 }
+                return null;
             }
             
-            // Call leave - this will skip in IndexUpdate if fully processed
+            // Not fully processed - need to call editors
+            long callbackStart = System.nanoTime();
+            editor.enter(before, after);
+            editorCallbackTimeNanos.addAndGet(System.nanoTime() - callbackStart);
+            
+            // Process properties from after state (involves SegmentStore reads)
+            if (!usePathTree && before != MISSING_NODE && after != MISSING_NODE) {
+                long propStart = System.nanoTime();
+                for (PropertyState afterProp : after.getProperties()) {
+                    PropertyState beforeProp = before.getProperty(afterProp.getName());
+                    if (beforeProp == null) {
+                        editor.propertyAdded(afterProp);
+                    } else if (!beforeProp.equals(afterProp)) {
+                        editor.propertyChanged(beforeProp, afterProp);
+                    }
+                }
+                
+                // Check for deleted properties
+                for (PropertyState beforeProp : before.getProperties()) {
+                    if (!after.hasProperty(beforeProp.getName())) {
+                        editor.propertyDeleted(beforeProp);
+                    }
+                }
+                segmentStoreReadTimeNanos.addAndGet(System.nanoTime() - propStart);
+            }
+            
+            // Process child nodes
+            CommitFailedException childException = processChildren(
+                editor, pathTree, path, before, after, usePathTree);
+            
+            if (childException != null) {
+                return childException;
+            }
+            
+            // Call leave
             callbackStart = System.nanoTime();
             editor.leave(before, after);
             editorCallbackTimeNanos.addAndGet(System.nanoTime() - callbackStart);
