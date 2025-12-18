@@ -213,6 +213,9 @@ public class PathTreeEditorDiff {
     /**
      * Process children of a fully-processed node using only PathTree.
      * No SegmentStore calls at all.
+     * 
+     * OPTIMIZATION: Since the parent is fully processed, all children in PathTree
+     * must also be fully processed. We can skip the editor callbacks entirely!
      */
     @Nullable
     private static CommitFailedException processFullyProcessedChildren(
@@ -227,12 +230,28 @@ public class PathTreeEditorDiff {
             
             skippedGetChildCalls.addAndGet(2); // Saved 2 getChildNode calls
             
-            // Call editor with MISSING_NODEs - editor will skip
-            Editor childEditor = editor.childNodeChanged(childName, MISSING_NODE, MISSING_NODE);
-            if (childEditor != null) {
-                CommitFailedException e = processPath(
-                    childEditor, pathTree, childPath, MISSING_NODE, MISSING_NODE);
+            // MAJOR OPTIMIZATION: Check if child is also fully processed
+            // If so, skip ALL editor calls for this entire subtree
+            boolean childFullyProcessed = pathTree.isFullyProcessed(childPath);
+            
+            if (childFullyProcessed) {
+                // Child is fully processed - recursively process its children from PathTree
+                // WITHOUT calling any editor methods (no enter/leave overhead)
+                pathTreeTraversals.incrementAndGet();
+                CommitFailedException e = processFullyProcessedChildren(editor, pathTree, childPath);
                 if (e != null) return e;
+            } else {
+                // Child NOT fully processed - need to call editor
+                // This handles edge cases where parent is marked but child isn't
+                long callbackStart = System.nanoTime();
+                Editor childEditor = editor.childNodeChanged(childName, MISSING_NODE, MISSING_NODE);
+                editorCallbackTimeNanos.addAndGet(System.nanoTime() - callbackStart);
+                
+                if (childEditor != null) {
+                    CommitFailedException e = processPath(
+                        childEditor, pathTree, childPath, MISSING_NODE, MISSING_NODE);
+                    if (e != null) return e;
+                }
             }
         }
         
