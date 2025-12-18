@@ -1,0 +1,314 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.jackrabbit.oak.plugins.index.resume;
+
+import org.apache.jackrabbit.oak.api.CommitFailedException;
+import org.apache.jackrabbit.oak.api.PropertyState;
+import org.apache.jackrabbit.oak.spi.commit.Editor;
+import org.apache.jackrabbit.oak.spi.state.NodeState;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState.MISSING_NODE;
+
+/**
+ * PathTree-aware EditorDiff that uses PathTree for traversal when possible,
+ * avoiding SegmentStore calls for fully-processed nodes.
+ * 
+ * <p>This is an optimization for resumable indexing:
+ * <ul>
+ *   <li>For fully-processed paths: Get child names from PathTree (no SegmentStore)</li>
+ *   <li>For not-fully-processed paths: Fall back to NodeState (SegmentStore)</li>
+ * </ul>
+ */
+public class PathTreeEditorDiff {
+    
+    private static final Logger LOG = LoggerFactory.getLogger(PathTreeEditorDiff.class);
+    
+    // Statistics counters
+    private static final AtomicInteger pathTreeTraversals = new AtomicInteger(0);
+    private static final AtomicInteger segmentStoreTraversals = new AtomicInteger(0);
+    private static final AtomicInteger pathTreeChildLookups = new AtomicInteger(0);
+    private static final AtomicInteger segmentStoreChildLookups = new AtomicInteger(0);
+    private static final AtomicInteger skippedGetChildCalls = new AtomicInteger(0);
+    
+    /**
+     * Reset traversal statistics (call before each diff).
+     */
+    public static void resetStats() {
+        pathTreeTraversals.set(0);
+        segmentStoreTraversals.set(0);
+        pathTreeChildLookups.set(0);
+        segmentStoreChildLookups.set(0);
+        skippedGetChildCalls.set(0);
+    }
+    
+    /**
+     * Get traversal statistics string.
+     */
+    public static String getStats() {
+        return "pathTreeTraversals=" + pathTreeTraversals.get() + 
+               ", segmentStoreTraversals=" + segmentStoreTraversals.get() +
+               ", pathTreeChildLookups=" + pathTreeChildLookups.get() +
+               ", segmentStoreChildLookups=" + segmentStoreChildLookups.get() +
+               ", skippedGetChildCalls=" + skippedGetChildCalls.get();
+    }
+    
+    public static int getPathTreeTraversals() {
+        return pathTreeTraversals.get();
+    }
+    
+    public static int getSegmentStoreTraversals() {
+        return segmentStoreTraversals.get();
+    }
+    
+    /**
+     * Process diff using PathTree for traversal optimization.
+     * 
+     * @param editor the editor to receive callbacks
+     * @param pathTree the PathTree for optimized traversal
+     * @param before the before state
+     * @param after the after state
+     * @return null if successful, exception otherwise
+     */
+    @Nullable
+    public static CommitFailedException process(
+            @NotNull Editor editor,
+            @NotNull PathTree pathTree,
+            @NotNull NodeState before,
+            @NotNull NodeState after) {
+        
+        LOG.debug("[PathTreeEditorDiff] Starting diff with PathTree optimization");
+        return processPath(editor, pathTree, "/", before, after);
+    }
+    
+    @Nullable
+    private static CommitFailedException processPath(
+            @NotNull Editor editor,
+            @NotNull PathTree pathTree,
+            @NotNull String path,
+            @NotNull NodeState before,
+            @NotNull NodeState after) {
+        
+        try {
+            // Check if we can traverse from PathTree (fully processed)
+            boolean usePathTree = pathTree.canTraverseFromPathTree(path);
+            boolean isFullyProcessed = pathTree.isFullyProcessed(path);
+            
+            if (usePathTree) {
+                pathTreeTraversals.incrementAndGet();
+            } else {
+                segmentStoreTraversals.incrementAndGet();
+            }
+            
+            // Call enter - this will skip in IndexUpdate if fully processed
+            editor.enter(before, after);
+            
+            // OPTIMIZATION: If this entire subtree is fully processed, we can skip
+            // all children because IndexUpdate will skip them anyway
+            if (!isFullyProcessed) {
+                // Not fully processed - need to process properties and children
+                
+                // Process properties from after state
+                if (!usePathTree) {
+                    for (PropertyState afterProp : after.getProperties()) {
+                        PropertyState beforeProp = before.getProperty(afterProp.getName());
+                        if (beforeProp == null) {
+                            editor.propertyAdded(afterProp);
+                        } else if (!beforeProp.equals(afterProp)) {
+                            editor.propertyChanged(beforeProp, afterProp);
+                        }
+                    }
+                    
+                    // Check for deleted properties
+                    for (PropertyState beforeProp : before.getProperties()) {
+                        if (!after.hasProperty(beforeProp.getName())) {
+                            editor.propertyDeleted(beforeProp);
+                        }
+                    }
+                }
+                
+                // Process child nodes
+                CommitFailedException childException = processChildren(
+                    editor, pathTree, path, before, after, usePathTree);
+                
+                if (childException != null) {
+                    return childException;
+                }
+            } else {
+                // Fully processed - recursively process children from PathTree only
+                // This allows IndexUpdate to call enter/leave on all nodes (for skip tracking)
+                // but avoids any SegmentStore access
+                CommitFailedException childException = processFullyProcessedChildren(
+                    editor, pathTree, path);
+                
+                if (childException != null) {
+                    return childException;
+                }
+            }
+            
+            // Call leave - this will skip in IndexUpdate if fully processed
+            editor.leave(before, after);
+            
+            return null;
+            
+        } catch (CommitFailedException e) {
+            return e;
+        }
+    }
+    
+    /**
+     * Process children of a fully-processed node using only PathTree.
+     * No SegmentStore calls at all.
+     */
+    @Nullable
+    private static CommitFailedException processFullyProcessedChildren(
+            @NotNull Editor editor,
+            @NotNull PathTree pathTree,
+            @NotNull String parentPath) throws CommitFailedException {
+        
+        Set<String> childNames = pathTree.getChildNamesFromPathTree(parentPath);
+        
+        for (String childName : childNames) {
+            String childPath = parentPath.equals("/") ? "/" + childName : parentPath + "/" + childName;
+            
+            skippedGetChildCalls.addAndGet(2); // Saved 2 getChildNode calls
+            
+            // Call editor with MISSING_NODEs - editor will skip
+            Editor childEditor = editor.childNodeChanged(childName, MISSING_NODE, MISSING_NODE);
+            if (childEditor != null) {
+                CommitFailedException e = processPath(
+                    childEditor, pathTree, childPath, MISSING_NODE, MISSING_NODE);
+                if (e != null) return e;
+            }
+        }
+        
+        return null;
+    }
+    
+    @Nullable
+    private static CommitFailedException processChildren(
+            @NotNull Editor editor,
+            @NotNull PathTree pathTree,
+            @NotNull String parentPath,
+            @NotNull NodeState before,
+            @NotNull NodeState after,
+            boolean usePathTree) throws CommitFailedException {
+        
+        // Get child names - either from PathTree or SegmentStore
+        Iterable<String> childNames;
+        
+        if (usePathTree) {
+            // Get children from PathTree (no SegmentStore call!)
+            Set<String> pathTreeChildren = pathTree.getChildNamesFromPathTree(parentPath);
+            pathTreeChildLookups.addAndGet(pathTreeChildren.size());
+            childNames = pathTreeChildren;
+            
+            LOG.trace("[PathTreeDiff] Got {} children from PathTree for: {}", 
+                pathTreeChildren.size(), parentPath);
+        } else {
+            // Get children from SegmentStore
+            childNames = after.getChildNodeNames();
+            segmentStoreChildLookups.incrementAndGet();
+            
+            LOG.trace("[PathTreeDiff] Got children from SegmentStore for: {}", parentPath);
+        }
+        
+        // Process each child
+        for (String childName : childNames) {
+            String childPath = parentPath.equals("/") ? "/" + childName : parentPath + "/" + childName;
+            
+            // OPTIMIZATION: For fully processed children, avoid SegmentStore calls entirely
+            boolean childFullyProcessed = pathTree.isFullyProcessed(childPath);
+            
+            if (childFullyProcessed && usePathTree) {
+                // Child is fully processed - use dummy NodeStates to avoid SegmentStore
+                // The editor will skip processing anyway due to PathTree skip logic
+                LOG.trace("[PathTreeDiff] Child {} fully processed - using dummy NodeStates", childPath);
+                skippedGetChildCalls.addAndGet(2); // Saved 2 getChildNode calls (before + after)
+                
+                // Call childNodeChanged with dummy states - editor will skip
+                Editor childEditor = editor.childNodeChanged(childName, MISSING_NODE, MISSING_NODE);
+                if (childEditor != null) {
+                    CommitFailedException e = processPath(
+                        childEditor, pathTree, childPath, MISSING_NODE, MISSING_NODE);
+                    if (e != null) return e;
+                }
+            } else {
+                // Child not fully processed - need to read from SegmentStore
+                NodeState beforeChild = before.getChildNode(childName);
+                NodeState afterChild = after.getChildNode(childName);
+                
+                // Determine if this is add, change, or exists in both
+                boolean beforeExists = beforeChild.exists();
+                boolean afterExists = afterChild.exists();
+                
+                if (!beforeExists && afterExists) {
+                    // Child added
+                    Editor childEditor = editor.childNodeAdded(childName, afterChild);
+                    if (childEditor != null) {
+                        CommitFailedException e = processPath(
+                            childEditor, pathTree, childPath, MISSING_NODE, afterChild);
+                        if (e != null) return e;
+                    }
+                } else if (beforeExists && afterExists) {
+                    // Child changed (or unchanged - editor decides)
+                    Editor childEditor = editor.childNodeChanged(childName, beforeChild, afterChild);
+                    if (childEditor != null) {
+                        CommitFailedException e = processPath(
+                            childEditor, pathTree, childPath, beforeChild, afterChild);
+                        if (e != null) return e;
+                    }
+                } else if (beforeExists && !afterExists) {
+                    // Child deleted
+                    Editor childEditor = editor.childNodeDeleted(childName, beforeChild);
+                    if (childEditor != null) {
+                        CommitFailedException e = processPath(
+                            childEditor, pathTree, childPath, beforeChild, MISSING_NODE);
+                        if (e != null) return e;
+                    }
+                }
+                // else: neither exists, skip
+            }
+        }
+        
+        // If NOT using PathTree, also check for children only in before state (deleted)
+        if (!usePathTree) {
+            for (String childName : before.getChildNodeNames()) {
+                if (!after.hasChildNode(childName)) {
+                    String childPath = parentPath.equals("/") ? "/" + childName : parentPath + "/" + childName;
+                    NodeState beforeChild = before.getChildNode(childName);
+                    
+                    Editor childEditor = editor.childNodeDeleted(childName, beforeChild);
+                    if (childEditor != null) {
+                        CommitFailedException e = processPath(
+                            childEditor, pathTree, childPath, beforeChild, MISSING_NODE);
+                        if (e != null) return e;
+                    }
+                }
+            }
+        }
+        
+        return null;
+    }
+}
+

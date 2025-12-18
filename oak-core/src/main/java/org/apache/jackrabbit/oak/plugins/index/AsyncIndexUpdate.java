@@ -78,6 +78,7 @@ import org.apache.jackrabbit.oak.spi.commit.Editor;
 import org.apache.jackrabbit.oak.spi.commit.EditorDiff;
 import org.apache.jackrabbit.oak.spi.commit.EditorHook;
 import org.apache.jackrabbit.oak.plugins.index.resume.PathTree;
+import org.apache.jackrabbit.oak.plugins.index.resume.PathTreeEditorDiff;
 import org.apache.jackrabbit.oak.plugins.index.resume.ResumeContext;
 import org.apache.jackrabbit.oak.plugins.index.resume.ResumableEditorDiff;
 import org.apache.jackrabbit.oak.spi.commit.EditorProvider;
@@ -502,6 +503,14 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             checkIfStopped();
             
             String currentPath = pathSource.getPath();
+            
+            // OPTIMIZATION: Skip counting if this path is FULLY PROCESSED (enter+leave done)
+            // This means we can completely skip this node without any NodeStore access
+            if (pathTree != null && pathTree.isFullyProcessed(currentPath)) {
+                // Path fully processed - skip entirely
+                log.trace("[{}] Skipping fully processed path: {}", name, currentPath);
+                return;
+            }
             
             // Skip counting if this path is already indexed in PathTree
             // This is the primary skip mechanism for resumable indexing
@@ -1042,11 +1051,13 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                     
                     // Estimate serialized size by counting nodes
                     pathTreeSerializedSize = pathTree.getTotalNodes() * 50; // Rough estimate: 50 bytes per node
+                    int fullyProcessedCount = pathTree.getFullyProcessedCount();
                     
                     log.info("[{}] Loaded PathTree from resume state: {} (load time: {}ms, estimated size: {} bytes)", 
                         name, pathTree, pathTreeLoadTime, pathTreeSerializedSize);
                     System.out.println("[DEBUG-PATHTREE] Load time: " + pathTreeLoadTime + "ms, nodes: " + 
                         pathTree.getTotalNodes() + ", indexed: " + pathTree.getIndexedNodes() + 
+                        ", fullyProcessed: " + fullyProcessedCount +
                         ", estimated size: " + pathTreeSerializedSize + " bytes");
                 } else {
                     pathTree = new PathTree();
@@ -1107,12 +1118,45 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             
             // Create editor
             Editor editor = VisibleEditor.wrap(indexUpdate);
-
-            // Process diff using standard EditorDiff
-            // ResumeContext is passed to IndexUpdate and handles chunk limits in leave()
-            CommitFailedException exception = EditorDiff.process(editor, before, after);
+            
+            // Reset skip counters before diff
+            IndexUpdate.resetSkipCounters();
+            PathTreeEditorDiff.resetStats();
+            
+            // Check if PathTree traversal is enabled
+            boolean usePathTreeTraversal = Boolean.getBoolean("oak.async.usePathTreeTraversal");
+            
+            CommitFailedException exception;
+            if (usePathTreeTraversal && !pathTree.isEmpty() && isResuming) {
+                // Use PathTree-driven traversal (avoids SegmentStore calls for fully-processed nodes)
+                log.info("[{}] Using PathTree-driven traversal (PathTree has {} nodes, {} fully processed)", 
+                    name, pathTree.getTotalNodes(), pathTree.getFullyProcessedCount());
+                System.out.println("[DEBUG-PATHTREE-TRAVERSAL] Using PathTree traversal mode");
+                
+                // Get traversal stats before
+                PathTree.TraversalStats statsBefore = pathTree.getTraversalStats();
+                System.out.println("[DEBUG-PATHTREE-TRAVERSAL] PathTree stats: " + statsBefore);
+                
+                exception = PathTreeEditorDiff.process(editor, pathTree, before, after);
+            } else {
+                // Use standard EditorDiff
+                log.debug("[{}] Using standard EditorDiff (usePathTreeTraversal={}, pathTreeEmpty={}, isResuming={})", 
+                    name, usePathTreeTraversal, pathTree.isEmpty(), isResuming);
+                System.out.println("[DEBUG-PATHTREE-TRAVERSAL] Using standard EditorDiff mode");
+                
+                exception = EditorDiff.process(editor, before, after);
+            }
+            
             long totalDiffTime = System.currentTimeMillis() - diffStartTime;
             indexStats.setDiffTimeMs(watch.elapsed(TimeUnit.MILLISECONDS));
+            
+            // Log skip statistics
+            System.out.println("[DEBUG-SKIP] " + IndexUpdate.getSkipStats());
+            
+            // Log PathTree traversal statistics
+            if (usePathTreeTraversal) {
+                System.out.println("[DEBUG-PATHTREE-TRAVERSAL] " + PathTreeEditorDiff.getStats());
+            }
             
             // Log resume timing
             if (isResuming) {
@@ -1186,10 +1230,12 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 currentPathTree.serializeTo(laneBuilder.child("pathTree"));
                 long serializeTime = System.currentTimeMillis() - serializeStartTime;
                 
-                log.info("[{}] Saving PathTree: {} nodes total, {} indexed (serialize time: {}ms)", 
-                    name, currentPathTree.getTotalNodes(), currentPathTree.getIndexedNodes(), serializeTime);
+                int fullyProcessedCount = currentPathTree.getFullyProcessedCount();
+                log.info("[{}] Saving PathTree: {} nodes total, {} indexed, {} fullyProcessed (serialize time: {}ms)", 
+                    name, currentPathTree.getTotalNodes(), currentPathTree.getIndexedNodes(), fullyProcessedCount, serializeTime);
                 System.out.println("[DEBUG-PATHTREE] Serialize time: " + serializeTime + "ms, nodes: " + 
-                    currentPathTree.getTotalNodes() + ", indexed: " + currentPathTree.getIndexedNodes());
+                    currentPathTree.getTotalNodes() + ", indexed: " + currentPathTree.getIndexedNodes() + 
+                    ", fullyProcessed: " + fullyProcessedCount);
                 
                 // Also save PathTree to filesystem for debugging
                 try {
@@ -1198,6 +1244,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                         writer.println("{");
                         writer.println("  \"totalNodes\": " + currentPathTree.getTotalNodes() + ",");
                         writer.println("  \"indexedNodes\": " + currentPathTree.getIndexedNodes() + ",");
+                        writer.println("  \"fullyProcessed\": " + fullyProcessedCount + ",");
                         writer.println("  \"lastPath\": \"" + chunkPath + "\",");
                         writer.println("  \"serializeTimeMs\": " + serializeTime);
                         writer.println("}");

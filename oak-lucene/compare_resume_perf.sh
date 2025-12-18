@@ -46,15 +46,13 @@ echo ""
 # Test Scenarios: "STORE NODES CHUNK_SIZE MODE"
 # MODE: "NORMAL" (no chunking, chunkSize=0) or "CHUNKED" (with chunkSize)
 SCENARIOS=(
-    # Normal mode (no chunking) - baseline
+    # Quick test - 10K nodes for development
     "SEGMENT 10000 0 NORMAL"
+    "SEGMENT 10000 2000 CHUNKED"
     
-    # Chunked mode - resumable indexing
-    "SEGMENT 10000 5000 CHUNKED"
-    
-    # Optional: Larger tests (uncomment to run)
-    # "SEGMENT 5000 0 NORMAL"
-    # "SEGMENT 5000 500 CHUNKED"
+    # Larger tests (uncomment to run)
+    # "SEGMENT 100000 0 NORMAL"
+    # "SEGMENT 100000 20000 CHUNKED"
 )
 
 # JVM Configuration
@@ -192,9 +190,10 @@ print_stats_from_file() {
             local loadTime=$(echo $line | sed 's/.*Load time: \([0-9]*\)ms.*/\1/')
             local nodes=$(echo $line | sed 's/.*nodes: \([0-9]*\).*/\1/')
             local indexed=$(echo $line | sed 's/.*indexed: \([0-9]*\).*/\1/')
+            local fullyProcessed=$(echo $line | sed 's/.*fullyProcessed: \([0-9]*\).*/\1/')
             local size=$(echo $line | sed 's/.*size: \([0-9]*\).*/\1/')
-            printf "    Load: %4d ms | Nodes: %6d | Indexed: %6d | Size: %8d bytes\n" \
-                   "$loadTime" "$nodes" "$indexed" "$size"
+            printf "    Load: %4d ms | Nodes: %6d | Indexed: %6d | FullyProc: %6d | Size: %8d bytes\n" \
+                   "$loadTime" "$nodes" "$indexed" "$fullyProcessed" "$size"
         done
     fi
     
@@ -205,8 +204,9 @@ print_stats_from_file() {
             local serTime=$(echo $line | sed 's/.*Serialize time: \([0-9]*\)ms.*/\1/')
             local nodes=$(echo $line | sed 's/.*nodes: \([0-9]*\).*/\1/')
             local indexed=$(echo $line | sed 's/.*indexed: \([0-9]*\).*/\1/')
-            printf "    Serialize: %4d ms | Nodes: %6d | Indexed: %6d\n" \
-                   "$serTime" "$nodes" "$indexed"
+            local fullyProcessed=$(echo $line | sed 's/.*fullyProcessed: \([0-9]*\).*/\1/')
+            printf "    Serialize: %4d ms | Nodes: %6d | Indexed: %6d | FullyProc: %6d\n" \
+                   "$serTime" "$nodes" "$indexed" "$fullyProcessed"
         done
     fi
     
@@ -225,6 +225,34 @@ print_stats_from_file() {
             printf "    Total diff: %4d ms | To resume: %4d ms | After resume: %4d ms\n" \
                    "$diffTime" "$toResume" "$afterResume"
         done
+    fi
+    
+    # Skip stats (NodeStore optimization)
+    if grep -q "\[DEBUG-SKIP\]" "$FILE" 2>/dev/null; then
+        echo "  Skip Stats (NodeStore optimization):"
+        local total_skip_full=0
+        local total_processed=0
+        local chunk_num=0
+        grep "\[DEBUG-SKIP\]" "$FILE" | while read line; do
+            chunk_num=$((chunk_num + 1))
+            local skipFull=$(echo $line | sed 's/.*skipFull=\([0-9]*\).*/\1/')
+            local skipIndexed=$(echo $line | sed 's/.*skipIndexed=\([0-9]*\).*/\1/')
+            local processed=$(echo $line | sed 's/.*processed=\([0-9]*\).*/\1/')
+            printf "    Chunk %2d: skipFull=%6d | skipIndexed=%5d | processed=%5d\n" \
+                   "$chunk_num" "$skipFull" "$skipIndexed" "$processed"
+        done
+        
+        # Summary
+        echo ""
+        echo "  Skip Summary:"
+        local last_skip=$(grep "\[DEBUG-SKIP\]" "$FILE" | tail -1)
+        local last_skip_full=$(echo $last_skip | sed 's/.*skipFull=\([0-9]*\).*/\1/')
+        local last_processed=$(echo $last_skip | sed 's/.*processed=\([0-9]*\).*/\1/')
+        local skip_pct=0
+        if [ "$last_skip_full" -gt 0 ] && [ "$last_processed" -gt 0 ]; then
+            skip_pct=$(echo "scale=1; $last_skip_full * 100 / ($last_skip_full + $last_processed)" | bc 2>/dev/null || echo "N/A")
+        fi
+        echo "    Final run: $last_skip_full nodes skipped (${skip_pct}% skip rate)"
     fi
     
     # Chunk commit timing

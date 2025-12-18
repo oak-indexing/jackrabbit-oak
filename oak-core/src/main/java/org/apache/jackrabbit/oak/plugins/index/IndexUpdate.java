@@ -243,20 +243,55 @@ public class IndexUpdate implements Editor, PathSource {
         this.skipMode = parent.skipMode;
     }
 
+    // Static counters for tracking skip statistics
+    private static final java.util.concurrent.atomic.AtomicInteger skipFullCount = new java.util.concurrent.atomic.AtomicInteger(0);
+    private static final java.util.concurrent.atomic.AtomicInteger skipIndexedCount = new java.util.concurrent.atomic.AtomicInteger(0);
+    private static final java.util.concurrent.atomic.AtomicInteger processedCount = new java.util.concurrent.atomic.AtomicInteger(0);
+    
+    public static void resetSkipCounters() {
+        skipFullCount.set(0);
+        skipIndexedCount.set(0);
+        processedCount.set(0);
+    }
+    
+    public static String getSkipStats() {
+        return "skipFull=" + skipFullCount.get() + ", skipIndexed=" + skipIndexedCount.get() + 
+               ", processed=" + processedCount.get();
+    }
+    
     @Override
     public void enter(NodeState before, NodeState after)
             throws CommitFailedException {
-        rootState.nodeRead(this);
-        
-        // Check if this node is already indexed in PathTree (from previous chunk)
-        // If so, we can skip the expensive editor initialization and processing
+        // OPTIMIZATION: Check if this node is FULLY PROCESSED (both enter and leave completed)
+        // If so, we can skip the expensive nodeRead() call entirely, avoiding NodeStore access
         ResumeContext ctx = rootState.getResumeContext();
-        if (ctx != null && ctx.getPathTree().isIndexed(getPath())) {
-            // Node already indexed - skip initialization
-            log.trace("[SKIP-INDEXED] Path {} already indexed in PathTree, skipping", getPath());
-            this.skipMode = true;
-            return;
+        if (ctx != null) {
+            String currentPath = getPath();
+            
+            // Check if fully processed - skip ALL processing including nodeRead()
+            if (ctx.getPathTree().isFullyProcessed(currentPath)) {
+                // Node fully processed in previous run - skip completely
+                skipFullCount.incrementAndGet();
+                log.trace("[SKIP-FULL] Path {} fully processed (enter+leave), skipping nodeRead()", currentPath);
+                this.skipMode = true;
+                return;
+            }
+            
+            // Check if only indexed (enter done, leave pending from crash?)
+            // Still need to call nodeRead for counting, but can skip editor init
+            if (ctx.getPathTree().isIndexed(currentPath)) {
+                // Node indexed but not fully processed - call nodeRead but skip editors
+                skipIndexedCount.incrementAndGet();
+                rootState.nodeRead(this);
+                log.trace("[SKIP-INDEXED] Path {} indexed but not fully processed, skipping editors", currentPath);
+                this.skipMode = true;
+                return;
+            }
         }
+        
+        // Node is NOT processed - call nodeRead() for counting/traversal tracking
+        processedCount.incrementAndGet();
+        rootState.nodeRead(this);
         
         // Node is NOT indexed - reset skipMode (might have been inherited from parent)
         // This is critical: even if parent was skipped, this node needs to be processed
@@ -264,6 +299,11 @@ public class IndexUpdate implements Editor, PathSource {
         
         // Full initialization - needed for editors to be set up
         performFullInitialization(before, after);
+        
+        // Mark enter completed in PathTree
+        if (ctx != null) {
+            ctx.getPathTree().markEnterCompleted(getPath());
+        }
     }
     
     /**
@@ -695,7 +735,7 @@ public class IndexUpdate implements Editor, PathSource {
             throws CommitFailedException {
         // If this node was already indexed (skipMode), skip leave processing
         if (skipMode) {
-            log.trace("[SKIP-LEAVE] Skipping leave at {} (already indexed)", getPath());
+            log.trace("[SKIP-LEAVE] Skipping leave at {} (already indexed/processed)", getPath());
             return;
         }
         
@@ -703,15 +743,17 @@ public class IndexUpdate implements Editor, PathSource {
             editor.leave(before, after);
         }
         
-        // Mark this node as indexed in PathTree (only if we actually processed it)
+        // Mark this node as FULLY PROCESSED in PathTree (both enter and leave done)
         ResumeContext ctx = rootState.getResumeContext();
         if (ctx != null) {
-            // Mark as indexed since we completed processing
-            ctx.getPathTree().markIndexed(getPath());
-            // Debug: log when we mark a new node as indexed
-            if (ctx.getPathTree().getIndexedNodes() % 1000 == 0) {
-                System.out.println("[DEBUG-INDEX] Marked " + ctx.getPathTree().getIndexedNodes() + 
-                    " nodes as indexed, current path: " + getPath());
+            // Mark leave completed - this also marks as indexed
+            ctx.getPathTree().markLeaveCompleted(getPath());
+            
+            // Debug: log progress periodically
+            int fullyProcessed = ctx.getPathTree().getFullyProcessedCount();
+            if (fullyProcessed % 1000 == 0 && fullyProcessed > 0) {
+                System.out.println("[DEBUG-INDEX] Fully processed " + fullyProcessed + 
+                    " nodes, current path: " + getPath());
             }
         }
         
