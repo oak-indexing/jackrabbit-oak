@@ -319,6 +319,16 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         private final AtomicBoolean forcedStop;
 
         private int updateLimit = Integer.getInteger("oak.async.chunkSize", -1);
+        
+        /**
+         * Time limit per chunk in milliseconds. If > 0, commits when time limit is reached.
+         */
+        private long timeLimit = 0;
+        
+        /**
+         * Start time of current chunk (for time-based chunking).
+         */
+        private long chunkStartTime = 0;
 
         private List<ValidatorProvider> validatorProviders = Collections.emptyList();
 
@@ -405,6 +415,23 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
          */
         public void setPathTree(PathTree pathTree) {
             this.pathTree = pathTree;
+        }
+        
+        /**
+         * Set the time limit per chunk in milliseconds.
+         */
+        public void setTimeLimit(long timeMs) {
+            this.timeLimit = timeMs;
+            if (timeMs > 0) {
+                this.chunkStartTime = System.currentTimeMillis();
+            }
+        }
+        
+        /**
+         * Reset chunk start time (call at start of each chunk).
+         */
+        public void resetChunkStartTime() {
+            this.chunkStartTime = System.currentTimeMillis();
         }
 
         protected void initLease() throws CommitFailedException {
@@ -523,17 +550,33 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             // Count this node as traversed (new node to index)
             long nodesRead = indexStats.incTraversal();
             
-            // Check if chunk limit reached
+            // Check if chunk limit reached (by count)
             if (updateLimit > 0 && !chunkLimitReached && nodesRead >= updateLimit) {
                 // Set chunk limit flags
                 chunkLimitReached = true;
                 chunkLastIndexedPath = currentPath;
                 
-                log.info("[{}] Chunk limit reached at path: {} (processed {} NEW nodes)", 
+                log.info("[{}] Chunk limit reached (COUNT) at path: {} (processed {} NEW nodes)", 
                     name, chunkLastIndexedPath, nodesRead);
+                System.out.println("[DEBUG-CHUNK] COUNT limit reached: " + nodesRead + " nodes at " + currentPath);
                 
                 // Throw CHUNK_COMPLETE to stop EditorDiff and trigger commit
                 throw CHUNK_COMPLETE;
+            }
+            
+            // Check if chunk limit reached (by time)
+            if (timeLimit > 0 && !chunkLimitReached && chunkStartTime > 0) {
+                long elapsedMs = System.currentTimeMillis() - chunkStartTime;
+                if (elapsedMs >= timeLimit) {
+                    chunkLimitReached = true;
+                    chunkLastIndexedPath = currentPath;
+                    
+                    log.info("[{}] Chunk limit reached (TIME) at path: {} (elapsed {}ms, processed {} nodes)", 
+                        name, chunkLastIndexedPath, elapsedMs, nodesRead);
+                    System.out.println("[DEBUG-CHUNK] TIME limit reached: " + elapsedMs + "ms at " + currentPath);
+                    
+                    throw CHUNK_COMPLETE;
+                }
             }
 
             if (nodesRead % LEASE_CHECK_INTERVAL == 0 && isLeaseCheckEnabled(leaseTimeOut)) {
@@ -1006,17 +1049,36 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         // Prepare callback - resets counters
         callback.prepare(afterCheckpoint);
         
+        // Check if resume indexing is enabled via system property
+        boolean resumeEnabled = Boolean.getBoolean("oak.async.resume");
+        long chunkTimeMs = Long.getLong("oak.async.chunkTimeMs", 0); // Time-based chunking
+        
         // Chunk-based resumable indexing using PathTree
         boolean isInitialIndex = before == MISSING_NODE;
-        boolean chunkedMode = configuredChunkSize > 0 && !isInitialIndex;
+        boolean chunkedMode = resumeEnabled && (configuredChunkSize > 0 || chunkTimeMs > 0) && !isInitialIndex;
+        
+        // Log indexing mode
+        String indexingMode = resumeEnabled ? "RESUME" : "NORMAL";
+        System.out.println("[DEBUG-MODE] Indexing mode: " + indexingMode + 
+            ", resumeEnabled=" + resumeEnabled + 
+            ", chunkSize=" + configuredChunkSize + 
+            ", chunkTimeMs=" + chunkTimeMs +
+            ", isInitialIndex=" + isInitialIndex);
         
         if (chunkedMode) {
             callback.setUpdateLimit((int) configuredChunkSize);
-            log.info("[{}] Chunk-based indexing enabled - chunkSize: {}", name, configuredChunkSize);
+            callback.setTimeLimit(chunkTimeMs);
+            log.info("[{}] Chunk-based indexing enabled - chunkSize: {}, chunkTimeMs: {}", name, configuredChunkSize, chunkTimeMs);
         } else if (isInitialIndex) {
             // Disable chunk limits during initial index - let it complete fully
             callback.setUpdateLimit(-1);
+            callback.setTimeLimit(0);
             log.info("[{}] Initial index - chunk limits disabled until complete", name);
+        } else {
+            // Normal mode - no chunking
+            callback.setUpdateLimit(-1);
+            callback.setTimeLimit(0);
+            log.info("[{}] Normal indexing mode - no chunking", name);
         }
 
         // Check for index tasks split requests
@@ -1150,6 +1212,9 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             long totalDiffTime = System.currentTimeMillis() - diffStartTime;
             indexStats.setDiffTimeMs(watch.elapsed(TimeUnit.MILLISECONDS));
             
+            // Log diff timing
+            System.out.println("[DEBUG-TIMING] " + indexingMode + " Diff time: " + totalDiffTime + "ms");
+            
             // Log skip statistics
             System.out.println("[DEBUG-SKIP] " + IndexUpdate.getSkipStats());
             
@@ -1226,6 +1291,15 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 
                 // Serialize PathTree for efficient resume
                 PathTree currentPathTree = resumeContext.getPathTree();
+                
+                // Prune fully processed leaf nodes to reduce storage
+                int nodesBeforePrune = currentPathTree.getTotalNodes();
+                long pruneStartTime = System.currentTimeMillis();
+                int prunedCount = currentPathTree.pruneFullyProcessedLeaves();
+                long pruneTime = System.currentTimeMillis() - pruneStartTime;
+                System.out.println("[DEBUG-PATHTREE] Prune time: " + pruneTime + "ms, pruned: " + prunedCount + 
+                    " nodes (before: " + nodesBeforePrune + ", after: " + currentPathTree.getTotalNodes() + ")");
+                
                 long serializeStartTime = System.currentTimeMillis();
                 currentPathTree.serializeTo(laneBuilder.child("pathTree"));
                 long serializeTime = System.currentTimeMillis() - serializeStartTime;
@@ -1286,7 +1360,14 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             }
             
             // EditorDiff completed successfully - full index complete
-            log.info("[{}] Indexing complete", name);
+            log.info("[{}] Indexing complete (mode: {})", name, indexingMode);
+            System.out.println("[DEBUG-MODE] Indexing complete, mode: " + indexingMode);
+            
+            // For normal mode (non-chunk), log timing for flush and merge
+            long normalFlushStartTime = System.currentTimeMillis();
+            indexUpdate.commitProgress(IndexCommitCallback.IndexProgress.COMMIT_PROGRESS);
+            long normalFlushTime = System.currentTimeMillis() - normalFlushStartTime;
+            System.out.println("[DEBUG-TIMING] " + indexingMode + " Lucene flush time: " + normalFlushTime + "ms");
             
             // Update checkpoint state
             builder.child(ASYNC).setProperty(name, afterCheckpoint);
@@ -1326,7 +1407,11 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             }
 
             // Final merge with all remaining updates
+            long normalMergeStartTime = System.currentTimeMillis();
             mergeWithConcurrencyCheck(store, validatorProviders, builder, beforeCheckpoint, callback.lease, name);
+            long normalMergeTime = System.currentTimeMillis() - normalMergeStartTime;
+            System.out.println("[DEBUG-TIMING] " + indexingMode + " NodeStore merge time: " + normalMergeTime + "ms");
+            System.out.println("[DEBUG-TIMING] " + indexingMode + " COMMIT SUMMARY: flush=" + normalFlushTime + "ms, merge=" + normalMergeTime + "ms, TOTAL=" + (normalFlushTime + normalMergeTime) + "ms");
             
             // Successfully merged - mark beforeCheckpoint for release
             checkpointToReleaseRef.set(beforeCheckpoint);

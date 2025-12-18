@@ -497,6 +497,60 @@ public class PathTree {
         }
     }
     
+    // ========== Pruning Methods ==========
+    
+    /**
+     * Prune fully processed leaf nodes to reduce storage size.
+     * Keeps non-leaf nodes (needed for traversal structure) and not-fully-processed nodes.
+     * 
+     * @return the number of nodes pruned
+     */
+    public int pruneFullyProcessedLeaves() {
+        int[] prunedCount = {0};
+        pruneRecursive(root, prunedCount);
+        return prunedCount[0];
+    }
+    
+    private void pruneRecursive(PathNode node, int[] prunedCount) {
+        // First, recursively prune children
+        for (PathNode child : new java.util.ArrayList<>(node.getChildren().values())) {
+            pruneRecursive(child, prunedCount);
+        }
+        
+        // Then, remove fully processed leaf children
+        java.util.Iterator<Map.Entry<String, PathNode>> it = node.getChildren().entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<String, PathNode> entry = it.next();
+            PathNode child = entry.getValue();
+            
+            // Prune if: fully processed AND has no children (leaf)
+            if (child.isFullyProcessed() && child.getChildCount() == 0) {
+                it.remove();
+                prunedCount[0]++;
+                totalNodes--;
+                indexedNodes--;
+            }
+        }
+    }
+    
+    /**
+     * Get pruning statistics - how many nodes could be pruned.
+     */
+    public int getPrunableNodeCount() {
+        return countPrunable(root);
+    }
+    
+    private int countPrunable(PathNode node) {
+        int count = 0;
+        for (PathNode child : node.getChildren().values()) {
+            count += countPrunable(child);
+            if (child.isFullyProcessed() && child.getChildCount() == 0) {
+                count++;
+            }
+        }
+        return count;
+    }
+    
     @Override
     public String toString() {
         return "PathTree{totalNodes=" + totalNodes + ", indexedNodes=" + indexedNodes + 

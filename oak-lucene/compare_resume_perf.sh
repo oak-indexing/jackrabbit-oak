@@ -43,19 +43,22 @@ cd oak-lucene
 echo "Compilation complete."
 echo ""
 
-# Test Scenarios: "STORE NODES CHUNK_SIZE MODE PATHTREE_TRAVERSAL"
-# MODE: "NORMAL" (no chunking, chunkSize=0) or "CHUNKED" (with chunkSize)
-# PATHTREE_TRAVERSAL: "false" (standard) or "true" (use PathTree for traversal)
+# Test Scenarios: "STORE NODES CHUNK_SIZE RESUME PT_TRAVERSAL"
+# RESUME: "false" (traditional indexing) or "true" (resume/chunked indexing)
+# PT_TRAVERSAL: "false" (standard EditorDiff) or "true" (use PathTree for traversal)
 SCENARIOS=(
-    # Quick test - 10K nodes for development
-    "SEGMENT 10000 0 NORMAL false"
-    "SEGMENT 10000 2000 CHUNKED false"
-    "SEGMENT 10000 2000 CHUNKED true"
+    # Normal mode - traditional indexing (no chunking, no resume)
+    "SEGMENT 10000 0 false false"
     
-    # Larger tests - uncomment to run (may hit query limits)
-    # "SEGMENT 50000 0 NORMAL false"
-    # "SEGMENT 50000 10000 CHUNKED false"
-    # "SEGMENT 50000 10000 CHUNKED true"
+    # Resume mode - chunk-based with PathTree traversal
+    "SEGMENT 10000 2000 true true"
+    
+    # Optional: Add time-based chunking (chunkTimeMs)
+    # Note: Enable by setting oak.async.chunkTimeMs in JVM_CONFIG
+    
+    # Larger tests - uncomment to run
+    # "SEGMENT 50000 0 false false"
+    # "SEGMENT 50000 10000 true true"
 )
 
 # JVM Configuration
@@ -75,8 +78,13 @@ run_single_scenario() {
     local STORE=$1
     local NODES=$2
     local CHUNK=$3
-    local MODE=$4
+    local RESUME=$4
     local PATHTREE_TRAVERSAL=$5
+    
+    local MODE="NORMAL"
+    if [ "$RESUME" = "true" ]; then
+        MODE="RESUME"
+    fi
     
     local TRAVERSAL_SUFFIX=""
     if [ "$PATHTREE_TRAVERSAL" = "true" ]; then
@@ -85,7 +93,8 @@ run_single_scenario() {
     local SCENARIO_NAME="${STORE}_${NODES}_${MODE}${TRAVERSAL_SUFFIX}"
     
     echo "--------------------------------------------------------------------------------"
-    echo "Running: Store=$STORE, Nodes=$NODES, Mode=$MODE, ChunkSize=$CHUNK, PathTreeTraversal=$PATHTREE_TRAVERSAL"
+    echo "Running: Store=$STORE, Nodes=$NODES, Mode=$MODE, ChunkSize=$CHUNK"
+    echo "         Resume=$RESUME, PathTreeTraversal=$PATHTREE_TRAVERSAL"
     echo "--------------------------------------------------------------------------------"
     
     # Run test using JUnit directly
@@ -94,6 +103,7 @@ run_single_scenario() {
          -Dperf.nodeCount=$NODES \
          -Dperf.chunkSize=$CHUNK \
          -Doak.async.chunkSize=$CHUNK \
+         -Doak.async.resume=$RESUME \
          -Doak.async.usePathTreeTraversal=$PATHTREE_TRAVERSAL \
          -Djava.awt.headless=true \
          -cp "$CP" \
@@ -222,6 +232,51 @@ print_stats_from_file() {
             local fullyProcessed=$(echo $line | sed 's/.*fullyProcessed: \([0-9]*\).*/\1/')
             printf "    Serialize: %4d ms | Nodes: %6d | Indexed: %6d | FullyProc: %6d\n" \
                    "$serTime" "$nodes" "$indexed" "$fullyProcessed"
+        done
+    fi
+    
+    # PathTree pruning times
+    if grep -q "\[DEBUG-PATHTREE\] Prune time:" "$FILE" 2>/dev/null; then
+        echo "  PathTree Pruning:"
+        grep "\[DEBUG-PATHTREE\] Prune time:" "$FILE" | while read line; do
+            local pruneTime=$(echo $line | sed 's/.*Prune time: \([0-9]*\)ms.*/\1/')
+            local pruned=$(echo $line | sed 's/.*pruned: \([0-9]*\).*/\1/')
+            local before=$(echo $line | sed 's/.*before: \([0-9]*\).*/\1/')
+            local after=$(echo $line | sed 's/.*after: \([0-9]*\).*/\1/')
+            printf "    Prune: %4d ms | Pruned: %6d nodes | Before: %6d | After: %6d\n" \
+                   "$pruneTime" "$pruned" "$before" "$after"
+        done
+    fi
+    
+    # Mode-specific timing (NORMAL or RESUME)
+    if grep -q "\[DEBUG-MODE\]" "$FILE" 2>/dev/null; then
+        echo ""
+        echo "  Indexing Mode:"
+        grep "\[DEBUG-MODE\]" "$FILE" | tail -1 | while read line; do
+            echo "    $line"
+        done
+    fi
+    
+    # Diff time
+    if grep -q "\[DEBUG-TIMING\].*Diff time:" "$FILE" 2>/dev/null; then
+        echo "  Diff Timing:"
+        grep "\[DEBUG-TIMING\].*Diff time:" "$FILE" | while read line; do
+            local diffTime=$(echo $line | sed 's/.*Diff time: \([0-9]*\)ms.*/\1/')
+            local mode=$(echo $line | sed 's/.*\[DEBUG-TIMING\] \([A-Z]*\) Diff.*/\1/')
+            printf "    %s Diff: %4d ms\n" "$mode" "$diffTime"
+        done
+    fi
+    
+    # Commit summary (flush + merge)
+    if grep -q "\[DEBUG-TIMING\].*COMMIT SUMMARY:" "$FILE" 2>/dev/null; then
+        echo "  Commit Timing Summary:"
+        grep "\[DEBUG-TIMING\].*COMMIT SUMMARY:" "$FILE" | while read line; do
+            local mode=$(echo $line | sed 's/.*\[DEBUG-TIMING\] \([A-Z]*\) COMMIT.*/\1/')
+            local flush=$(echo $line | sed 's/.*flush=\([0-9]*\)ms.*/\1/')
+            local merge=$(echo $line | sed 's/.*merge=\([0-9]*\)ms.*/\1/')
+            local total=$(echo $line | sed 's/.*TOTAL=\([0-9]*\)ms.*/\1/')
+            printf "    %s: flush=%4dms | merge=%4dms | TOTAL=%4dms\n" \
+                   "$mode" "$flush" "$merge" "$total"
         done
     fi
     
@@ -382,8 +437,8 @@ echo "---------|----------|----------|----------|--------|-----------|----------
 
 # Run scenarios
 for scenario in "${SCENARIOS[@]}"; do
-    read -r STORE NODES CHUNK MODE PATHTREE_TRAVERSAL <<< "$scenario"
-    run_single_scenario "$STORE" "$NODES" "$CHUNK" "$MODE" "$PATHTREE_TRAVERSAL"
+    read -r STORE NODES CHUNK RESUME PATHTREE_TRAVERSAL <<< "$scenario"
+    run_single_scenario "$STORE" "$NODES" "$CHUNK" "$RESUME" "$PATHTREE_TRAVERSAL"
 done
 
 echo ""
