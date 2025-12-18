@@ -400,6 +400,202 @@ public class PathTree {
         indexedNodes = 0;
     }
     
+    // ========== Slim Serialization (Unprocessed Nodes Only) ==========
+    
+    /**
+     * Serialize ONLY unprocessed/partial nodes to NodeBuilder.
+     * This is a major optimization - instead of serializing 30K nodes,
+     * we only serialize the ~10 nodes that are not fully processed.
+     * 
+     * The serialization format is a flat list of paths with their state.
+     */
+    public void serializeSlimTo(@NotNull NodeBuilder builder) {
+        builder.setProperty("totalNodes", totalNodes);
+        builder.setProperty("indexedNodes", indexedNodes);
+        builder.setProperty("fullyProcessedCount", getFullyProcessedCount());
+        
+        // Collect unprocessed paths
+        java.util.List<String> unprocessedPaths = new java.util.ArrayList<>();
+        java.util.List<Boolean> enterFlags = new java.util.ArrayList<>();
+        java.util.List<Boolean> leaveFlags = new java.util.ArrayList<>();
+        
+        collectUnprocessedPaths(root, "/", unprocessedPaths, enterFlags, leaveFlags);
+        
+        // Serialize as arrays
+        builder.setProperty("unprocessedPaths", unprocessedPaths, Type.STRINGS);
+        
+        // Convert boolean lists to string lists for Type.STRINGS
+        java.util.List<String> enterStrings = new java.util.ArrayList<>();
+        java.util.List<String> leaveStrings = new java.util.ArrayList<>();
+        for (int i = 0; i < enterFlags.size(); i++) {
+            enterStrings.add(enterFlags.get(i).toString());
+            leaveStrings.add(leaveFlags.get(i).toString());
+        }
+        builder.setProperty("enterFlags", enterStrings, Type.STRINGS);
+        builder.setProperty("leaveFlags", leaveStrings, Type.STRINGS);
+        
+        builder.setProperty("slimFormat", true);
+        builder.setProperty("unprocessedCount", unprocessedPaths.size());
+        
+        System.out.println("[DEBUG-PATHTREE-SLIM] Serialized " + unprocessedPaths.size() + 
+            " unprocessed paths (vs " + totalNodes + " total nodes)");
+    }
+    
+    private void collectUnprocessedPaths(PathNode node, String path, 
+            java.util.List<String> paths, 
+            java.util.List<Boolean> enterFlags,
+            java.util.List<Boolean> leaveFlags) {
+        
+        // Collect this node if it's not fully processed
+        if (!"/".equals(path) && !node.isFullyProcessed()) {
+            paths.add(path);
+            enterFlags.add(node.isEnterCompleted());
+            leaveFlags.add(node.isLeaveCompleted());
+        }
+        
+        // Recurse to children
+        for (Map.Entry<String, PathNode> entry : node.getChildren().entrySet()) {
+            String childPath = "/".equals(path) ? "/" + entry.getKey() : path + "/" + entry.getKey();
+            collectUnprocessedPaths(entry.getValue(), childPath, paths, enterFlags, leaveFlags);
+        }
+    }
+    
+    /**
+     * Deserialize from slim format (unprocessed nodes only).
+     * On resume, we recreate a minimal PathTree with:
+     * 1. All paths from root to unprocessed nodes (to maintain tree structure)
+     * 2. Mark ancestor paths as fully processed (since they must be done if we reached children)
+     */
+    @NotNull
+    public static PathTree deserializeSlimFrom(@NotNull NodeState state) {
+        PathTree tree = new PathTree();
+        
+        // Read counters
+        PropertyState totalProp = state.getProperty("totalNodes");
+        if (totalProp != null) {
+            tree.totalNodes = totalProp.getValue(Type.LONG).intValue();
+        }
+        
+        PropertyState indexedProp = state.getProperty("indexedNodes");
+        if (indexedProp != null) {
+            tree.indexedNodes = indexedProp.getValue(Type.LONG).intValue();
+        }
+        
+        // Read unprocessed paths
+        PropertyState pathsProp = state.getProperty("unprocessedPaths");
+        PropertyState enterProp = state.getProperty("enterFlags");
+        PropertyState leaveProp = state.getProperty("leaveFlags");
+        
+        if (pathsProp != null) {
+            Iterable<String> paths = pathsProp.getValue(Type.STRINGS);
+            Iterable<String> enters = enterProp != null ? enterProp.getValue(Type.STRINGS) : java.util.Collections.emptyList();
+            Iterable<String> leaves = leaveProp != null ? leaveProp.getValue(Type.STRINGS) : java.util.Collections.emptyList();
+            
+            java.util.Iterator<String> pathIt = paths.iterator();
+            java.util.Iterator<String> enterIt = enters.iterator();
+            java.util.Iterator<String> leaveIt = leaves.iterator();
+            
+            int loadedCount = 0;
+            while (pathIt.hasNext()) {
+                String path = pathIt.next();
+                boolean enterCompleted = enterIt.hasNext() && Boolean.parseBoolean(enterIt.next());
+                boolean leaveCompleted = leaveIt.hasNext() && Boolean.parseBoolean(leaveIt.next());
+                
+                // Create the path in the tree
+                PathNode node = tree.getOrCreateNode(path);
+                if (enterCompleted) {
+                    node.setEnterCompleted(true);
+                }
+                if (leaveCompleted) {
+                    node.setLeaveCompleted(true);
+                }
+                // Mark as indexed if either flag is set
+                if (enterCompleted || leaveCompleted) {
+                    node.setIndexed(true);
+                }
+                loadedCount++;
+            }
+            
+            System.out.println("[DEBUG-PATHTREE-SLIM] Loaded " + loadedCount + " unprocessed paths");
+        }
+        
+        return tree;
+    }
+    
+    /**
+     * Check if state contains slim format.
+     */
+    public static boolean isSlimFormat(@NotNull NodeState state) {
+        PropertyState slimProp = state.getProperty("slimFormat");
+        return slimProp != null && slimProp.getValue(Type.BOOLEAN);
+    }
+    
+    /**
+     * Deserialize from either slim or full format.
+     */
+    @NotNull
+    public static PathTree deserializeAuto(@NotNull NodeState state) {
+        if (isSlimFormat(state)) {
+            return deserializeSlimFrom(state);
+        } else {
+            return deserializeFrom(state);
+        }
+    }
+    
+    /**
+     * Get estimated serialized size in bytes.
+     * Slim format: ~50 bytes per unprocessed path
+     * Full format: ~50 bytes per node
+     */
+    public int getEstimatedSerializedSize(boolean slimFormat) {
+        if (slimFormat) {
+            return getNotFullyProcessedCount() * 80; // path string + flags
+        } else {
+            return totalNodes * 50; // all nodes
+        }
+    }
+    
+    /**
+     * Save PathTree to a file for analysis.
+     */
+    public void saveToFile(@NotNull String filePath) {
+        try (java.io.PrintWriter writer = new java.io.PrintWriter(filePath)) {
+            writer.println("{");
+            writer.println("  \"totalNodes\": " + totalNodes + ",");
+            writer.println("  \"indexedNodes\": " + indexedNodes + ",");
+            writer.println("  \"fullyProcessedCount\": " + getFullyProcessedCount() + ",");
+            writer.println("  \"notFullyProcessedCount\": " + getNotFullyProcessedCount() + ",");
+            writer.println("  \"unprocessedPaths\": [");
+            
+            java.util.List<String> unprocessedPaths = new java.util.ArrayList<>();
+            collectUnprocessedPathsOnly(root, "/", unprocessedPaths);
+            
+            for (int i = 0; i < unprocessedPaths.size(); i++) {
+                writer.print("    \"" + unprocessedPaths.get(i) + "\"");
+                if (i < unprocessedPaths.size() - 1) writer.print(",");
+                writer.println();
+            }
+            
+            writer.println("  ]");
+            writer.println("}");
+            
+            System.out.println("[DEBUG-PATHTREE] Saved PathTree to " + filePath + 
+                " (total=" + totalNodes + ", unprocessed=" + unprocessedPaths.size() + ")");
+        } catch (java.io.IOException e) {
+            System.err.println("[ERROR] Failed to save PathTree to file: " + e.getMessage());
+        }
+    }
+    
+    private void collectUnprocessedPathsOnly(PathNode node, String path, java.util.List<String> paths) {
+        if (!"/".equals(path) && !node.isFullyProcessed()) {
+            paths.add(path);
+        }
+        for (Map.Entry<String, PathNode> entry : node.getChildren().entrySet()) {
+            String childPath = "/".equals(path) ? "/" + entry.getKey() : path + "/" + entry.getKey();
+            collectUnprocessedPathsOnly(entry.getValue(), childPath, paths);
+        }
+    }
+    
     // ========== PathTree-Driven Traversal Support ==========
     
     /**

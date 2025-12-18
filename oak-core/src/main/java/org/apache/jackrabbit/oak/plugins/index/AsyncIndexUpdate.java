@@ -1108,18 +1108,25 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 // Load PathTree from persisted state
                 NodeState pathTreeState = resumeState.getChildNode("pathTree");
                 if (pathTreeState.exists()) {
-                    pathTree = PathTree.deserializeFrom(pathTreeState);
+                    // Use auto-detect to handle both slim and full formats
+                    boolean isSlimFormat = PathTree.isSlimFormat(pathTreeState);
+                    pathTree = PathTree.deserializeAuto(pathTreeState);
                     long pathTreeLoadTime = System.currentTimeMillis() - pathTreeLoadStartTime;
                     
-                    // Estimate serialized size by counting nodes
-                    pathTreeSerializedSize = pathTree.getTotalNodes() * 50; // Rough estimate: 50 bytes per node
+                    // Calculate sizes
                     int fullyProcessedCount = pathTree.getFullyProcessedCount();
+                    int notFullyProcessedCount = pathTree.getNotFullyProcessedCount();
+                    pathTreeSerializedSize = isSlimFormat ? 
+                        pathTree.getEstimatedSerializedSize(true) : 
+                        pathTree.getEstimatedSerializedSize(false);
                     
-                    log.info("[{}] Loaded PathTree from resume state: {} (load time: {}ms, estimated size: {} bytes)", 
-                        name, pathTree, pathTreeLoadTime, pathTreeSerializedSize);
-                    System.out.println("[DEBUG-PATHTREE] Load time: " + pathTreeLoadTime + "ms, nodes: " + 
-                        pathTree.getTotalNodes() + ", indexed: " + pathTree.getIndexedNodes() + 
+                    log.info("[{}] Loaded PathTree from resume state (format={}): {} (load time: {}ms, size: ~{} bytes)", 
+                        name, isSlimFormat ? "SLIM" : "FULL", pathTree, pathTreeLoadTime, pathTreeSerializedSize);
+                    System.out.println("[DEBUG-PATHTREE] Load time: " + pathTreeLoadTime + "ms, format: " + 
+                        (isSlimFormat ? "SLIM" : "FULL") + ", nodes: " + pathTree.getTotalNodes() + 
+                        ", indexed: " + pathTree.getIndexedNodes() + 
                         ", fullyProcessed: " + fullyProcessedCount +
+                        ", unprocessed: " + notFullyProcessedCount +
                         ", estimated size: " + pathTreeSerializedSize + " bytes");
                 } else {
                     pathTree = new PathTree();
@@ -1294,42 +1301,41 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 // Serialize PathTree for efficient resume
                 PathTree currentPathTree = resumeContext.getPathTree();
                 
-                // NOTE: Pruning is DISABLED during chunked indexing because:
-                // 1. Pruned nodes are no longer tracked in PathTree
-                // 2. In the next chunk, they appear as "new" and get re-indexed
-                // 3. This causes duplicate indexing and infinite loops
-                // TODO: Implement a separate "indexed set" if storage becomes a concern
-                int nodesBeforePrune = currentPathTree.getTotalNodes();
-                int prunedCount = 0;  // Disabled: currentPathTree.pruneFullyProcessedLeaves();
-                System.out.println("[DEBUG-PATHTREE] Pruning DISABLED during chunked indexing (nodes: " + nodesBeforePrune + ")");
+                int fullyProcessedCount = currentPathTree.getFullyProcessedCount();
+                int notFullyProcessedCount = currentPathTree.getNotFullyProcessedCount();
+                int totalNodes = currentPathTree.getTotalNodes();
+                
+                // Calculate estimated sizes for comparison
+                int fullSizeEstimate = currentPathTree.getEstimatedSerializedSize(false);
+                int slimSizeEstimate = currentPathTree.getEstimatedSerializedSize(true);
+                
+                // NOTE: Using FULL format for now because SLIM format breaks the skip optimization
+                // SLIM format: Only stores unprocessed paths (~5 nodes)
+                // FULL format: Stores all nodes (~30K nodes) but enables proper skipping
+                // TODO: Implement hybrid approach that stores enough state for skip optimization
+                boolean useSlimFormat = Boolean.getBoolean("oak.async.pathTreeSlimFormat");
                 
                 long serializeStartTime = System.currentTimeMillis();
-                currentPathTree.serializeTo(laneBuilder.child("pathTree"));
+                if (useSlimFormat) {
+                    currentPathTree.serializeSlimTo(laneBuilder.child("pathTree"));
+                } else {
+                    currentPathTree.serializeTo(laneBuilder.child("pathTree"));
+                }
                 long serializeTime = System.currentTimeMillis() - serializeStartTime;
                 
-                int fullyProcessedCount = currentPathTree.getFullyProcessedCount();
-                log.info("[{}] Saving PathTree: {} nodes total, {} indexed, {} fullyProcessed (serialize time: {}ms)", 
-                    name, currentPathTree.getTotalNodes(), currentPathTree.getIndexedNodes(), fullyProcessedCount, serializeTime);
-                System.out.println("[DEBUG-PATHTREE] Serialize time: " + serializeTime + "ms, nodes: " + 
-                    currentPathTree.getTotalNodes() + ", indexed: " + currentPathTree.getIndexedNodes() + 
-                    ", fullyProcessed: " + fullyProcessedCount);
+                log.info("[{}] Saving PathTree ({}): {} total nodes, {} fullyProcessed, {} unprocessed (serialize time: {}ms)", 
+                    name, useSlimFormat ? "SLIM" : "FULL", totalNodes, fullyProcessedCount, notFullyProcessedCount, serializeTime);
+                System.out.println("[DEBUG-PATHTREE] Serialize time: " + serializeTime + "ms (format: " + 
+                    (useSlimFormat ? "SLIM" : "FULL") + "), total: " + 
+                    totalNodes + ", fullyProcessed: " + fullyProcessedCount + 
+                    ", unprocessed: " + notFullyProcessedCount);
+                System.out.println("[DEBUG-PATHTREE-SIZE] Full: ~" + fullSizeEstimate + " bytes, " +
+                    "SLIM: ~" + slimSizeEstimate + " bytes (potential savings: " + 
+                    (fullSizeEstimate > 0 ? (100 - slimSizeEstimate * 100 / fullSizeEstimate) : 0) + "%)");
                 
-                // Also save PathTree to filesystem for debugging
-                try {
-                    java.io.File pathTreeFile = new java.io.File("pathtree_dump_" + System.currentTimeMillis() + ".json");
-                    try (java.io.PrintWriter writer = new java.io.PrintWriter(pathTreeFile)) {
-                        writer.println("{");
-                        writer.println("  \"totalNodes\": " + currentPathTree.getTotalNodes() + ",");
-                        writer.println("  \"indexedNodes\": " + currentPathTree.getIndexedNodes() + ",");
-                        writer.println("  \"fullyProcessed\": " + fullyProcessedCount + ",");
-                        writer.println("  \"lastPath\": \"" + chunkPath + "\",");
-                        writer.println("  \"serializeTimeMs\": " + serializeTime);
-                        writer.println("}");
-                    }
-                    System.out.println("[DEBUG-PATHTREE] Saved to file: " + pathTreeFile.getAbsolutePath());
-                } catch (Exception e) {
-                    log.warn("[{}] Failed to save PathTree to file: {}", name, e.getMessage());
-                }
+                // Save PathTree to filesystem for analysis
+                String pathTreeFileName = "pathtree_chunk_" + System.currentTimeMillis() + ".json";
+                currentPathTree.saveToFile(pathTreeFileName);
                 
                 store.merge(resumeBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
                 long saveStateTime = System.currentTimeMillis() - saveStateStartTime;

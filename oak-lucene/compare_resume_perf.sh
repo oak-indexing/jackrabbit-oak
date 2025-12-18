@@ -72,6 +72,12 @@ SCENARIOS=(
     
     # Resume mode - chunk-based (node count) with PathTree traversal
     "SEGMENT 10000 2000 0 true true"
+
+    # Example: 10K nodes, 2000 node chunks OR 5000ms chunks (whichever first)
+# ./compare_resume_perf.sh custom SEGMENT 10000 2000 5000 true true
+
+# Example: Time-only chunking (5 second chunks)
+# ./compare_resume_perf.sh custom SEGMENT 10000 0 5000 true true
     
     # Resume mode - time-based chunking (5 seconds per chunk)
     # "SEGMENT 10000 0 5000 true true"
@@ -82,6 +88,9 @@ SCENARIOS=(
     # Larger tests - uncomment to run
     # "SEGMENT 50000 0 0 false false"
     # "SEGMENT 50000 10000 0 true true"
+    
+    # Example: 2000 nodes OR 5000ms chunks
+# ./compare_resume_perf.sh custom SEGMENT 10000 2000 5000 true true
 )
 
 # JVM Configuration
@@ -254,16 +263,47 @@ print_stats_from_file() {
         done
     fi
     
-    # PathTree serialization times
+    # PathTree serialization times (including slim format)
     if grep -q "\[DEBUG-PATHTREE\] Serialize time:" "$FILE" 2>/dev/null; then
         echo "  PathTree Serialization:"
+        local chunk_num=0
         grep "\[DEBUG-PATHTREE\] Serialize time:" "$FILE" | while read line; do
+            chunk_num=$((chunk_num + 1))
             local serTime=$(echo $line | sed 's/.*Serialize time: \([0-9]*\)ms.*/\1/')
-            local nodes=$(echo $line | sed 's/.*nodes: \([0-9]*\).*/\1/')
-            local indexed=$(echo $line | sed 's/.*indexed: \([0-9]*\).*/\1/')
+            local total=$(echo $line | sed 's/.*total: \([0-9]*\).*/\1/')
             local fullyProcessed=$(echo $line | sed 's/.*fullyProcessed: \([0-9]*\).*/\1/')
-            printf "    Serialize: %4d ms | Nodes: %6d | Indexed: %6d | FullyProc: %6d\n" \
-                   "$serTime" "$nodes" "$indexed" "$fullyProcessed"
+            local unprocessed=$(echo $line | sed 's/.*unprocessed: \([0-9]*\).*/\1/')
+            printf "    Chunk %2d: Serialize: %4d ms | Total: %6d | FullyProc: %6d | Unproc: %4d\n" \
+                   "$chunk_num" "$serTime" "$total" "$fullyProcessed" "$unprocessed"
+        done
+    fi
+    
+    # PathTree slim serialization (unprocessed nodes only)
+    if grep -q "\[DEBUG-PATHTREE-SLIM\]" "$FILE" 2>/dev/null; then
+        echo "  PathTree SLIM Serialization (Optimization):"
+        local chunk_num=0
+        grep "\[DEBUG-PATHTREE-SLIM\]" "$FILE" | while read line; do
+            chunk_num=$((chunk_num + 1))
+            local unproc=$(echo $line | sed 's/.*Serialized \([0-9]*\) unprocessed.*/\1/')
+            local total=$(echo $line | sed 's/.*vs \([0-9]*\) total.*/\1/')
+            local savings="0"
+            if [ "$total" -gt 0 ] 2>/dev/null; then
+                savings=$(echo "scale=1; 100 - ($unproc * 100 / $total)" | bc 2>/dev/null || echo "N/A")
+            fi
+            printf "    Chunk %2d: Serialized %4d unprocessed paths (vs %6d total) -> %s%% savings\n" \
+                   "$chunk_num" "$unproc" "$total" "$savings"
+        done
+    fi
+    
+    # PathTree size comparison - just show the raw log lines
+    if grep -q "\[DEBUG-PATHTREE-SIZE\]" "$FILE" 2>/dev/null; then
+        echo "  PathTree Size (Full vs SLIM potential):"
+        local chunk_num=0
+        grep "\[DEBUG-PATHTREE-SIZE\]" "$FILE" | while read line; do
+            chunk_num=$((chunk_num + 1))
+            # Extract just the size info part
+            local sizeInfo=$(echo "$line" | sed 's/.*\[DEBUG-PATHTREE-SIZE\] //')
+            printf "    Chunk %2d: %s\n" "$chunk_num" "$sizeInfo"
         done
     fi
     
