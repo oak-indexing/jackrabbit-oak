@@ -49,6 +49,7 @@ import org.apache.jackrabbit.oak.commons.collections.SetUtils;
 import org.apache.jackrabbit.oak.plugins.index.IndexCommitCallback.IndexProgress;
 import org.apache.jackrabbit.oak.plugins.index.NodeTraversalCallback.PathSource;
 import org.apache.jackrabbit.oak.plugins.index.progress.IndexingProgressReporter;
+import org.apache.jackrabbit.oak.plugins.index.resume.PathTree;
 import org.apache.jackrabbit.oak.plugins.index.resume.ResumeContext;
 import org.apache.jackrabbit.oak.plugins.index.progress.NodeCountEstimator;
 import org.apache.jackrabbit.oak.plugins.index.progress.TraversalRateEstimator;
@@ -300,9 +301,16 @@ public class IndexUpdate implements Editor, PathSource {
         // Full initialization - needed for editors to be set up
         performFullInitialization(before, after);
         
-        // Mark enter completed in PathTree
+        // Mark enter completed in PathTree AND mark as indexed
+        // CRITICAL: We mark as indexed here because leave() may never be called
+        // if CHUNK_COMPLETE exception is thrown during traversal
         if (ctx != null) {
-            ctx.getPathTree().markEnterCompleted(getPath());
+            PathTree.PathNode node = ctx.getPathTree().getOrCreateNode(getPath());
+            node.setEnterCompleted(true);
+            // Also mark as indexed here - leave() may not be called due to chunking
+            if (!node.isIndexed()) {
+                node.setIndexed(true);
+            }
         }
     }
     
