@@ -113,6 +113,7 @@ run_single_scenario() {
     local CHUNK_TIME=${4:-0}  # Time-based chunking in milliseconds (default: 0 = disabled)
     local RESUME=${5:-false}
     local PATHTREE_TRAVERSAL=${6:-false}
+    local SLIM_FORMAT=${7:-false}  # Use frontier-based slim PathTree format
     
     local MODE="NORMAL"
     if [ "$RESUME" = "true" ]; then
@@ -129,12 +130,17 @@ run_single_scenario() {
         TIME_SUFFIX="_TIME${CHUNK_TIME}"
     fi
     
-    local SCENARIO_NAME="${STORE}_${NODES}_${MODE}${TRAVERSAL_SUFFIX}${TIME_SUFFIX}"
+    local SLIM_SUFFIX=""
+    if [ "$SLIM_FORMAT" = "true" ]; then
+        SLIM_SUFFIX="_SLIM"
+    fi
+    
+    local SCENARIO_NAME="${STORE}_${NODES}_${MODE}${TRAVERSAL_SUFFIX}${SLIM_SUFFIX}${TIME_SUFFIX}"
     
     echo "--------------------------------------------------------------------------------"
     echo "Running: Store=$STORE, Nodes=$NODES, Mode=$MODE"
     echo "         ChunkSize=$CHUNK nodes, ChunkTime=${CHUNK_TIME}ms"
-    echo "         Resume=$RESUME, PathTreeTraversal=$PATHTREE_TRAVERSAL"
+    echo "         Resume=$RESUME, PathTreeTraversal=$PATHTREE_TRAVERSAL, SlimFormat=$SLIM_FORMAT"
     echo "--------------------------------------------------------------------------------"
     
     # Run test using JUnit directly
@@ -146,6 +152,7 @@ run_single_scenario() {
          -Doak.async.chunkTimeMillis=$CHUNK_TIME \
          -Doak.async.resume=$RESUME \
          -Doak.async.usePathTreeTraversal=$PATHTREE_TRAVERSAL \
+         -Doak.async.pathTreeSlimFormat=$SLIM_FORMAT \
          -Djava.awt.headless=true \
          -cp "$CP" \
          org.junit.runner.JUnitCore \

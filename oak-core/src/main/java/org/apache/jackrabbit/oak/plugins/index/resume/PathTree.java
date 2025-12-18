@@ -264,8 +264,42 @@ public class PathTree {
     /**
      * Check if a path is fully processed (both enter and leave completed).
      * Only fully processed nodes can be safely skipped without NodeStore calls.
+     * 
+     * IMPORTANT: Also checks ancestors - if ANY ancestor is fully processed,
+     * then this path is also fully processed (the entire subtree was done).
+     * This is key for the frontier-based pruning optimization.
      */
     public boolean isFullyProcessed(@NotNull String path) {
+        return isFullyProcessedInternal(path, 0);
+    }
+    
+    private boolean isFullyProcessedInternal(String path, int depth) {
+        // Safety limit to prevent infinite recursion
+        if (depth > 100) {
+            return false;
+        }
+        
+        // Check if exact path is fully processed
+        PathNode node = getNode(path);
+        if (node != null && node.isFullyProcessed()) {
+            return true;
+        }
+        
+        // Check ancestors - if any ancestor is fully processed, so is this path
+        // This enables frontier-based storage: we only store the first fully-processed
+        // node in each subtree, and all descendants are implicitly fully processed
+        if (!"/".equals(path)) {
+            String parentPath = PathUtils.getParentPath(path);
+            return isFullyProcessedInternal(parentPath, depth + 1);
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Check if exact path is fully processed (no ancestor checking).
+     */
+    public boolean isExactPathFullyProcessed(@NotNull String path) {
         PathNode node = getNode(path);
         return node != null && node.isFullyProcessed();
     }
@@ -403,68 +437,105 @@ public class PathTree {
     // ========== Slim Serialization (Unprocessed Nodes Only) ==========
     
     /**
-     * Serialize ONLY unprocessed/partial nodes to NodeBuilder.
-     * This is a major optimization - instead of serializing 30K nodes,
-     * we only serialize the ~10 nodes that are not fully processed.
+     * Serialize using FRONTIER-BASED pruning to NodeBuilder.
      * 
-     * The serialization format is a flat list of paths with their state.
+     * Key optimization: We store:
+     * 1. All NOT fully processed nodes (the in-progress chain)
+     * 2. FRONTIER nodes: first-level fully processed children of in-progress nodes
+     * 
+     * With ancestor checking in isFullyProcessed(), storing a frontier node
+     * means all its descendants are implicitly fully processed.
+     * 
+     * Storage: O(chain_depth + frontier_size) instead of O(all_nodes)
      */
     public void serializeSlimTo(@NotNull NodeBuilder builder) {
         builder.setProperty("totalNodes", totalNodes);
         builder.setProperty("indexedNodes", indexedNodes);
         builder.setProperty("fullyProcessedCount", getFullyProcessedCount());
         
-        // Collect unprocessed paths
-        java.util.List<String> unprocessedPaths = new java.util.ArrayList<>();
-        java.util.List<Boolean> enterFlags = new java.util.ArrayList<>();
-        java.util.List<Boolean> leaveFlags = new java.util.ArrayList<>();
+        // Collect paths for serialization
+        java.util.List<String> paths = new java.util.ArrayList<>();
+        java.util.List<String> enterFlags = new java.util.ArrayList<>();
+        java.util.List<String> leaveFlags = new java.util.ArrayList<>();
+        java.util.List<String> frontierFlags = new java.util.ArrayList<>(); // Mark frontier nodes
         
-        collectUnprocessedPaths(root, "/", unprocessedPaths, enterFlags, leaveFlags);
+        collectFrontierPaths(root, "/", paths, enterFlags, leaveFlags, frontierFlags);
         
         // Serialize as arrays
-        builder.setProperty("unprocessedPaths", unprocessedPaths, Type.STRINGS);
-        
-        // Convert boolean lists to string lists for Type.STRINGS
-        java.util.List<String> enterStrings = new java.util.ArrayList<>();
-        java.util.List<String> leaveStrings = new java.util.ArrayList<>();
-        for (int i = 0; i < enterFlags.size(); i++) {
-            enterStrings.add(enterFlags.get(i).toString());
-            leaveStrings.add(leaveFlags.get(i).toString());
-        }
-        builder.setProperty("enterFlags", enterStrings, Type.STRINGS);
-        builder.setProperty("leaveFlags", leaveStrings, Type.STRINGS);
+        builder.setProperty("paths", paths, Type.STRINGS);
+        builder.setProperty("enterFlags", enterFlags, Type.STRINGS);
+        builder.setProperty("leaveFlags", leaveFlags, Type.STRINGS);
+        builder.setProperty("frontierFlags", frontierFlags, Type.STRINGS);
         
         builder.setProperty("slimFormat", true);
-        builder.setProperty("unprocessedCount", unprocessedPaths.size());
+        builder.setProperty("frontierFormat", true); // New flag to indicate frontier format
+        builder.setProperty("pathCount", paths.size());
         
-        System.out.println("[DEBUG-PATHTREE-SLIM] Serialized " + unprocessedPaths.size() + 
-            " unprocessed paths (vs " + totalNodes + " total nodes)");
-    }
-    
-    private void collectUnprocessedPaths(PathNode node, String path, 
-            java.util.List<String> paths, 
-            java.util.List<Boolean> enterFlags,
-            java.util.List<Boolean> leaveFlags) {
-        
-        // Collect this node if it's not fully processed
-        if (!"/".equals(path) && !node.isFullyProcessed()) {
-            paths.add(path);
-            enterFlags.add(node.isEnterCompleted());
-            leaveFlags.add(node.isLeaveCompleted());
+        // Count frontier vs in-progress
+        int frontierCount = 0;
+        int inProgressCount = 0;
+        for (String flag : frontierFlags) {
+            if ("true".equals(flag)) frontierCount++;
+            else inProgressCount++;
         }
         
-        // Recurse to children
-        for (Map.Entry<String, PathNode> entry : node.getChildren().entrySet()) {
-            String childPath = "/".equals(path) ? "/" + entry.getKey() : path + "/" + entry.getKey();
-            collectUnprocessedPaths(entry.getValue(), childPath, paths, enterFlags, leaveFlags);
+        System.out.println("[DEBUG-PATHTREE-FRONTIER] Serialized " + paths.size() + 
+            " paths (frontier=" + frontierCount + ", inProgress=" + inProgressCount +
+            ") vs " + totalNodes + " total nodes (savings: " + 
+            (totalNodes > 0 ? (100 - paths.size() * 100 / totalNodes) : 0) + "%)");
+    }
+    
+    /**
+     * Collect paths for frontier-based serialization:
+     * - NOT fully processed nodes (in-progress chain)
+     * - FRONTIER: fully processed children of NOT fully processed parents
+     */
+    private void collectFrontierPaths(PathNode node, String path, 
+            java.util.List<String> paths, 
+            java.util.List<String> enterFlags,
+            java.util.List<String> leaveFlags,
+            java.util.List<String> frontierFlags) {
+        
+        boolean nodeIsFullyProcessed = node.isFullyProcessed();
+        boolean parentIsFullyProcessed = false;
+        
+        // Check if parent is fully processed (for frontier detection)
+        if (!"/".equals(path)) {
+            String parentPath = PathUtils.getParentPath(path);
+            PathNode parentNode = getNode(parentPath);
+            parentIsFullyProcessed = (parentNode != null && parentNode.isFullyProcessed());
+        }
+        
+        // Determine if this node should be stored
+        boolean isFrontier = nodeIsFullyProcessed && !parentIsFullyProcessed && !"/".equals(path);
+        boolean isInProgress = !nodeIsFullyProcessed && !"/".equals(path);
+        
+        if (isFrontier || isInProgress) {
+            paths.add(path);
+            enterFlags.add(String.valueOf(node.isEnterCompleted()));
+            leaveFlags.add(String.valueOf(node.isLeaveCompleted()));
+            frontierFlags.add(String.valueOf(isFrontier));
+        }
+        
+        // If this node is fully processed, DON'T recurse to children
+        // (they're all implicitly fully processed via ancestor check)
+        // Only recurse if NOT fully processed
+        if (!nodeIsFullyProcessed) {
+            for (Map.Entry<String, PathNode> entry : node.getChildren().entrySet()) {
+                String childPath = "/".equals(path) ? "/" + entry.getKey() : path + "/" + entry.getKey();
+                collectFrontierPaths(entry.getValue(), childPath, paths, enterFlags, leaveFlags, frontierFlags);
+            }
         }
     }
     
     /**
-     * Deserialize from slim format (unprocessed nodes only).
-     * On resume, we recreate a minimal PathTree with:
-     * 1. All paths from root to unprocessed nodes (to maintain tree structure)
-     * 2. Mark ancestor paths as fully processed (since they must be done if we reached children)
+     * Deserialize from frontier format.
+     * 
+     * The frontier format stores:
+     * - In-progress nodes (not fully processed)
+     * - Frontier nodes (fully processed children of in-progress parents)
+     * 
+     * On resume, frontier nodes enable skip optimization via ancestor checking.
      */
     @NotNull
     public static PathTree deserializeSlimFrom(@NotNull NodeState state) {
@@ -481,42 +552,86 @@ public class PathTree {
             tree.indexedNodes = indexedProp.getValue(Type.LONG).intValue();
         }
         
-        // Read unprocessed paths
-        PropertyState pathsProp = state.getProperty("unprocessedPaths");
-        PropertyState enterProp = state.getProperty("enterFlags");
-        PropertyState leaveProp = state.getProperty("leaveFlags");
+        // Check for frontier format (new) vs legacy unprocessedPaths format
+        PropertyState frontierProp = state.getProperty("frontierFormat");
+        boolean isFrontierFormat = frontierProp != null && frontierProp.getValue(Type.BOOLEAN);
         
-        if (pathsProp != null) {
-            Iterable<String> paths = pathsProp.getValue(Type.STRINGS);
-            Iterable<String> enters = enterProp != null ? enterProp.getValue(Type.STRINGS) : java.util.Collections.emptyList();
-            Iterable<String> leaves = leaveProp != null ? leaveProp.getValue(Type.STRINGS) : java.util.Collections.emptyList();
+        if (isFrontierFormat) {
+            // New frontier format
+            PropertyState pathsProp = state.getProperty("paths");
+            PropertyState enterProp = state.getProperty("enterFlags");
+            PropertyState leaveProp = state.getProperty("leaveFlags");
+            PropertyState frontierFlagsProp = state.getProperty("frontierFlags");
             
-            java.util.Iterator<String> pathIt = paths.iterator();
-            java.util.Iterator<String> enterIt = enters.iterator();
-            java.util.Iterator<String> leaveIt = leaves.iterator();
-            
-            int loadedCount = 0;
-            while (pathIt.hasNext()) {
-                String path = pathIt.next();
-                boolean enterCompleted = enterIt.hasNext() && Boolean.parseBoolean(enterIt.next());
-                boolean leaveCompleted = leaveIt.hasNext() && Boolean.parseBoolean(leaveIt.next());
+            if (pathsProp != null) {
+                Iterable<String> paths = pathsProp.getValue(Type.STRINGS);
+                Iterable<String> enters = enterProp != null ? enterProp.getValue(Type.STRINGS) : java.util.Collections.emptyList();
+                Iterable<String> leaves = leaveProp != null ? leaveProp.getValue(Type.STRINGS) : java.util.Collections.emptyList();
+                Iterable<String> frontiers = frontierFlagsProp != null ? frontierFlagsProp.getValue(Type.STRINGS) : java.util.Collections.emptyList();
                 
-                // Create the path in the tree
-                PathNode node = tree.getOrCreateNode(path);
-                if (enterCompleted) {
-                    node.setEnterCompleted(true);
+                java.util.Iterator<String> pathIt = paths.iterator();
+                java.util.Iterator<String> enterIt = enters.iterator();
+                java.util.Iterator<String> leaveIt = leaves.iterator();
+                java.util.Iterator<String> frontierIt = frontiers.iterator();
+                
+                int frontierCount = 0;
+                int inProgressCount = 0;
+                
+                while (pathIt.hasNext()) {
+                    String path = pathIt.next();
+                    boolean enterCompleted = enterIt.hasNext() && Boolean.parseBoolean(enterIt.next());
+                    boolean leaveCompleted = leaveIt.hasNext() && Boolean.parseBoolean(leaveIt.next());
+                    boolean isFrontier = frontierIt.hasNext() && Boolean.parseBoolean(frontierIt.next());
+                    
+                    // Create the path in the tree
+                    PathNode node = tree.getOrCreateNode(path);
+                    node.setEnterCompleted(enterCompleted);
+                    node.setLeaveCompleted(leaveCompleted);
+                    
+                    // Frontier nodes are fully processed
+                    if (isFrontier) {
+                        node.setIndexed(true);
+                        frontierCount++;
+                    } else {
+                        inProgressCount++;
+                    }
                 }
-                if (leaveCompleted) {
-                    node.setLeaveCompleted(true);
-                }
-                // Mark as indexed if either flag is set
-                if (enterCompleted || leaveCompleted) {
-                    node.setIndexed(true);
-                }
-                loadedCount++;
+                
+                System.out.println("[DEBUG-PATHTREE-FRONTIER] Loaded " + (frontierCount + inProgressCount) + 
+                    " paths (frontier=" + frontierCount + ", inProgress=" + inProgressCount + ")");
             }
+        } else {
+            // Legacy unprocessedPaths format (for backwards compatibility)
+            PropertyState pathsProp = state.getProperty("unprocessedPaths");
+            PropertyState enterProp = state.getProperty("enterFlags");
+            PropertyState leaveProp = state.getProperty("leaveFlags");
             
-            System.out.println("[DEBUG-PATHTREE-SLIM] Loaded " + loadedCount + " unprocessed paths");
+            if (pathsProp != null) {
+                Iterable<String> paths = pathsProp.getValue(Type.STRINGS);
+                Iterable<String> enters = enterProp != null ? enterProp.getValue(Type.STRINGS) : java.util.Collections.emptyList();
+                Iterable<String> leaves = leaveProp != null ? leaveProp.getValue(Type.STRINGS) : java.util.Collections.emptyList();
+                
+                java.util.Iterator<String> pathIt = paths.iterator();
+                java.util.Iterator<String> enterIt = enters.iterator();
+                java.util.Iterator<String> leaveIt = leaves.iterator();
+                
+                int loadedCount = 0;
+                while (pathIt.hasNext()) {
+                    String path = pathIt.next();
+                    boolean enterCompleted = enterIt.hasNext() && Boolean.parseBoolean(enterIt.next());
+                    boolean leaveCompleted = leaveIt.hasNext() && Boolean.parseBoolean(leaveIt.next());
+                    
+                    PathNode node = tree.getOrCreateNode(path);
+                    node.setEnterCompleted(enterCompleted);
+                    node.setLeaveCompleted(leaveCompleted);
+                    if (enterCompleted || leaveCompleted) {
+                        node.setIndexed(true);
+                    }
+                    loadedCount++;
+                }
+                
+                System.out.println("[DEBUG-PATHTREE-SLIM] Loaded " + loadedCount + " unprocessed paths (legacy format)");
+            }
         }
         
         return tree;
