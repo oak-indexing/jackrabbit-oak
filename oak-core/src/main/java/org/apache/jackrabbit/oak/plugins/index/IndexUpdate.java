@@ -305,12 +305,11 @@ public class IndexUpdate implements Editor, PathSource {
         // CRITICAL: We mark as indexed here because leave() may never be called
         // if CHUNK_COMPLETE exception is thrown during traversal
         if (ctx != null) {
-            PathTree.PathNode node = ctx.getPathTree().getOrCreateNode(getPath());
-            node.setEnterCompleted(true);
+            PathTree pathTree = ctx.getPathTree();
+            pathTree.markEnterCompleted(getPath());
             // Also mark as indexed here - leave() may not be called due to chunking
-            if (!node.isIndexed()) {
-                node.setIndexed(true);
-            }
+            // Use the PathTree method to properly increment the counter
+            pathTree.markIndexed(getPath());
         }
     }
     
