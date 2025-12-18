@@ -1221,6 +1221,8 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             // Log PathTree traversal statistics
             if (usePathTreeTraversal) {
                 System.out.println("[DEBUG-PATHTREE-TRAVERSAL] " + PathTreeEditorDiff.getStats());
+                System.out.println("[DEBUG-PATHTREE-TIMING] " + PathTreeEditorDiff.getTimingStats());
+                System.out.println("[DEBUG-PATHTREE-TIMING] SegmentStore I/O time: " + PathTreeEditorDiff.getSegmentStoreReadTimeMs() + "ms (this is the expensive part!)");
             }
             
             // Log resume timing

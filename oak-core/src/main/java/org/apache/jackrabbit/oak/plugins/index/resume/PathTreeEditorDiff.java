@@ -27,6 +27,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState.MISSING_NODE;
 
@@ -51,6 +52,11 @@ public class PathTreeEditorDiff {
     private static final AtomicInteger segmentStoreChildLookups = new AtomicInteger(0);
     private static final AtomicInteger skippedGetChildCalls = new AtomicInteger(0);
     
+    // Timing counters (in nanoseconds)
+    private static final AtomicLong segmentStoreReadTimeNanos = new AtomicLong(0);
+    private static final AtomicLong pathTreeLookupTimeNanos = new AtomicLong(0);
+    private static final AtomicLong editorCallbackTimeNanos = new AtomicLong(0);
+    
     /**
      * Reset traversal statistics (call before each diff).
      */
@@ -60,6 +66,9 @@ public class PathTreeEditorDiff {
         pathTreeChildLookups.set(0);
         segmentStoreChildLookups.set(0);
         skippedGetChildCalls.set(0);
+        segmentStoreReadTimeNanos.set(0);
+        pathTreeLookupTimeNanos.set(0);
+        editorCallbackTimeNanos.set(0);
     }
     
     /**
@@ -71,6 +80,20 @@ public class PathTreeEditorDiff {
                ", pathTreeChildLookups=" + pathTreeChildLookups.get() +
                ", segmentStoreChildLookups=" + segmentStoreChildLookups.get() +
                ", skippedGetChildCalls=" + skippedGetChildCalls.get();
+    }
+    
+    /**
+     * Get detailed timing statistics.
+     */
+    public static String getTimingStats() {
+        return String.format("segmentStoreReadTime=%.2fms, pathTreeLookupTime=%.2fms, editorCallbackTime=%.2fms",
+            segmentStoreReadTimeNanos.get() / 1_000_000.0,
+            pathTreeLookupTimeNanos.get() / 1_000_000.0,
+            editorCallbackTimeNanos.get() / 1_000_000.0);
+    }
+    
+    public static long getSegmentStoreReadTimeMs() {
+        return segmentStoreReadTimeNanos.get() / 1_000_000;
     }
     
     public static int getPathTreeTraversals() {
@@ -111,8 +134,11 @@ public class PathTreeEditorDiff {
         
         try {
             // Check if we can traverse from PathTree (fully processed)
+            // This PathTree lookup is very fast compared to SegmentStore
+            long lookupStart = System.nanoTime();
             boolean usePathTree = pathTree.canTraverseFromPathTree(path);
             boolean isFullyProcessed = pathTree.isFullyProcessed(path);
+            pathTreeLookupTimeNanos.addAndGet(System.nanoTime() - lookupStart);
             
             if (usePathTree) {
                 pathTreeTraversals.incrementAndGet();
@@ -121,15 +147,19 @@ public class PathTreeEditorDiff {
             }
             
             // Call enter - this will skip in IndexUpdate if fully processed
+            long callbackStart = System.nanoTime();
             editor.enter(before, after);
+            editorCallbackTimeNanos.addAndGet(System.nanoTime() - callbackStart);
             
             // OPTIMIZATION: If this entire subtree is fully processed, we can skip
-            // all children because IndexUpdate will skip them anyway
+            // all properties and children entirely - just call enter/leave
             if (!isFullyProcessed) {
                 // Not fully processed - need to process properties and children
                 
-                // Process properties from after state
-                if (!usePathTree) {
+                // Process properties from after state (only if not fully processed)
+                // This involves SegmentStore reads for property values
+                if (!usePathTree && before != MISSING_NODE && after != MISSING_NODE) {
+                    long propStart = System.nanoTime();
                     for (PropertyState afterProp : after.getProperties()) {
                         PropertyState beforeProp = before.getProperty(afterProp.getName());
                         if (beforeProp == null) {
@@ -145,6 +175,7 @@ public class PathTreeEditorDiff {
                             editor.propertyDeleted(beforeProp);
                         }
                     }
+                    segmentStoreReadTimeNanos.addAndGet(System.nanoTime() - propStart);
                 }
                 
                 // Process child nodes
@@ -157,7 +188,7 @@ public class PathTreeEditorDiff {
             } else {
                 // Fully processed - recursively process children from PathTree only
                 // This allows IndexUpdate to call enter/leave on all nodes (for skip tracking)
-                // but avoids any SegmentStore access
+                // but avoids ANY SegmentStore access - key performance optimization!
                 CommitFailedException childException = processFullyProcessedChildren(
                     editor, pathTree, path);
                 
@@ -167,7 +198,9 @@ public class PathTreeEditorDiff {
             }
             
             // Call leave - this will skip in IndexUpdate if fully processed
+            callbackStart = System.nanoTime();
             editor.leave(before, after);
+            editorCallbackTimeNanos.addAndGet(System.nanoTime() - callbackStart);
             
             return null;
             
@@ -237,26 +270,35 @@ public class PathTreeEditorDiff {
         for (String childName : childNames) {
             String childPath = parentPath.equals("/") ? "/" + childName : parentPath + "/" + childName;
             
-            // OPTIMIZATION: For fully processed children, avoid SegmentStore calls entirely
+            // CRITICAL OPTIMIZATION: Check PathTree FIRST, BEFORE any SegmentStore calls!
+            // This is the key to avoiding expensive I/O for fully-processed nodes.
+            long lookupStart = System.nanoTime();
             boolean childFullyProcessed = pathTree.isFullyProcessed(childPath);
+            pathTreeLookupTimeNanos.addAndGet(System.nanoTime() - lookupStart);
             
-            if (childFullyProcessed && usePathTree) {
+            if (childFullyProcessed) {
                 // Child is fully processed - use dummy NodeStates to avoid SegmentStore
                 // The editor will skip processing anyway due to PathTree skip logic
-                LOG.trace("[PathTreeDiff] Child {} fully processed - using dummy NodeStates", childPath);
+                LOG.trace("[PathTreeDiff] Child {} fully processed - SKIPPING SegmentStore entirely", childPath);
                 skippedGetChildCalls.addAndGet(2); // Saved 2 getChildNode calls (before + after)
                 
                 // Call childNodeChanged with dummy states - editor will skip
+                long callbackStart = System.nanoTime();
                 Editor childEditor = editor.childNodeChanged(childName, MISSING_NODE, MISSING_NODE);
+                editorCallbackTimeNanos.addAndGet(System.nanoTime() - callbackStart);
+                
                 if (childEditor != null) {
                     CommitFailedException e = processPath(
                         childEditor, pathTree, childPath, MISSING_NODE, MISSING_NODE);
                     if (e != null) return e;
                 }
             } else {
-                // Child not fully processed - need to read from SegmentStore
+                // Child NOT fully processed - need to read from SegmentStore
+                // This is the expensive path that we want to minimize
+                long readStart = System.nanoTime();
                 NodeState beforeChild = before.getChildNode(childName);
                 NodeState afterChild = after.getChildNode(childName);
+                segmentStoreReadTimeNanos.addAndGet(System.nanoTime() - readStart);
                 
                 // Determine if this is add, change, or exists in both
                 boolean beforeExists = beforeChild.exists();
@@ -264,7 +306,10 @@ public class PathTreeEditorDiff {
                 
                 if (!beforeExists && afterExists) {
                     // Child added
+                    long callbackStart = System.nanoTime();
                     Editor childEditor = editor.childNodeAdded(childName, afterChild);
+                    editorCallbackTimeNanos.addAndGet(System.nanoTime() - callbackStart);
+                    
                     if (childEditor != null) {
                         CommitFailedException e = processPath(
                             childEditor, pathTree, childPath, MISSING_NODE, afterChild);
@@ -272,7 +317,10 @@ public class PathTreeEditorDiff {
                     }
                 } else if (beforeExists && afterExists) {
                     // Child changed (or unchanged - editor decides)
+                    long callbackStart = System.nanoTime();
                     Editor childEditor = editor.childNodeChanged(childName, beforeChild, afterChild);
+                    editorCallbackTimeNanos.addAndGet(System.nanoTime() - callbackStart);
+                    
                     if (childEditor != null) {
                         CommitFailedException e = processPath(
                             childEditor, pathTree, childPath, beforeChild, afterChild);
@@ -280,7 +328,10 @@ public class PathTreeEditorDiff {
                     }
                 } else if (beforeExists && !afterExists) {
                     // Child deleted
+                    long callbackStart = System.nanoTime();
                     Editor childEditor = editor.childNodeDeleted(childName, beforeChild);
+                    editorCallbackTimeNanos.addAndGet(System.nanoTime() - callbackStart);
+                    
                     if (childEditor != null) {
                         CommitFailedException e = processPath(
                             childEditor, pathTree, childPath, beforeChild, MISSING_NODE);

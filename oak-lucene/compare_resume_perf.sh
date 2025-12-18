@@ -4,7 +4,7 @@
 # RESUMABLE INDEXING PERFORMANCE TEST SCRIPT
 # ===============================================================================
 #
-# This script tests resumable indexing with chunk-size-based commits.
+# This script tests resumable indexing with chunk-size-based and/or time-based commits.
 # Each AsyncIndexUpdate.run() processes one chunk, commits it, saves resume state,
 # and exits. Next run() resumes from the saved position.
 #
@@ -14,6 +14,24 @@
 #
 #   chmod +x compare_resume_perf.sh
 #   ./compare_resume_perf.sh
+#
+# Custom runs with time-based chunking:
+#   # 10K nodes, 5 second chunks (time-based only)
+#   ./compare_resume_perf.sh custom SEGMENT 10000 0 5000 true true
+#   
+#   # 10K nodes, 2000 node chunks OR 3 second chunks (whichever comes first)
+#   ./compare_resume_perf.sh custom SEGMENT 10000 2000 3000 true true
+#   
+#   # Normal mode (no chunking)
+#   ./compare_resume_perf.sh custom SEGMENT 10000 0 0 false false
+#
+# Parameters for custom mode:
+#   STORE       - "SEGMENT" or "DOCUMENT"
+#   NODES       - Number of test nodes to create
+#   CHUNK_SIZE  - Nodes per chunk (0 = disabled)
+#   CHUNK_TIME  - Milliseconds per chunk (0 = disabled)
+#   RESUME      - "true" or "false"
+#   PT_TRAVERSAL- "true" or "false" (use PathTree traversal)
 #
 # Results saved to:
 #   - perf_resume_results.txt           (raw output)
@@ -43,22 +61,27 @@ cd oak-lucene
 echo "Compilation complete."
 echo ""
 
-# Test Scenarios: "STORE NODES CHUNK_SIZE RESUME PT_TRAVERSAL"
+# Test Scenarios: "STORE NODES CHUNK_SIZE CHUNK_TIME_MS RESUME PT_TRAVERSAL"
+# CHUNK_SIZE: Number of nodes per chunk (0 = disabled)
+# CHUNK_TIME_MS: Milliseconds per chunk (0 = disabled)
 # RESUME: "false" (traditional indexing) or "true" (resume/chunked indexing)
 # PT_TRAVERSAL: "false" (standard EditorDiff) or "true" (use PathTree for traversal)
 SCENARIOS=(
     # Normal mode - traditional indexing (no chunking, no resume)
-    "SEGMENT 10000 0 false false"
+    "SEGMENT 10000 0 0 false false"
     
-    # Resume mode - chunk-based with PathTree traversal
-    "SEGMENT 10000 2000 true true"
+    # Resume mode - chunk-based (node count) with PathTree traversal
+    "SEGMENT 10000 2000 0 true true"
     
-    # Optional: Add time-based chunking (chunkTimeMs)
-    # Note: Enable by setting oak.async.chunkTimeMs in JVM_CONFIG
+    # Resume mode - time-based chunking (5 seconds per chunk)
+    # "SEGMENT 10000 0 5000 true true"
+    
+    # Resume mode - both size and time (whichever comes first)
+    # "SEGMENT 10000 2000 5000 true true"
     
     # Larger tests - uncomment to run
-    # "SEGMENT 50000 0 false false"
-    # "SEGMENT 50000 10000 true true"
+    # "SEGMENT 50000 0 0 false false"
+    # "SEGMENT 50000 10000 0 true true"
 )
 
 # JVM Configuration
@@ -78,8 +101,9 @@ run_single_scenario() {
     local STORE=$1
     local NODES=$2
     local CHUNK=$3
-    local RESUME=$4
-    local PATHTREE_TRAVERSAL=$5
+    local CHUNK_TIME=${4:-0}  # Time-based chunking in milliseconds (default: 0 = disabled)
+    local RESUME=${5:-false}
+    local PATHTREE_TRAVERSAL=${6:-false}
     
     local MODE="NORMAL"
     if [ "$RESUME" = "true" ]; then
@@ -90,10 +114,17 @@ run_single_scenario() {
     if [ "$PATHTREE_TRAVERSAL" = "true" ]; then
         TRAVERSAL_SUFFIX="_PTTRAVERSAL"
     fi
-    local SCENARIO_NAME="${STORE}_${NODES}_${MODE}${TRAVERSAL_SUFFIX}"
+    
+    local TIME_SUFFIX=""
+    if [ "$CHUNK_TIME" -gt 0 ]; then
+        TIME_SUFFIX="_TIME${CHUNK_TIME}"
+    fi
+    
+    local SCENARIO_NAME="${STORE}_${NODES}_${MODE}${TRAVERSAL_SUFFIX}${TIME_SUFFIX}"
     
     echo "--------------------------------------------------------------------------------"
-    echo "Running: Store=$STORE, Nodes=$NODES, Mode=$MODE, ChunkSize=$CHUNK"
+    echo "Running: Store=$STORE, Nodes=$NODES, Mode=$MODE"
+    echo "         ChunkSize=$CHUNK nodes, ChunkTime=${CHUNK_TIME}ms"
     echo "         Resume=$RESUME, PathTreeTraversal=$PATHTREE_TRAVERSAL"
     echo "--------------------------------------------------------------------------------"
     
@@ -103,6 +134,7 @@ run_single_scenario() {
          -Dperf.nodeCount=$NODES \
          -Dperf.chunkSize=$CHUNK \
          -Doak.async.chunkSize=$CHUNK \
+         -Doak.async.chunkTimeMillis=$CHUNK_TIME \
          -Doak.async.resume=$RESUME \
          -Doak.async.usePathTreeTraversal=$PATHTREE_TRAVERSAL \
          -Djava.awt.headless=true \
@@ -381,6 +413,27 @@ print_stats_from_file() {
             echo ""
             echo "    *** Final Traversal: $lastPtTrav from PathTree, $lastSsTrav from SegmentStore ($lastPct% optimization) ***"
         fi
+        
+        # PathTree timing breakdown
+        if grep -q "\[DEBUG-PATHTREE-TIMING\]" "$FILE" 2>/dev/null; then
+            echo ""
+            echo "  PathTree Timing Breakdown:"
+            echo "  -------------------------"
+            grep "\[DEBUG-PATHTREE-TIMING\]" "$FILE" | head -5 | while read line; do
+                echo "    $line" | sed 's/.*\[DEBUG-PATHTREE-TIMING\] //'
+            done
+            
+            # Show SegmentStore I/O times
+            local ss_times=$(grep "SegmentStore I/O time:" "$FILE" | sed 's/.*SegmentStore I/O time: \([0-9]*\)ms.*/\1/' | tail -5)
+            if [ -n "$ss_times" ]; then
+                echo "  SegmentStore I/O (per chunk):"
+                local idx=0
+                for t in $ss_times; do
+                    idx=$((idx + 1))
+                    printf "    Chunk %2d: %4d ms\n" "$idx" "$t"
+                done
+            fi
+        fi
     fi
     
     # Chunk commit timing
@@ -426,19 +479,52 @@ print_stats_from_file() {
 }
 
 # Print header
+# Check for custom mode
+if [ "$1" = "custom" ]; then
+    # Custom single scenario mode
+    if [ $# -lt 7 ]; then
+        echo "Usage: $0 custom STORE NODES CHUNK_SIZE CHUNK_TIME_MS RESUME PT_TRAVERSAL"
+        echo ""
+        echo "Example: $0 custom SEGMENT 10000 2000 5000 true true"
+        echo "         (2000 nodes OR 5 seconds per chunk, whichever first)"
+        exit 1
+    fi
+    
+    STORE="$2"
+    NODES="$3"
+    CHUNK="$4"
+    CHUNK_TIME="$5"
+    RESUME="$6"
+    PATHTREE_TRAVERSAL="$7"
+    
+    echo ""
+    echo "================================================================================"
+    echo "CUSTOM RUN"
+    echo "================================================================================"
+    echo ""
+    
+    run_single_scenario "$STORE" "$NODES" "$CHUNK" "$CHUNK_TIME" "$RESUME" "$PATHTREE_TRAVERSAL"
+    
+    echo ""
+    echo "================================================================================"
+    echo "TEST COMPLETE"
+    echo "================================================================================"
+    exit 0
+fi
+
 echo ""
 echo "================================================================================"
 echo "RESULTS"
 echo "================================================================================"
 echo ""
-printf "%-8s | %-8s | %-8s | %-8s | %-6s | %9s | %10s | %10s | %-5s\n" \
-       "Store" "Nodes" "Mode" "Chunk" "PTTrav" "Time(s)" "Throughput" "Verified" "Runs" | tee -a "$SUMMARY_FILE"
-echo "---------|----------|----------|----------|--------|-----------|------------|------------|-------" | tee -a "$SUMMARY_FILE"
+printf "%-8s | %-8s | %-8s | %-8s | %-8s | %-6s | %9s | %10s | %10s | %-5s\n" \
+       "Store" "Nodes" "Mode" "Chunk" "ChunkMs" "PTTrav" "Time(s)" "Throughput" "Verified" "Runs" | tee -a "$SUMMARY_FILE"
+echo "---------|----------|----------|----------|----------|--------|-----------|------------|------------|-------" | tee -a "$SUMMARY_FILE"
 
 # Run scenarios
 for scenario in "${SCENARIOS[@]}"; do
-    read -r STORE NODES CHUNK RESUME PATHTREE_TRAVERSAL <<< "$scenario"
-    run_single_scenario "$STORE" "$NODES" "$CHUNK" "$RESUME" "$PATHTREE_TRAVERSAL"
+    read -r STORE NODES CHUNK CHUNK_TIME RESUME PATHTREE_TRAVERSAL <<< "$scenario"
+    run_single_scenario "$STORE" "$NODES" "$CHUNK" "$CHUNK_TIME" "$RESUME" "$PATHTREE_TRAVERSAL"
 done
 
 echo ""
