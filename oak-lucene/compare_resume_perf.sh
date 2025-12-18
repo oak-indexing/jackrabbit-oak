@@ -43,16 +43,19 @@ cd oak-lucene
 echo "Compilation complete."
 echo ""
 
-# Test Scenarios: "STORE NODES CHUNK_SIZE MODE"
+# Test Scenarios: "STORE NODES CHUNK_SIZE MODE PATHTREE_TRAVERSAL"
 # MODE: "NORMAL" (no chunking, chunkSize=0) or "CHUNKED" (with chunkSize)
+# PATHTREE_TRAVERSAL: "false" (standard) or "true" (use PathTree for traversal)
 SCENARIOS=(
     # Quick test - 10K nodes for development
-    "SEGMENT 10000 0 NORMAL"
-    "SEGMENT 10000 2000 CHUNKED"
+    "SEGMENT 10000 0 NORMAL false"
+    "SEGMENT 10000 2000 CHUNKED false"
+    "SEGMENT 10000 2000 CHUNKED true"
     
-    # Larger tests (uncomment to run)
-    # "SEGMENT 100000 0 NORMAL"
-    # "SEGMENT 100000 20000 CHUNKED"
+    # Larger tests - uncomment to run (may hit query limits)
+    # "SEGMENT 50000 0 NORMAL false"
+    # "SEGMENT 50000 10000 CHUNKED false"
+    # "SEGMENT 50000 10000 CHUNKED true"
 )
 
 # JVM Configuration
@@ -73,10 +76,16 @@ run_single_scenario() {
     local NODES=$2
     local CHUNK=$3
     local MODE=$4
-    local SCENARIO_NAME="${STORE}_${NODES}_${MODE}"
+    local PATHTREE_TRAVERSAL=$5
+    
+    local TRAVERSAL_SUFFIX=""
+    if [ "$PATHTREE_TRAVERSAL" = "true" ]; then
+        TRAVERSAL_SUFFIX="_PTTRAVERSAL"
+    fi
+    local SCENARIO_NAME="${STORE}_${NODES}_${MODE}${TRAVERSAL_SUFFIX}"
     
     echo "--------------------------------------------------------------------------------"
-    echo "Running: Store=$STORE, Nodes=$NODES, Mode=$MODE, ChunkSize=$CHUNK"
+    echo "Running: Store=$STORE, Nodes=$NODES, Mode=$MODE, ChunkSize=$CHUNK, PathTreeTraversal=$PATHTREE_TRAVERSAL"
     echo "--------------------------------------------------------------------------------"
     
     # Run test using JUnit directly
@@ -85,6 +94,7 @@ run_single_scenario() {
          -Dperf.nodeCount=$NODES \
          -Dperf.chunkSize=$CHUNK \
          -Doak.async.chunkSize=$CHUNK \
+         -Doak.async.usePathTreeTraversal=$PATHTREE_TRAVERSAL \
          -Djava.awt.headless=true \
          -cp "$CP" \
          org.junit.runner.JUnitCore \
@@ -106,7 +116,7 @@ run_single_scenario() {
         echo "" >> "$OUTPUT_FILE"
         
         # Parse and print stats
-        print_stats_from_file "$SCENARIO_NAME.out" "$STORE" "$NODES" "$CHUNK" "$MODE"
+        print_stats_from_file "$SCENARIO_NAME.out" "$STORE" "$NODES" "$CHUNK" "$MODE" "$PATHTREE_TRAVERSAL"
     fi
     
     # Keep output file for debugging - don't remove
@@ -119,6 +129,7 @@ print_stats_from_file() {
     local NODES=$3
     local CHUNK=$4
     local MODE=$5
+    local PATHTREE_TRAVERSAL=$6
     
     local TIME=""
     local THROUGHPUT=""
@@ -163,8 +174,12 @@ print_stats_from_file() {
     fi
     
     # Print formatted output
-    printf "%-8s | %-8s | %-8s | %-8s | %9s | %10s | %10s | %-5s\n" \
-           "$STORE" "$NODES" "$MODE" "$CHUNK" "${TIME_SECONDS}s" "$THROUGHPUT" "$QUERY_APPROVED" "$RUN_COUNT" | tee -a "$SUMMARY_FILE"
+    local PT_FLAG="N"
+    if [ "$PATHTREE_TRAVERSAL" = "true" ]; then
+        PT_FLAG="Y"
+    fi
+    printf "%-8s | %-8s | %-8s | %-8s | %-6s | %9s | %10s | %10s | %-5s\n" \
+           "$STORE" "$NODES" "$MODE" "$CHUNK" "$PT_FLAG" "${TIME_SECONDS}s" "$THROUGHPUT" "$QUERY_APPROVED" "$RUN_COUNT" | tee -a "$SUMMARY_FILE"
     
     # Print incremental searchability results
     if [ "$MAX_INCREMENTAL_RESULTS" != "N/A" ] && [ "$MAX_INCREMENTAL_RESULTS" -gt 0 ] 2>/dev/null; then
@@ -255,6 +270,64 @@ print_stats_from_file() {
         echo "    Final run: $last_skip_full nodes skipped (${skip_pct}% skip rate)"
     fi
     
+    # PathTree Traversal stats (new optimization)
+    if grep -q "\[DEBUG-PATHTREE-TRAVERSAL\]" "$FILE" 2>/dev/null; then
+        echo ""
+        echo "  PathTree Traversal Stats (NEW OPTIMIZATION):"
+        echo "  ============================================"
+        
+        # Show traversal mode
+        if grep -q "Using PathTree traversal mode" "$FILE" 2>/dev/null; then
+            echo "    ✓ PathTree-driven traversal ENABLED"
+        else
+            echo "    ⚠ Standard EditorDiff mode (PathTree traversal disabled)"
+        fi
+        
+        # Show PathTree stats
+        grep "\[DEBUG-PATHTREE-TRAVERSAL\] PathTree stats:" "$FILE" 2>/dev/null | while read line; do
+            local total=$(echo $line | sed 's/.*total=\([0-9]*\).*/\1/')
+            local fp=$(echo $line | sed 's/.*fullyProcessed=\([0-9]*\).*/\1/')
+            local nfp=$(echo $line | sed 's/.*notFullyProcessed=\([0-9]*\).*/\1/')
+            local eo=$(echo $line | sed 's/.*enterOnly=\([0-9]*\).*/\1/')
+            printf "    PathTree: total=%d | fullyProcessed=%d | notFullyProcessed=%d | enterOnly=%d\n" \
+                   "$total" "$fp" "$nfp" "$eo"
+        done
+        
+        # Show traversal stats
+        local chunk_num=0
+        grep "\[DEBUG-PATHTREE-TRAVERSAL\] pathTreeTraversals=" "$FILE" 2>/dev/null | while read line; do
+            chunk_num=$((chunk_num + 1))
+            local ptTrav=$(echo $line | sed 's/.*pathTreeTraversals=\([0-9]*\).*/\1/')
+            local ssTrav=$(echo $line | sed 's/.*segmentStoreTraversals=\([0-9]*\).*/\1/')
+            local ptLookup=$(echo $line | sed 's/.*pathTreeChildLookups=\([0-9]*\).*/\1/')
+            local ssLookup=$(echo $line | sed 's/.*segmentStoreChildLookups=\([0-9]*\).*/\1/')
+            
+            # Calculate savings percentage
+            local totalTrav=$((ptTrav + ssTrav))
+            local pct="0"
+            if [ "$totalTrav" -gt 0 ]; then
+                pct=$(echo "scale=1; $ptTrav * 100 / $totalTrav" | bc 2>/dev/null || echo "N/A")
+            fi
+            
+            printf "    Chunk %2d: PathTree=%5d | SegmentStore=%5d | Savings=%s%%\n" \
+                   "$chunk_num" "$ptTrav" "$ssTrav" "$pct"
+        done
+        
+        # Summary
+        local last_pt_stat=$(grep "\[DEBUG-PATHTREE-TRAVERSAL\] pathTreeTraversals=" "$FILE" 2>/dev/null | tail -1)
+        if [ -n "$last_pt_stat" ]; then
+            local lastPtTrav=$(echo $last_pt_stat | sed 's/.*pathTreeTraversals=\([0-9]*\).*/\1/')
+            local lastSsTrav=$(echo $last_pt_stat | sed 's/.*segmentStoreTraversals=\([0-9]*\).*/\1/')
+            local lastTotal=$((lastPtTrav + lastSsTrav))
+            local lastPct="0"
+            if [ "$lastTotal" -gt 0 ]; then
+                lastPct=$(echo "scale=1; $lastPtTrav * 100 / $lastTotal" | bc 2>/dev/null || echo "N/A")
+            fi
+            echo ""
+            echo "    *** Final Traversal: $lastPtTrav from PathTree, $lastSsTrav from SegmentStore ($lastPct% optimization) ***"
+        fi
+    fi
+    
     # Chunk commit timing
     if grep -q "\[DEBUG-TIMING\] CHUNK COMMIT SUMMARY:" "$FILE" 2>/dev/null; then
         echo "  Per-Chunk Commit Timing:"
@@ -303,14 +376,14 @@ echo "==========================================================================
 echo "RESULTS"
 echo "================================================================================"
 echo ""
-printf "%-8s | %-8s | %-8s | %-8s | %9s | %10s | %10s | %-5s\n" \
-       "Store" "Nodes" "Mode" "Chunk" "Time(s)" "Throughput" "Verified" "Runs" | tee -a "$SUMMARY_FILE"
-echo "---------|----------|----------|----------|-----------|------------|------------|-------" | tee -a "$SUMMARY_FILE"
+printf "%-8s | %-8s | %-8s | %-8s | %-6s | %9s | %10s | %10s | %-5s\n" \
+       "Store" "Nodes" "Mode" "Chunk" "PTTrav" "Time(s)" "Throughput" "Verified" "Runs" | tee -a "$SUMMARY_FILE"
+echo "---------|----------|----------|----------|--------|-----------|------------|------------|-------" | tee -a "$SUMMARY_FILE"
 
 # Run scenarios
 for scenario in "${SCENARIOS[@]}"; do
-    read -r STORE NODES CHUNK MODE <<< "$scenario"
-    run_single_scenario "$STORE" "$NODES" "$CHUNK" "$MODE"
+    read -r STORE NODES CHUNK MODE PATHTREE_TRAVERSAL <<< "$scenario"
+    run_single_scenario "$STORE" "$NODES" "$CHUNK" "$MODE" "$PATHTREE_TRAVERSAL"
 done
 
 echo ""
