@@ -1067,7 +1067,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             ", chunkedMode=" + chunkedMode);
         
         if (chunkedMode) {
-            callback.setUpdateLimit((int) configuredChunkSize);
+                callback.setUpdateLimit((int) configuredChunkSize);
             callback.setTimeLimit(chunkTimeMs);
             System.out.println("[DEBUG-CHUNK] Chunk mode enabled - updateLimit=" + configuredChunkSize + ", timeLimit=" + chunkTimeMs);
             log.info("[{}] Chunk-based indexing enabled - chunkSize: {}, chunkTimeMs: {}", name, configuredChunkSize, chunkTimeMs);
@@ -1101,7 +1101,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             String resumeNodeName = name + "-resume";
             NodeState asyncState = store.getRoot().getChildNode(ASYNC);
             NodeState resumeState = asyncState.getChildNode(resumeNodeName);
-            
+                
             // Track PathTree loading time
             long pathTreeLoadStartTime = System.currentTimeMillis();
             long pathTreeSerializedSize = 0;
@@ -1133,12 +1133,12 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 } else {
                     pathTree = new PathTree();
                     log.info("[{}] No PathTree found in resume state, creating new", name);
-                }
+                        }
             } else {
                 pathTree = new PathTree();
                 log.debug("[{}] Starting fresh run with new PathTree", name);
-            }
-            
+                }
+                
             // Create ResumeContext with PathTree
             int chunkLimit = chunkedMode ? (int) configuredChunkSize : 0;
             ResumeContext resumeContext;
@@ -1156,7 +1156,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             indexUpdate = new IndexUpdate(provider, name, after, builder, callback, callback, info, corruptIndexHandler, resumeContext)
                     .withMissingProviderStrategy(missingStrategy);
             configureRateEstimator(indexUpdate);
-            
+                            
             // Pass PathTree to callback for skip counting
             callback.setPathTree(pathTree);
             
@@ -1165,14 +1165,14 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             final boolean isResuming = resumeFromPath != null && !"/".equals(resumeFromPath);
             
             if (isResuming) {
-                callback.setSkipMode(true);
+                                callback.setSkipMode(true);
                 callback.setResumePath(resumeFromPath);
                 log.info("[{}] Resuming from path: {} with PathTree ({} indexed nodes)", 
                     name, resumeFromPath, pathTree.getIndexedNodes());
                 System.out.println("[DEBUG-RESUME] Starting resume from path: " + resumeFromPath + 
                     ", PathTree has " + pathTree.getIndexedNodes() + " indexed nodes");
-            } else {
-                callback.setSkipMode(false);
+                                } else {
+                                            callback.setSkipMode(false);
                 callback.setResumePath(null);
                 log.debug("[{}] Starting from root with fresh PathTree", name);
             }
@@ -1193,7 +1193,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             // Reset skip counters before diff
             IndexUpdate.resetSkipCounters();
             PathTreeEditorDiff.resetStats();
-            
+                                        
             // Check if PathTree traversal is enabled
             boolean usePathTreeTraversal = Boolean.getBoolean("oak.async.usePathTreeTraversal");
             
@@ -1203,13 +1203,13 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 log.info("[{}] Using PathTree-driven traversal (PathTree has {} nodes, {} fully processed)", 
                     name, pathTree.getTotalNodes(), pathTree.getFullyProcessedCount());
                 System.out.println("[DEBUG-PATHTREE-TRAVERSAL] Using PathTree traversal mode");
-                
+                                        
                 // Get traversal stats before
                 PathTree.TraversalStats statsBefore = pathTree.getTraversalStats();
                 System.out.println("[DEBUG-PATHTREE-TRAVERSAL] PathTree stats: " + statsBefore);
                 
                 exception = PathTreeEditorDiff.process(editor, pathTree, before, after);
-            } else {
+                                    } else {
                 // Use standard EditorDiff
                 log.debug("[{}] Using standard EditorDiff (usePathTreeTraversal={}, pathTreeEmpty={}, isResuming={})", 
                     name, usePathTreeTraversal, pathTree.isEmpty(), isResuming);
@@ -1223,10 +1223,10 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             
             // Log diff timing
             System.out.println("[DEBUG-TIMING] " + indexingMode + " Diff time: " + totalDiffTime + "ms");
-            
+                                
             // Log skip statistics
             System.out.println("[DEBUG-SKIP] " + IndexUpdate.getSkipStats());
-            
+                                
             // Log PathTree traversal statistics
             if (usePathTreeTraversal) {
                 System.out.println("[DEBUG-PATHTREE-TRAVERSAL] " + PathTreeEditorDiff.getStats());
@@ -1258,7 +1258,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 // 1. From callback (used by static CHUNK_COMPLETE)
                 // 2. From ResumableEditorDiff exception
                 // 3. From ResumeContext
-                String chunkPath = callback.getChunkLastIndexedPath();
+                                String chunkPath = callback.getChunkLastIndexedPath();
                 if (chunkPath == null) {
                     chunkPath = ResumableEditorDiff.getChunkCompletePath(exception);
                 }
@@ -1268,20 +1268,20 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 log.info("[{}] Chunk limit reached at path: {} - committing and saving resume state", name, chunkPath);
                 
                 // CRITICAL SEQUENCE FOR INCREMENTAL SEARCHABILITY:
-                
+                                
                 // 1. Flush Lucene writers - this writes buffered documents to the index
                 //    and updates the builder's :data node with the new index state
                 long flushStartTime = System.currentTimeMillis();
                 log.info("[{}] Flushing Lucene index writers for chunk commit", name);
-                indexUpdate.commitProgress(IndexCommitCallback.IndexProgress.COMMIT_PROGRESS);
+                                indexUpdate.commitProgress(IndexCommitCallback.IndexProgress.COMMIT_PROGRESS);
                 long flushTime = System.currentTimeMillis() - flushStartTime;
                 System.out.println("[DEBUG-TIMING] Lucene flush time: " + flushTime + "ms");
-                
+                                
                 // 2. Merge builder to NodeStore - this makes the flushed index data visible
                 //    The builder now contains updated :data nodes from the flush above
                 long mergeStartTime = System.currentTimeMillis();
                 log.info("[{}] Merging index updates to NodeStore", name);
-                mergeWithConcurrencyCheck(store, validatorProviders, builder, beforeCheckpoint, callback.lease, name);
+                                mergeWithConcurrencyCheck(store, validatorProviders, builder, beforeCheckpoint, callback.lease, name);
                 long mergeTime = System.currentTimeMillis() - mergeStartTime;
                 System.out.println("[DEBUG-TIMING] NodeStore merge time: " + mergeTime + "ms");
                 
@@ -1290,14 +1290,14 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 //    - Builder with updated :data was merged to NodeStore
                 //    - Queries will see the new data when they refresh the index tracker
                 log.info("[{}] Index committed and incrementally searchable up to: {}", name, chunkPath);
-                
+                                
                 // 4. Save resume state (including PathTree) under :async/{lane-name}-resume
                 long saveStateStartTime = System.currentTimeMillis();
-                NodeBuilder resumeBuilder = store.getRoot().builder();
+                                NodeBuilder resumeBuilder = store.getRoot().builder();
                 String saveResumeNodeName = name + "-resume";
                 NodeBuilder laneBuilder = resumeBuilder.child(ASYNC).child(saveResumeNodeName);
-                laneBuilder.setProperty("lastIndexedPath", chunkPath);
-                laneBuilder.setProperty("targetCheckpoint", afterCheckpoint);
+                                laneBuilder.setProperty("lastIndexedPath", chunkPath);
+                                laneBuilder.setProperty("targetCheckpoint", afterCheckpoint);
                 laneBuilder.setProperty("nodesProcessed", resumeContext.getNodesProcessed());
                 
                 // Serialize PathTree for efficient resume
@@ -1306,7 +1306,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 int fullyProcessedCount = currentPathTree.getFullyProcessedCount();
                 int notFullyProcessedCount = currentPathTree.getNotFullyProcessedCount();
                 int totalNodes = currentPathTree.getTotalNodes();
-                
+                                
                 // Calculate estimated sizes for comparison
                 int fullSizeEstimate = currentPathTree.getEstimatedSerializedSize(false);
                 int slimSizeEstimate = currentPathTree.getEstimatedSerializedSize(true);
@@ -1342,12 +1342,12 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 System.out.println("[DEBUG-PATHTREE-SIZE] Full: ~" + fullSizeEstimate + " bytes, " +
                     "SLIM: ~" + slimSizeEstimate + " bytes (potential savings: " + 
                     (fullSizeEstimate > 0 ? (100 - slimSizeEstimate * 100 / fullSizeEstimate) : 0) + "%)");
-                
+                    
                 // Save PathTree to filesystem for analysis
                 String pathTreeFileName = "pathtree_chunk_" + System.currentTimeMillis() + ".json";
                 currentPathTree.saveToFile(pathTreeFileName);
                 
-                store.merge(resumeBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+                    store.merge(resumeBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
                 long saveStateTime = System.currentTimeMillis() - saveStateStartTime;
                 System.out.println("[DEBUG-TIMING] Resume state save time: " + saveStateTime + "ms");
                 
@@ -1371,13 +1371,13 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 // 2. Setting checkpointToReleaseRef to beforeCheckpoint (which would release it!)
                 // The next run() will resume from the saved position
                 return false;
-            }
-            
-            // Other exceptions should be thrown
-            if (exception != null) {
-                throw exception;
-            }
-            
+                }
+                
+                // Other exceptions should be thrown
+                if (exception != null) {
+                    throw exception;
+                }
+                
             // EditorDiff completed successfully - full index complete
             log.info("[{}] Indexing complete (mode: {})", name, indexingMode);
             System.out.println("[DEBUG-MODE] Indexing complete, mode: " + indexingMode);
@@ -1437,18 +1437,18 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             indexingFailed = false;
             
             // Clear resume state after successful completion (always check, not just when resumeFromPath is set)
-            try {
-                NodeBuilder cleanupBuilder = store.getRoot().builder();
+                try {
+                    NodeBuilder cleanupBuilder = store.getRoot().builder();
                 String cleanupResumeNodeName = name + "-resume";
                 NodeBuilder asyncBuilder = cleanupBuilder.child(ASYNC);
                 if (asyncBuilder.hasChildNode(cleanupResumeNodeName)) {
                     asyncBuilder.getChildNode(cleanupResumeNodeName).remove();
-                    store.merge(cleanupBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+                        store.merge(cleanupBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
                     log.info("[{}] Cleared resume state after successful completion", name);
-                }
-            } catch (CommitFailedException ex) {
+                    }
+                } catch (CommitFailedException ex) {
                 // Not critical if cleanup fails
-                log.warn("[{}] Failed to clear resume state: {}", name, ex.getMessage());
+                    log.warn("[{}] Failed to clear resume state: {}", name, ex.getMessage());
             }
 
             if (indexUpdate.isReindexingPerformed()) {

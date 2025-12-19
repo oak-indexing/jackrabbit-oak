@@ -56,7 +56,7 @@ rm -f "$SUMMARY_FILE"
 # Compile test classes
 echo "Compiling oak-core and oak-lucene..."
 cd ..
-mvn compiler:compile compiler:testCompile -pl oak-core,oak-lucene -q 2>/dev/null
+mvn clean compile test-compile -pl oak-core,oak-lucene -q -DskipTests
 cd oak-lucene
 echo "Compilation complete."
 echo ""
@@ -69,13 +69,25 @@ echo ""
 SCENARIOS=(
     # Normal mode - traditional indexing (no chunking, no resume)
     # Format: STORE NODES CHUNK CHUNK_TIME RESUME PATHTREE_TRAVERSAL SLIM_FORMAT
-    "SEGMENT 10000 0 0 false false false"
+    # "SEGMENT 20000 0 0 false false false"
     
     # Resume mode - FULL PathTree format (larger storage, works reliably)
-    "SEGMENT 10000 2000 0 true true false"
+    # "SEGMENT 20000 2000 0 true true false"
     
     # Resume mode - SLIM/Frontier PathTree format (minimal storage, optimized!)
-    "SEGMENT 10000 2000 0 true true true"
+    # "SEGMENT 20000 2000 0 true true true"
+
+     # Normal mode - traditional indexing (no chunking, no resume)
+     # Format: STORE NODES CHUNK CHUNK_TIME RESUME PATHTREE_TRAVERSAL SLIM_FORMAT
+     "SEGMENT 20000 0 0 false false false"
+     
+     # Resume mode - FULL PathTree format with time-based chunking (1 second chunks)
+     "SEGMENT 20000 0 1000 true true false"
+     
+     # Resume mode - SLIM/Frontier PathTree format with time-based chunking (1 second chunks)
+     "SEGMENT 20000 0 1000 true true true"
+
+
 
     # Example: 10K nodes, 2000 node chunks OR 5000ms chunks (whichever first)
 # ./compare_resume_perf.sh custom SEGMENT 10000 2000 5000 true true true
@@ -92,6 +104,16 @@ SCENARIOS=(
     # Larger tests - uncomment to run
     # "SEGMENT 50000 0 0 false false"
     # "SEGMENT 50000 10000 0 true true"
+
+    # Format: STORE NODES CHUNK CHUNK_TIME RESUME PATHTREE_TRAVERSAL SLIM_FORMAT
+    # "SEGMENT 50000 0 0 false false false"
+    
+    # Resume mode - FULL PathTree format (larger storage, works reliably)
+    # "SEGMENT 50000 0 5000 true true false"
+    
+    # Resume mode - SLIM/Frontier PathTree format (minimal storage, optimized!)
+    # "SEGMENT 50000 0 5000 true true true"
+
     
     # Example: 2000 nodes OR 5000ms chunks
 # ./compare_resume_perf.sh custom SEGMENT 10000 2000 5000 true true
@@ -153,7 +175,7 @@ run_single_scenario() {
          -Dperf.nodeCount=$NODES \
          -Dperf.chunkSize=$CHUNK \
          -Doak.async.chunkSize=$CHUNK \
-         -Doak.async.chunkTimeMillis=$CHUNK_TIME \
+         -Doak.async.chunkTimeMs=$CHUNK_TIME \
          -Doak.async.resume=$RESUME \
          -Doak.async.usePathTreeTraversal=$PATHTREE_TRAVERSAL \
          -Doak.async.pathTreeSlimFormat=$SLIM_FORMAT \

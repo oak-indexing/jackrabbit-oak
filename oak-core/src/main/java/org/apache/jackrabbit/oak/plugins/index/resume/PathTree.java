@@ -784,7 +784,7 @@ public class PathTree {
         tree.useDfsOrderComparison = false;
         
         System.out.println("[DEBUG-PATHTREE-ULTRASLIM] Loaded: lastPath=" + tree.lastFullyProcessedPath +
-            ", inProgress=" + inProgressCount + " paths, useDfsOrder=" + tree.useDfsOrderComparison)
+            ", inProgress=" + inProgressCount + " paths, useDfsOrder=" + tree.useDfsOrderComparison);
         
         return tree;
     }
