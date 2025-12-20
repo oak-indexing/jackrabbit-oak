@@ -451,14 +451,17 @@ print_stats_from_file() {
         fi
     fi
     
-    # Diff time (Tree traversal time per chunk/run)
+    # Diff time (Tree traversal time per run - includes initial index + content indexing)
     if grep -q "\[DEBUG-TIMING\].*Diff time:" "$FILE" 2>/dev/null; then
         if should_show_table; then
-            print_table_header "Diff Timing (Tree traversal time - the main indexing loop)"
+            print_table_header "Diff Timing (Tree traversal time per indexing run)"
+            echo "  Note: NORMAL mode has 2 runs - initial index creation + new content indexing"
+            local run_num=0
             grep "\[DEBUG-TIMING\].*Diff time:" "$FILE" | while read line; do
+                run_num=$((run_num + 1))
                 local diffTime=$(echo $line | sed 's/.*Diff time: \([0-9]*\)ms.*/\1/')
                 local mode=$(echo $line | sed 's/.*\[DEBUG-TIMING\] \([A-Z]*\) Diff.*/\1/')
-                printf "    %s Diff: %4d ms\n" "$mode" "$diffTime"
+                printf "    Run %d - %s Diff: %4d ms\n" "$run_num" "$mode" "$diffTime"
             done
         fi
     fi
@@ -466,14 +469,17 @@ print_stats_from_file() {
     # Commit summary (flush + merge) (Lucene index commit timing breakdown)
     if grep -q "\[DEBUG-TIMING\].*COMMIT SUMMARY:" "$FILE" 2>/dev/null; then
         if should_show_table; then
-            print_table_header "Commit Timing (Lucene flush + merge times)"
+            print_table_header "Commit Timing (Lucene flush + merge per run)"
+            echo "  Note: NORMAL mode has 2 runs - initial index creation + new content indexing"
+            local run_num=0
             grep "\[DEBUG-TIMING\].*COMMIT SUMMARY:" "$FILE" | while read line; do
+                run_num=$((run_num + 1))
                 local mode=$(echo $line | sed 's/.*\[DEBUG-TIMING\] \([A-Z]*\) COMMIT.*/\1/')
                 local flush=$(echo $line | sed 's/.*flush=\([0-9]*\)ms.*/\1/')
                 local merge=$(echo $line | sed 's/.*merge=\([0-9]*\)ms.*/\1/')
                 local total=$(echo $line | sed 's/.*TOTAL=\([0-9]*\)ms.*/\1/')
-                printf "    %s: flush=%4dms | merge=%4dms | TOTAL=%4dms\n" \
-                       "$mode" "$flush" "$merge" "$total"
+                printf "    Run %d - %s: flush=%4dms | merge=%4dms | TOTAL=%4dms\n" \
+                       "$run_num" "$mode" "$flush" "$merge" "$total"
             done
         fi
     fi
@@ -500,17 +506,20 @@ print_stats_from_file() {
     # Skip stats (NodeStore optimization) (How many nodes were skipped using PathTree)
     if grep -q "\[DEBUG-SKIP\]" "$FILE" 2>/dev/null; then
         if should_show_table; then
-            print_table_header "Skip Stats (NodeStore read optimization via PathTree)"
+            print_table_header "Skip Stats (NodeStore read optimization - cumulative counters)"
+            echo "  Note: Counters are cumulative across test"
+            echo "        NORMAL mode: Run 1 = initial index, Run 2 = new content"
+            echo "        RESUME mode: Each run is a chunk (counters grow each chunk)"
             local total_skip_full=0
             local total_processed=0
-            local chunk_num=0
+            local run_num=0
             grep "\[DEBUG-SKIP\]" "$FILE" | while read line; do
-                chunk_num=$((chunk_num + 1))
+                run_num=$((run_num + 1))
                 local skipFull=$(echo $line | sed 's/.*skipFull=\([0-9]*\).*/\1/')
                 local skipIndexed=$(echo $line | sed 's/.*skipIndexed=\([0-9]*\).*/\1/')
                 local processed=$(echo $line | sed 's/.*processed=\([0-9]*\).*/\1/')
-                printf "    Chunk %2d: skipFull=%6d | skipIndexed=%5d | processed=%5d\n" \
-                       "$chunk_num" "$skipFull" "$skipIndexed" "$processed"
+                printf "    Run %2d: skipFull=%6d | skipIndexed=%5d | processed=%5d\n" \
+                       "$run_num" "$skipFull" "$skipIndexed" "$processed"
             done
             
             # Summary
@@ -631,8 +640,16 @@ print_stats_from_file() {
             echo ""
             print_table_header "Per-Chunk Search Results (Query results grow as indexing progresses)"
             echo "  -------------------------"
-            printf "    %-7s | %-10s | %-9s | %-9s | %s\n" "Chunk" "Processed" "Results" "Time(ms)" "Resume Path"
-            echo "    $(printf '%.0s-' {1..85})"
+            echo "  Note: Test creates exactly 1000 approved nodes distributed evenly across all nodes."
+            echo "        Results cap at 1000 because that's the total number of approved assets."
+            echo ""
+            echo "  Column Definitions:"
+            echo "    Processed  = Newly indexed nodes (not already in index)"
+            echo "    Traversed  = Total nodes visited (includes skipped nodes)"
+            echo "    Skipped    = Nodes skipped by PathTree (already indexed)"
+            echo ""
+            printf "    %-7s | %-10s | %-10s | %-10s | %-9s | %-9s | %s\n" "Chunk" "Processed" "Traversed" "Skipped" "Results" "Time(ms)" "Resume Path"
+            echo "    $(printf '%.0s-' {1..100})"
             
             # Create temp file for aggregation
             local CHUNK_TEMP=$(mktemp)
@@ -640,40 +657,57 @@ print_stats_from_file() {
             grep "CHUNK_RESULT:" "$FILE" | while read line; do
                 local cycle=$(echo $line | sed 's/.*cycle=\([0-9]*\).*/\1/')
                 local nodes=$(echo $line | sed 's/.*nodes=\([0-9]*\).*/\1/')
+                local traversed=$(echo $line | sed 's/.*traversed=\([0-9]*\).*/\1/')
+                local skipped=$(echo $line | sed 's/.*skipped=\([0-9]*\).*/\1/')
                 local results=$(echo $line | sed 's/.*results=\([0-9-]*\).*/\1/')
                 local ctime=$(echo $line | sed 's/.*time=\([0-9]*\).*/\1/')
                 local path=$(echo $line | sed 's/.*path=\(.*\)/\1/')
+                
+                # Handle missing fields (for backward compatibility with old logs)
+                [ -z "$traversed" ] || [ "$traversed" = "$line" ] && traversed="N/A"
+                [ -z "$skipped" ] || [ "$skipped" = "$line" ] && skipped="N/A"
+                
                 # Truncate path if too long
-                if [ ${#path} -gt 40 ]; then
-                    path="${path:0:37}..."
+                if [ ${#path} -gt 30 ]; then
+                    path="${path:0:27}..."
                 fi
-                printf "    %-7d | %-10s | %-9s | %-9s | %s\n" "$cycle" "$nodes" "$results" "$ctime" "$path"
-                echo "$nodes|$results|$ctime" >> "$CHUNK_TEMP"
+                printf "    %-7d | %-10s | %-10s | %-10s | %-9s | %-9s | %s\n" "$cycle" "$nodes" "$traversed" "$skipped" "$results" "$ctime" "$path"
+                echo "$nodes|$traversed|$skipped|$results|$ctime" >> "$CHUNK_TEMP"
             done
             
             # Add aggregated stats if we have data
             if [ -s "$CHUNK_TEMP" ]; then
-                echo "    $(printf '%.0s-' {1..80})"
+                echo "    $(printf '%.0s-' {1..100})"
                 echo "    Aggregated Statistics:"
                 
-                # Nodes stats
-                local NODES_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($1 > 0 && $1 < min) min=$1} END {print (min==999999) ? "N/A" : min}' "$CHUNK_TEMP")
-                local NODES_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($1 > max) max=$1} END {print (max==0) ? "N/A" : max}' "$CHUNK_TEMP")
-                local NODES_AVG=$(awk -F'|' '{if ($1 > 0) {sum+=$1; count++}} END {printf (count>0) ? "%.0f" : "N/A", sum/count}' "$CHUNK_TEMP")
+                # Nodes (Processed) stats  
+                local NODES_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($1 != "N/A" && $1 > 0 && $1 < min) min=$1} END {print (min==999999) ? "N/A" : min}' "$CHUNK_TEMP")
+                local NODES_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($1 != "N/A" && $1 > max) max=$1} END {print (max==0) ? "N/A" : max}' "$CHUNK_TEMP")
+                local NODES_AVG=$(awk -F'|' '{if ($1 != "N/A" && $1 > 0) {sum+=$1; count++}} END {printf (count>0) ? "%.0f" : "N/A", sum/count}' "$CHUNK_TEMP")
+                
+                # Traversed stats
+                local TRAV_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($2 != "N/A" && $2 > 0 && $2 < min) min=$2} END {print (min==999999) ? "N/A" : min}' "$CHUNK_TEMP")
+                local TRAV_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($2 != "N/A" && $2 > max) max=$2} END {print (max==0) ? "N/A" : max}' "$CHUNK_TEMP")
+                local TRAV_AVG=$(awk -F'|' '{if ($2 != "N/A" && $2 > 0) {sum+=$2; count++}} END {printf (count>0) ? "%.0f" : "N/A", sum/count}' "$CHUNK_TEMP")
+                
+                # Skipped stats
+                local SKIP_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($3 != "N/A" && $3 >= 0 && $3 < min) min=$3} END {print (min==999999) ? "N/A" : min}' "$CHUNK_TEMP")
+                local SKIP_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($3 != "N/A" && $3 > max) max=$3} END {print (max==0) ? "N/A" : max}' "$CHUNK_TEMP")
+                local SKIP_AVG=$(awk -F'|' '{if ($3 != "N/A" && $3 >= 0) {sum+=$3; count++}} END {printf (count>0) ? "%.0f" : "N/A", sum/count}' "$CHUNK_TEMP")
                 
                 # Results stats (skip negative values)
-                local RES_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($2 >= 0 && $2 < min) min=$2} END {print (min==999999) ? "N/A" : min}' "$CHUNK_TEMP")
-                local RES_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($2 > max) max=$2} END {print max}' "$CHUNK_TEMP")
-                local RES_AVG=$(awk -F'|' '{if ($2 >= 0) {sum+=$2; count++}} END {printf (count>0) ? "%.0f" : "N/A", sum/count}' "$CHUNK_TEMP")
+                local RES_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($4 >= 0 && $4 < min) min=$4} END {print (min==999999) ? "N/A" : min}' "$CHUNK_TEMP")
+                local RES_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($4 > max) max=$4} END {print max}' "$CHUNK_TEMP")
+                local RES_AVG=$(awk -F'|' '{if ($4 >= 0) {sum+=$4; count++}} END {printf (count>0) ? "%.0f" : "N/A", sum/count}' "$CHUNK_TEMP")
                 
                 # Time stats
-                local TIME_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($3 > 0 && $3 < min) min=$3} END {print (min==999999) ? "N/A" : min}' "$CHUNK_TEMP")
-                local TIME_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($3 > max) max=$3} END {print (max==0) ? "N/A" : max}' "$CHUNK_TEMP")
-                local TIME_AVG=$(awk -F'|' '{if ($3 > 0) {sum+=$3; count++}} END {printf (count>0) ? "%.0f" : "N/A", sum/count}' "$CHUNK_TEMP")
+                local TIME_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($5 > 0 && $5 < min) min=$5} END {print (min==999999) ? "N/A" : min}' "$CHUNK_TEMP")
+                local TIME_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($5 > max) max=$5} END {print (max==0) ? "N/A" : max}' "$CHUNK_TEMP")
+                local TIME_AVG=$(awk -F'|' '{if ($5 > 0) {sum+=$5; count++}} END {printf (count>0) ? "%.0f" : "N/A", sum/count}' "$CHUNK_TEMP")
                 
-                printf "    %-7s | %-10s | %-9s | %-9s |\n" "Min" "$NODES_MIN" "$RES_MIN" "$TIME_MIN"
-                printf "    %-7s | %-10s | %-9s | %-9s |\n" "Max" "$NODES_MAX" "$RES_MAX" "$TIME_MAX"
-                printf "    %-7s | %-10s | %-9s | %-9s |\n" "Average" "$NODES_AVG" "$RES_AVG" "$TIME_AVG"
+                printf "    %-7s | %-10s | %-10s | %-10s | %-9s | %-9s |\n" "Min" "$NODES_MIN" "$TRAV_MIN" "$SKIP_MIN" "$RES_MIN" "$TIME_MIN"
+                printf "    %-7s | %-10s | %-10s | %-10s | %-9s | %-9s |\n" "Max" "$NODES_MAX" "$TRAV_MAX" "$SKIP_MAX" "$RES_MAX" "$TIME_MAX"
+                printf "    %-7s | %-10s | %-10s | %-10s | %-9s | %-9s |\n" "Average" "$NODES_AVG" "$TRAV_AVG" "$SKIP_AVG" "$RES_AVG" "$TIME_AVG"
             fi
             
             rm -f "$CHUNK_TEMP"
@@ -795,16 +829,16 @@ echo "==========================================================================
 echo ""
 echo "Test Parameter Descriptions:"
 echo "----------------------------"
-echo "  Store    : NodeStore type (SEGMENT or DOCUMENT)"
+echo "  Store    : NodeStore type - SEGMENT or DOCUMENT"
 echo "  Nodes    : Total number of nodes to index"
-echo "  Mode     : NORMAL (traditional) or RESUME (chunked with resume capability)"
-echo "  Chunk    : Node count per chunk (0 = disabled)"
-echo "  ChunkMs  : Time limit per chunk in milliseconds (0 = disabled)"
-echo "  PTTrav   : PathTree Traversal enabled (Y/N) - optimizes skip logic"
+echo "  Mode     : NORMAL or RESUME - traditional vs chunked with resume capability"
+echo "  Chunk    : Node count per chunk - 0 means disabled"
+echo "  ChunkMs  : Time limit per chunk in milliseconds - 0 means disabled"
+echo "  PTTrav   : PathTree Traversal enabled - Y/N optimizes skip logic"
 echo "  Time(s)  : Total indexing time in seconds"
 echo "  Throughput: Nodes indexed per second"
 echo "  Verified : Number of documents successfully indexed and searchable"
-echo "  Runs     : Number of indexing cycles (1 for NORMAL, multiple for RESUME)"
+echo "  Runs     : Number of indexing cycles - 1 for NORMAL, multiple for RESUME"
 echo ""
 printf "%-8s | %-8s | %-8s | %-8s | %-8s | %-6s | %9s | %10s | %10s | %-5s\n" \
        "Store" "Nodes" "Mode" "Chunk" "ChunkMs" "PTTrav" "Time(s)" "Throughput" "Verified" "Runs" | tee -a "$SUMMARY_FILE"
@@ -865,6 +899,11 @@ for outfile in SEGMENT_*.out DOCUMENT_*.out; do
     GC_COUNT=$(grep "Total GC Count:" "$outfile" 2>/dev/null | awk '{print $4}' | head -1)
     MEMORY_DELTA=$(grep "Memory Delta:" "$outfile" 2>/dev/null | awk '{print $3}' | head -1)
     
+    # Parse CPU metrics
+    CPU_TIME=$(grep "Total CPU Time:" "$outfile" 2>/dev/null | awk '{print $4}' | head -1)
+    CPU_UTIL=$(grep "CPU Utilization:" "$outfile" 2>/dev/null | awk '{print $3}' | head -1 | sed 's/%//')
+    CPU_EFF=$(grep "CPU Efficiency:" "$outfile" 2>/dev/null | awk '{print $3}' | head -1)
+    
     # Parse Disk Analysis metrics
     SEGSTORE_SIZE=$(grep "SegmentStore Size:" "$outfile" 2>/dev/null | awk '{print $3}' | head -1)
     LUCENE_SIZE=$(grep "Lucene Index Size:" "$outfile" 2>/dev/null | awk '{print $4}' | head -1)
@@ -880,7 +919,7 @@ for outfile in SEGMENT_*.out DOCUMENT_*.out; do
     fi
     
     # Store in temp file
-    echo "$SCENARIO|$TIME_SEC|$THROUGHPUT|$RUN_COUNT|$ACTUAL_COUNT|$GC_TIME|$GC_COUNT|$MEMORY_DELTA|$PT_SAVINGS|$SEGSTORE_SIZE|$LUCENE_SIZE|$TOTAL_DISK" >> "$METRICS_FILE"
+    echo "$SCENARIO|$TIME_SEC|$THROUGHPUT|$RUN_COUNT|$ACTUAL_COUNT|$GC_TIME|$GC_COUNT|$MEMORY_DELTA|$PT_SAVINGS|$SEGSTORE_SIZE|$LUCENE_SIZE|$TOTAL_DISK|$CPU_TIME|$CPU_UTIL|$CPU_EFF" >> "$METRICS_FILE"
 done
 
 # Display comparison table
@@ -894,7 +933,7 @@ if [ -s "$METRICS_FILE" ]; then
                "Scenario" "Time(s)" "Throughput" "Runs" "Indexed" "GC(ms)" "GC Count" "Mem(MB)" "PT Save%"
         echo "├─────────────────────────────────────────┼──────────┼────────────┼──────┼─────────┼─────────┼──────────┼─────────┼──────────┤"
         
-        while IFS='|' read -r scenario time throughput runs indexed gc_time gc_count mem pt_savings segstore lucene totaldisk; do
+        while IFS='|' read -r scenario time throughput runs indexed gc_time gc_count mem pt_savings segstore lucene totaldisk cpu_time cpu_util cpu_eff; do
             # Truncate scenario name if too long
             if [ ${#scenario} -gt 39 ]; then
                 scenario="${scenario:0:36}..."
@@ -1036,6 +1075,31 @@ if [ -s "$METRICS_FILE" ]; then
         
         printf "%-39s | %11s | %11s | %11s\n" \
                "$scenario" "$segstore" "$lucene" "$totaldisk"
+    done < "$METRICS_FILE"
+    echo ""
+    
+    # Display CPU metrics analysis (ALWAYS VISIBLE)
+    echo "================================================================================"
+    echo "CPU COMPUTE ANALYSIS (Per Scenario)"
+    echo "================================================================================"
+    echo ""
+    printf "%-39s | %10s | %12s | %15s\n" \
+           "Scenario" "CPU(s)" "Utiliz(%)" "Efficiency(n/s)"
+    echo "----------------------------------------|------------|--------------|------------------"
+    
+    while IFS='|' read -r scenario time throughput runs indexed gc_time gc_count mem pt_savings segstore lucene totaldisk cpu_time cpu_util cpu_eff; do
+        # Truncate scenario name if too long
+        if [ ${#scenario} -gt 39 ]; then
+            scenario="${scenario:0:36}..."
+        fi
+        
+        # Handle N/A values
+        [ -z "$cpu_time" ] && cpu_time="N/A"
+        [ -z "$cpu_util" ] && cpu_util="N/A"
+        [ -z "$cpu_eff" ] && cpu_eff="N/A"
+        
+        printf "%-39s | %10s | %12s | %15s\n" \
+               "$scenario" "$cpu_time" "$cpu_util" "$cpu_eff"
     done < "$METRICS_FILE"
     echo ""
     

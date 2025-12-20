@@ -415,9 +415,11 @@ public class ResumeIndexingPerfTest {
                     long queryStart = System.currentTimeMillis();
                     
                     // Use regular query and count results (Oak's rep:count() doesn't work reliably)
+                    // Use traversal fail to ensure index is being used
                     String incrementalQuery = 
                         "SELECT [jcr:path] FROM [dam:Asset] WHERE ISDESCENDANTNODE('/content/dam') " +
-                        "AND [jcr:content/metadata/dam:status] = 'approved'";
+                        "AND [jcr:content/metadata/dam:status] = 'approved' " +
+                        "option(traversal fail, index name damAssetLucene)";
                     
                     long partialResults = executeCountQuery(ctx, incrementalQuery);
                     long queryTime = System.currentTimeMillis() - queryStart;
@@ -430,12 +432,27 @@ public class ResumeIndexingPerfTest {
                     chunkNonHeapUsedMB.add(getNonHeapMemoryUsed() / (1024 * 1024));
                     chunkGcCount.add((int) getGcCount());
                     chunkGcTimeMs.add(getGcTime());
-                    chunkCpuTimeMs.add(getProcessCpuTime() / 1_000_000); // Convert to ms
+                    chunkCpuTimeMs.add(getProcessCpuTime() / 1_000_000); // Convert ns to ms
                     chunkSegmentStoreSizeMB.add(getSegmentStoreSize(ctx) / (1024 * 1024));
                     
+                    // Get skip statistics (traversed = processed + skipped)
+                    // Note: These are cumulative since test start, not per-chunk
+                    // We'll calculate per-chunk deltas in the shell script
+                    String skipStats = org.apache.jackrabbit.oak.plugins.index.IndexUpdate.getSkipStats();
+                    // Parse: "skipFull=X, skipIndexed=Y, processed=Z"
+                    int skipFull = 0, skipIndexed = 0, processedTotal = 0;
+                    try {
+                        skipFull = Integer.parseInt(skipStats.replaceAll(".*skipFull=([0-9]+).*", "$1"));
+                        skipIndexed = Integer.parseInt(skipStats.replaceAll(".*skipIndexed=([0-9]+).*", "$1"));
+                        processedTotal = Integer.parseInt(skipStats.replaceAll(".*processed=([0-9]+).*", "$1"));
+                    } catch (Exception e) {
+                        // Ignore parsing errors
+                    }
+                    int totalTraversed = skipFull + processedTotal; // Total nodes visited
+                    
                     // Output for script parsing - one line per chunk
-                    System.out.println(String.format("CHUNK_RESULT: cycle=%d, results=%d, time=%d, nodes=%d, path=%s", 
-                        cycleCount, partialResults, queryTime, nodesProcessed, currentResumeState));
+                    System.out.println(String.format("CHUNK_RESULT: cycle=%d, results=%d, time=%d, nodes=%d, traversed=%d, skipped=%d, path=%s", 
+                        cycleCount, partialResults, queryTime, nodesProcessed, totalTraversed, skipFull, currentResumeState));
                     
                     // Output detailed metrics for this chunk
                     System.out.println(String.format("CHUNK_METRICS: cycle=%d, nodes=%d, heap=%dMB, nonHeap=%dMB, gc=%d, gcTime=%dms, cpu=%dms, segStore=%dMB",
@@ -1101,7 +1118,7 @@ public class ResumeIndexingPerfTest {
     private static long getProcessCpuTime() {
         java.lang.management.OperatingSystemMXBean osBean = ManagementFactory.getOperatingSystemMXBean();
         if (osBean instanceof com.sun.management.OperatingSystemMXBean) {
-            return ((com.sun.management.OperatingSystemMXBean) osBean).getProcessCpuTime() / 1_000_000;
+            return ((com.sun.management.OperatingSystemMXBean) osBean).getProcessCpuTime(); // Return nanoseconds
         }
         return -1;
     }
