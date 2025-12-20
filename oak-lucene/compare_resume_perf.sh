@@ -13,7 +13,9 @@
 # ===============================================================================
 #
 #   chmod +x compare_resume_perf.sh
-#   ./compare_resume_perf.sh
+#   ./compare_resume_perf.sh                    # Run with default settings (tables enabled)
+#   ./compare_resume_perf.sh --no-tables        # Run with tables disabled (summary only)
+#   ./compare_resume_perf.sh --tables           # Run with tables enabled (explicit)
 #
 # Custom runs with time-based chunking:
 #   # 10K nodes, 5 second chunks (time-based only)
@@ -24,6 +26,9 @@
 #   
 #   # Normal mode (no chunking)
 #   ./compare_resume_perf.sh custom SEGMENT 10000 0 0 false false
+#
+#   # Custom run with tables disabled
+#   ./compare_resume_perf.sh --no-tables custom SEGMENT 10000 0 1000 true true true
 #
 # Parameters for custom mode:
 #   STORE       - "SEGMENT" or "DOCUMENT"
@@ -37,6 +42,12 @@
 #   - perf_resume_results.txt           (raw output)
 #   - perf_resume_summary.txt           (performance table)
 #
+# Table Display Options:
+#   --tables     : Show all detailed tables (DEFAULT)
+#   --no-tables  : Hide detailed tables, show only aggregated statistics
+#   
+#   Note: Aggregated statistics and GC/Memory analysis are ALWAYS shown
+#
 # ===============================================================================
 
 cd "$(dirname "$0")"
@@ -44,8 +55,8 @@ cd "$(dirname "$0")"
 OUTPUT_FILE="perf_resume_results.txt"
 SUMMARY_FILE="perf_resume_summary.txt"
 
-# Control flags
-SHOW_TABLES=true  # Set to false to disable all tables
+# Control flags - DEFAULT: SHOW_TABLES=true (detailed tables enabled by default)
+SHOW_TABLES=true  # Default: true (show all detailed tables). Use --no-tables to disable.
 
 # Table counter
 TABLE_NUM=0
@@ -93,6 +104,9 @@ done
 
 if [ "$SHOW_TABLES" = false ]; then
     echo "ℹ️  Table display disabled (use --tables to enable)"
+    echo ""
+else
+    echo "ℹ️  Table display enabled (default) - use --no-tables to show summary only"
     echo ""
 fi
 
@@ -617,8 +631,12 @@ print_stats_from_file() {
             echo ""
             print_table_header "Per-Chunk Search Results (Query results grow as indexing progresses)"
             echo "  -------------------------"
-            printf "    %-7s | %-8s | %-9s | %-9s | %s\n" "Chunk" "Nodes" "Results" "Time(ms)" "Resume Path"
-            echo "    $(printf '%.0s-' {1..80})"
+            printf "    %-7s | %-10s | %-9s | %-9s | %s\n" "Chunk" "Processed" "Results" "Time(ms)" "Resume Path"
+            echo "    $(printf '%.0s-' {1..85})"
+            
+            # Create temp file for aggregation
+            local CHUNK_TEMP=$(mktemp)
+            
             grep "CHUNK_RESULT:" "$FILE" | while read line; do
                 local cycle=$(echo $line | sed 's/.*cycle=\([0-9]*\).*/\1/')
                 local nodes=$(echo $line | sed 's/.*nodes=\([0-9]*\).*/\1/')
@@ -629,8 +647,36 @@ print_stats_from_file() {
                 if [ ${#path} -gt 40 ]; then
                     path="${path:0:37}..."
                 fi
-                printf "    %-7d | %-8s | %-9s | %-9s | %s\n" "$cycle" "$nodes" "$results" "$ctime" "$path"
+                printf "    %-7d | %-10s | %-9s | %-9s | %s\n" "$cycle" "$nodes" "$results" "$ctime" "$path"
+                echo "$nodes|$results|$ctime" >> "$CHUNK_TEMP"
             done
+            
+            # Add aggregated stats if we have data
+            if [ -s "$CHUNK_TEMP" ]; then
+                echo "    $(printf '%.0s-' {1..80})"
+                echo "    Aggregated Statistics:"
+                
+                # Nodes stats
+                local NODES_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($1 > 0 && $1 < min) min=$1} END {print (min==999999) ? "N/A" : min}' "$CHUNK_TEMP")
+                local NODES_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($1 > max) max=$1} END {print (max==0) ? "N/A" : max}' "$CHUNK_TEMP")
+                local NODES_AVG=$(awk -F'|' '{if ($1 > 0) {sum+=$1; count++}} END {printf (count>0) ? "%.0f" : "N/A", sum/count}' "$CHUNK_TEMP")
+                
+                # Results stats (skip negative values)
+                local RES_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($2 >= 0 && $2 < min) min=$2} END {print (min==999999) ? "N/A" : min}' "$CHUNK_TEMP")
+                local RES_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($2 > max) max=$2} END {print max}' "$CHUNK_TEMP")
+                local RES_AVG=$(awk -F'|' '{if ($2 >= 0) {sum+=$2; count++}} END {printf (count>0) ? "%.0f" : "N/A", sum/count}' "$CHUNK_TEMP")
+                
+                # Time stats
+                local TIME_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($3 > 0 && $3 < min) min=$3} END {print (min==999999) ? "N/A" : min}' "$CHUNK_TEMP")
+                local TIME_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($3 > max) max=$3} END {print (max==0) ? "N/A" : max}' "$CHUNK_TEMP")
+                local TIME_AVG=$(awk -F'|' '{if ($3 > 0) {sum+=$3; count++}} END {printf (count>0) ? "%.0f" : "N/A", sum/count}' "$CHUNK_TEMP")
+                
+                printf "    %-7s | %-10s | %-9s | %-9s |\n" "Min" "$NODES_MIN" "$RES_MIN" "$TIME_MIN"
+                printf "    %-7s | %-10s | %-9s | %-9s |\n" "Max" "$NODES_MAX" "$RES_MAX" "$TIME_MAX"
+                printf "    %-7s | %-10s | %-9s | %-9s |\n" "Average" "$NODES_AVG" "$RES_AVG" "$TIME_AVG"
+            fi
+            
+            rm -f "$CHUNK_TEMP"
         fi
     fi
     
@@ -642,6 +688,10 @@ print_stats_from_file() {
             echo "  ---------------------------"
             echo "    Chunk | Nodes | Heap(MB) | NonHeap(MB) | GC Count | GC Time(ms) | CPU(ms) | SegStore(MB)"
             echo "    ------|-------|----------|-------------|----------|-------------|---------|-------------"
+            
+            # Create temp file for aggregation
+            local METRICS_TEMP=$(mktemp)
+            
             grep "CHUNK_METRICS:" "$FILE" | while read line; do
                 local cycle=$(echo $line | sed 's/.*cycle=\([0-9]*\).*/\1/')
                 local nodes=$(echo $line | sed 's/.*nodes=\([0-9]*\).*/\1/')
@@ -653,7 +703,37 @@ print_stats_from_file() {
                 local segstore=$(echo $line | sed 's/.*segStore=\([0-9]*\)MB.*/\1/')
                 printf "    %5d | %5d | %8d | %11d | %8d | %11d | %7d | %11d\n" \
                        "$cycle" "$nodes" "$heap" "$nonheap" "$gc" "$gctime" "$cpu" "$segstore"
+                echo "$nodes|$heap|$nonheap|$gc|$gctime|$cpu|$segstore" >> "$METRICS_TEMP"
             done
+            
+            # Add aggregated stats if we have data
+            if [ -s "$METRICS_TEMP" ]; then
+                echo "    ------|-------|----------|-------------|----------|-------------|---------|-------------"
+                
+                # Calculate statistics
+                local N_AVG=$(awk -F'|' '{sum+=$1; count++} END {printf "%.0f", sum/count}' "$METRICS_TEMP")
+                local H_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($2 < min) min=$2} END {print min}' "$METRICS_TEMP")
+                local H_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($2 > max) max=$2} END {print max}' "$METRICS_TEMP")
+                local H_AVG=$(awk -F'|' '{sum+=$2; count++} END {printf "%.0f", sum/count}' "$METRICS_TEMP")
+                local NH_AVG=$(awk -F'|' '{sum+=$3; count++} END {printf "%.0f", sum/count}' "$METRICS_TEMP")
+                local GC_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($4 < min) min=$4} END {print min}' "$METRICS_TEMP")
+                local GC_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($4 > max) max=$4} END {print max}' "$METRICS_TEMP")
+                local GC_AVG=$(awk -F'|' '{sum+=$4; count++} END {printf "%.0f", sum/count}' "$METRICS_TEMP")
+                local GCT_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($5 < min) min=$5} END {print min}' "$METRICS_TEMP")
+                local GCT_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($5 > max) max=$5} END {print max}' "$METRICS_TEMP")
+                local GCT_AVG=$(awk -F'|' '{sum+=$5; count++} END {printf "%.0f", sum/count}' "$METRICS_TEMP")
+                local CPU_AVG=$(awk -F'|' '{sum+=$6; count++} END {printf "%.0f", sum/count}' "$METRICS_TEMP")
+                local SEG_AVG=$(awk -F'|' '{sum+=$7; count++} END {printf "%.0f", sum/count}' "$METRICS_TEMP")
+                
+                printf "    %5s | %5s | %8s | %11s | %8s | %11s | %7s | %11s\n" \
+                       "Min" "-" "$H_MIN" "-" "$GC_MIN" "$GCT_MIN" "-" "-"
+                printf "    %5s | %5s | %8s | %11s | %8s | %11s | %7s | %11s\n" \
+                       "Max" "-" "$H_MAX" "-" "$GC_MAX" "$GCT_MAX" "-" "-"
+                printf "    %5s | %5s | %8s | %11s | %8s | %11s | %7s | %11s\n" \
+                       "Avg" "$N_AVG" "$H_AVG" "$NH_AVG" "$GC_AVG" "$GCT_AVG" "$CPU_AVG" "$SEG_AVG"
+            fi
+            
+            rm -f "$METRICS_TEMP"
         fi
     fi
     
@@ -713,6 +793,19 @@ echo "==========================================================================
 echo "RESULTS"
 echo "================================================================================"
 echo ""
+echo "Test Parameter Descriptions:"
+echo "----------------------------"
+echo "  Store    : NodeStore type (SEGMENT or DOCUMENT)"
+echo "  Nodes    : Total number of nodes to index"
+echo "  Mode     : NORMAL (traditional) or RESUME (chunked with resume capability)"
+echo "  Chunk    : Node count per chunk (0 = disabled)"
+echo "  ChunkMs  : Time limit per chunk in milliseconds (0 = disabled)"
+echo "  PTTrav   : PathTree Traversal enabled (Y/N) - optimizes skip logic"
+echo "  Time(s)  : Total indexing time in seconds"
+echo "  Throughput: Nodes indexed per second"
+echo "  Verified : Number of documents successfully indexed and searchable"
+echo "  Runs     : Number of indexing cycles (1 for NORMAL, multiple for RESUME)"
+echo ""
 printf "%-8s | %-8s | %-8s | %-8s | %-8s | %-6s | %9s | %10s | %10s | %-5s\n" \
        "Store" "Nodes" "Mode" "Chunk" "ChunkMs" "PTTrav" "Time(s)" "Throughput" "Verified" "Runs" | tee -a "$SUMMARY_FILE"
 echo "---------|----------|----------|----------|----------|--------|-----------|------------|------------|-------" | tee -a "$SUMMARY_FILE"
@@ -767,9 +860,15 @@ for outfile in SEGMENT_*.out DOCUMENT_*.out; do
         QUERY_APPROVED=$(grep "^Query Approved:" "$outfile" 2>/dev/null | awk '{print $3}' | head -1)
     fi
     
-    GC_TIME=$(grep "^GC Time:" "$outfile" 2>/dev/null | awk '{print $3}' | head -1)
-    GC_COUNT=$(grep "^GC Count:" "$outfile" 2>/dev/null | awk '{print $3}' | head -1)
-    MEMORY_DELTA=$(grep "^Memory Delta:" "$outfile" 2>/dev/null | awk '{print $3}' | head -1)
+    # Parse GC and Memory metrics from DETAILED METRICS ANALYSIS section
+    GC_TIME=$(grep "Total GC Time:" "$outfile" 2>/dev/null | awk '{print $4}' | head -1)
+    GC_COUNT=$(grep "Total GC Count:" "$outfile" 2>/dev/null | awk '{print $4}' | head -1)
+    MEMORY_DELTA=$(grep "Memory Delta:" "$outfile" 2>/dev/null | awk '{print $3}' | head -1)
+    
+    # Parse Disk Analysis metrics
+    SEGSTORE_SIZE=$(grep "SegmentStore Size:" "$outfile" 2>/dev/null | awk '{print $3}' | head -1)
+    LUCENE_SIZE=$(grep "Lucene Index Size:" "$outfile" 2>/dev/null | awk '{print $4}' | head -1)
+    TOTAL_DISK=$(grep "Total Disk Usage:" "$outfile" 2>/dev/null | awk '{print $4}' | head -1)
     
     # Get last chunk's PathTree savings percentage
     PT_SAVINGS=$(grep "Final Traversal:" "$outfile" 2>/dev/null | tail -1 | sed 's/.*(\([0-9.]*\)% optimization).*/\1/')
@@ -780,8 +879,8 @@ for outfile in SEGMENT_*.out DOCUMENT_*.out; do
         TIME_SEC=$(echo "scale=1; $TOTAL_TIME / 1000" | bc 2>/dev/null || echo "N/A")
     fi
     
-    # Store in temp file (removed verified column, using actual_count as indexed)
-    echo "$SCENARIO|$TIME_SEC|$THROUGHPUT|$RUN_COUNT|$ACTUAL_COUNT|$GC_TIME|$GC_COUNT|$MEMORY_DELTA|$PT_SAVINGS" >> "$METRICS_FILE"
+    # Store in temp file
+    echo "$SCENARIO|$TIME_SEC|$THROUGHPUT|$RUN_COUNT|$ACTUAL_COUNT|$GC_TIME|$GC_COUNT|$MEMORY_DELTA|$PT_SAVINGS|$SEGSTORE_SIZE|$LUCENE_SIZE|$TOTAL_DISK" >> "$METRICS_FILE"
 done
 
 # Display comparison table
@@ -795,7 +894,7 @@ if [ -s "$METRICS_FILE" ]; then
                "Scenario" "Time(s)" "Throughput" "Runs" "Indexed" "GC(ms)" "GC Count" "Mem(MB)" "PT Save%"
         echo "├─────────────────────────────────────────┼──────────┼────────────┼──────┼─────────┼─────────┼──────────┼─────────┼──────────┤"
         
-        while IFS='|' read -r scenario time throughput runs indexed gc_time gc_count mem pt_savings; do
+        while IFS='|' read -r scenario time throughput runs indexed gc_time gc_count mem pt_savings segstore lucene totaldisk; do
             # Truncate scenario name if too long
             if [ ${#scenario} -gt 39 ]; then
                 scenario="${scenario:0:36}..."
@@ -824,6 +923,121 @@ if [ -s "$METRICS_FILE" ]; then
         
         echo "└─────────────────────────────────────────┴──────────┴────────────┴──────┴─────────┴─────────┴──────────┴─────────┴──────────┘"
     fi
+    
+    # Calculate statistics for each metric (ALWAYS VISIBLE - outside table conditional)
+    # Time statistics
+    TIME_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($2 != "N/A" && $2 > 0 && $2 < min) min=$2} END {if (min==999999) print "N/A"; else printf "%.1f", min}' "$METRICS_FILE")
+    TIME_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($2 != "N/A" && $2 > max) max=$2} END {if (max==0) print "N/A"; else printf "%.1f", max}' "$METRICS_FILE")
+    TIME_AVG=$(awk -F'|' '{if ($2 != "N/A" && $2 > 0) {sum+=$2; count++}} END {if (count>0) printf "%.1f", sum/count; else print "N/A"}' "$METRICS_FILE")
+    TIME_MEDIAN=$(awk -F'|' '{if ($2 != "N/A" && $2 > 0) print $2}' "$METRICS_FILE" | sort -n | awk '{a[NR]=$1} END {if (NR==0) print "N/A"; else if (NR%2==1) printf "%.1f", a[(NR+1)/2]; else printf "%.1f", (a[NR/2]+a[NR/2+1])/2}')
+    TIME_P95=$(awk -F'|' '{if ($2 != "N/A" && $2 > 0) print $2}' "$METRICS_FILE" | sort -n | awk '{a[NR]=$1} END {if (NR==0) print "N/A"; else {idx=int(NR*0.95); if (idx<1) idx=1; printf "%.1f", a[idx]}}')
+    
+    # Throughput statistics
+    TP_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($3 != "N/A" && $3 > 0 && $3 < min) min=$3} END {if (min==999999) print "N/A"; else printf "%.0f", min}' "$METRICS_FILE")
+    TP_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($3 != "N/A" && $3 > max) max=$3} END {if (max==0) print "N/A"; else printf "%.0f", max}' "$METRICS_FILE")
+    TP_AVG=$(awk -F'|' '{if ($3 != "N/A" && $3 > 0) {sum+=$3; count++}} END {if (count>0) printf "%.0f", sum/count; else print "N/A"}' "$METRICS_FILE")
+    TP_MEDIAN=$(awk -F'|' '{if ($3 != "N/A" && $3 > 0) print $3}' "$METRICS_FILE" | sort -n | awk '{a[NR]=$1} END {if (NR==0) print "N/A"; else if (NR%2==1) printf "%.0f", a[(NR+1)/2]; else printf "%.0f", (a[NR/2]+a[NR/2+1])/2}')
+    TP_P95=$(awk -F'|' '{if ($3 != "N/A" && $3 > 0) print $3}' "$METRICS_FILE" | sort -n | awk '{a[NR]=$1} END {if (NR==0) print "N/A"; else {idx=int(NR*0.95); if (idx<1) idx=1; printf "%.0f", a[idx]}}')
+    
+    # GC Time statistics
+    GC_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($6 != "N/A" && $6 > 0 && $6 < min) min=$6} END {if (min==999999) print "N/A"; else printf "%.0f", min}' "$METRICS_FILE")
+    GC_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($6 != "N/A" && $6 > max) max=$6} END {if (max==0) print "N/A"; else printf "%.0f", max}' "$METRICS_FILE")
+    GC_AVG=$(awk -F'|' '{if ($6 != "N/A" && $6 > 0) {sum+=$6; count++}} END {if (count>0) printf "%.0f", sum/count; else print "N/A"}' "$METRICS_FILE")
+    GC_MEDIAN=$(awk -F'|' '{if ($6 != "N/A" && $6 > 0) print $6}' "$METRICS_FILE" | sort -n | awk '{a[NR]=$1} END {if (NR==0) print "N/A"; else if (NR%2==1) printf "%.0f", a[(NR+1)/2]; else printf "%.0f", (a[NR/2]+a[NR/2+1])/2}')
+    GC_P95=$(awk -F'|' '{if ($6 != "N/A" && $6 > 0) print $6}' "$METRICS_FILE" | sort -n | awk '{a[NR]=$1} END {if (NR==0) print "N/A"; else {idx=int(NR*0.95); if (idx<1) idx=1; printf "%.0f", a[idx]}}')
+    
+    # GC Count statistics
+    GCC_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($7 != "N/A" && $7 >= 0 && $7 < min) min=$7} END {if (min==999999) print "N/A"; else printf "%.0f", min}' "$METRICS_FILE")
+    GCC_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($7 != "N/A" && $7 > max) max=$7} END {print (max==0) ? "N/A" : max}' "$METRICS_FILE")
+    GCC_AVG=$(awk -F'|' '{if ($7 != "N/A" && $7 >= 0) {sum+=$7; count++}} END {if (count>0) printf "%.0f", sum/count; else print "N/A"}' "$METRICS_FILE")
+    GCC_MEDIAN=$(awk -F'|' '{if ($7 != "N/A" && $7 >= 0) print $7}' "$METRICS_FILE" | sort -n | awk '{a[NR]=$1} END {if (NR==0) print "N/A"; else if (NR%2==1) printf "%.0f", a[(NR+1)/2]; else printf "%.0f", (a[NR/2]+a[NR/2+1])/2}')
+    GCC_P95=$(awk -F'|' '{if ($7 != "N/A" && $7 >= 0) print $7}' "$METRICS_FILE" | sort -n | awk '{a[NR]=$1} END {if (NR==0) print "N/A"; else {idx=int(NR*0.95); if (idx<1) idx=1; printf "%.0f", a[idx]}}')
+    
+    # Memory statistics (convert KB to MB)
+    MEM_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($8 != "N/A" && $8 > 0 && $8 < min) min=$8} END {if (min==999999) print "N/A"; else printf "%.0f", min/1024}' "$METRICS_FILE")
+    MEM_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($8 != "N/A" && $8 > max) max=$8} END {if (max==0) print "N/A"; else printf "%.0f", max/1024}' "$METRICS_FILE")
+    MEM_AVG=$(awk -F'|' '{if ($8 != "N/A" && $8 > 0) {sum+=$8; count++}} END {if (count>0) printf "%.0f", sum/count/1024; else print "N/A"}' "$METRICS_FILE")
+    MEM_MEDIAN=$(awk -F'|' '{if ($8 != "N/A" && $8 > 0) print $8}' "$METRICS_FILE" | sort -n | awk '{a[NR]=$1} END {if (NR==0) print "N/A"; else if (NR%2==1) printf "%.0f", a[(NR+1)/2]/1024; else printf "%.0f", (a[NR/2]+a[NR/2+1])/2/1024}')
+    MEM_P95=$(awk -F'|' '{if ($8 != "N/A" && $8 > 0) print $8}' "$METRICS_FILE" | sort -n | awk '{a[NR]=$1} END {if (NR==0) print "N/A"; else {idx=int(NR*0.95); if (idx<1) idx=1; printf "%.0f", a[idx]/1024}}')
+    
+    # Display aggregated statistics (ALWAYS VISIBLE)
+    echo ""
+    echo "================================================================================"
+    echo "AGGREGATED STATISTICS (All Scenarios)"
+    echo "================================================================================"
+    echo ""
+    printf "%-11s | %8s | %10s | %7s | %8s | %7s\n" \
+           "Statistic" "Time(s)" "Throughput" "GC(ms)" "GC Count" "Mem(MB)"
+    echo "------------|----------|------------|---------|----------|--------"
+    printf "%-11s | %8s | %10s | %7s | %8s | %7s\n" "Min" "$TIME_MIN" "$TP_MIN" "$GC_MIN" "$GCC_MIN" "$MEM_MIN"
+    printf "%-11s | %8s | %10s | %7s | %8s | %7s\n" "Max" "$TIME_MAX" "$TP_MAX" "$GC_MAX" "$GCC_MAX" "$MEM_MAX"
+    printf "%-11s | %8s | %10s | %7s | %8s | %7s\n" "Average" "$TIME_AVG" "$TP_AVG" "$GC_AVG" "$GCC_AVG" "$MEM_AVG"
+    printf "%-11s | %8s | %10s | %7s | %8s | %7s\n" "Median" "$TIME_MEDIAN" "$TP_MEDIAN" "$GC_MEDIAN" "$GCC_MEDIAN" "$MEM_MEDIAN"
+    printf "%-11s | %8s | %10s | %7s | %8s | %7s\n" "P95" "$TIME_P95" "$TP_P95" "$GC_P95" "$GCC_P95" "$MEM_P95"
+    echo ""
+    
+    # Display detailed GC and Memory breakdown (ALWAYS VISIBLE)
+    echo "================================================================================"
+    echo "DETAILED GC AND MEMORY ANALYSIS (Per Scenario)"
+    echo "================================================================================"
+    echo ""
+    printf "%-39s | %7s | %8s | %9s | %7s\n" \
+           "Scenario" "GC(ms)" "GC Count" "GC/sec" "Mem(MB)"
+    echo "----------------------------------------|---------|----------|-----------|--------"
+    
+    while IFS='|' read -r scenario time throughput runs indexed gc_time gc_count mem pt_savings; do
+        # Truncate scenario name if too long
+        if [ ${#scenario} -gt 39 ]; then
+            scenario="${scenario:0:36}..."
+        fi
+        
+        # Calculate GC per second if we have time
+        gc_per_sec="N/A"
+        if [ "$gc_time" != "N/A" ] && [ "$time" != "N/A" ] && [ -n "$gc_time" ] && [ -n "$time" ]; then
+            if [ "$time" != "0" ] && [ "$(echo "$time > 0" | bc 2>/dev/null)" = "1" ]; then
+                gc_per_sec=$(echo "scale=1; $gc_time / $time" | bc 2>/dev/null || echo "N/A")
+            fi
+        fi
+        
+        # Handle N/A values
+        [ -z "$gc_time" ] && gc_time="N/A"
+        [ -z "$gc_count" ] && gc_count="N/A"
+        
+        # Convert memory from KB to MB
+        mem_mb="N/A"
+        if [ "$mem" != "N/A" ] && [ -n "$mem" ] && [ "$mem" -gt 0 ] 2>/dev/null; then
+            mem_mb=$(echo "scale=0; $mem / 1024" | bc 2>/dev/null || echo "N/A")
+        fi
+        
+        printf "%-39s | %7s | %8s | %9s | %7s\n" \
+               "$scenario" "$gc_time" "$gc_count" "$gc_per_sec" "$mem_mb"
+    done < "$METRICS_FILE"
+    echo ""
+    
+    # Display disk usage analysis (ALWAYS VISIBLE)
+    echo "================================================================================"
+    echo "DISK USAGE ANALYSIS (Per Scenario)"
+    echo "================================================================================"
+    echo ""
+    printf "%-39s | %11s | %11s | %11s\n" \
+           "Scenario" "SegStore(MB)" "Lucene(MB)" "Total(MB)"
+    echo "----------------------------------------|-------------|-------------|------------"
+    
+    while IFS='|' read -r scenario time throughput runs indexed gc_time gc_count mem pt_savings segstore lucene totaldisk; do
+        # Truncate scenario name if too long
+        if [ ${#scenario} -gt 39 ]; then
+            scenario="${scenario:0:36}..."
+        fi
+        
+        # Handle N/A values
+        [ -z "$segstore" ] && segstore="N/A"
+        [ -z "$lucene" ] && lucene="N/A"
+        [ -z "$totaldisk" ] && totaldisk="N/A"
+        
+        printf "%-39s | %11s | %11s | %11s\n" \
+               "$scenario" "$segstore" "$lucene" "$totaldisk"
+    done < "$METRICS_FILE"
+    echo ""
     
     # Find best performers
     echo ""
