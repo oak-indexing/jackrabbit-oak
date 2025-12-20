@@ -323,6 +323,9 @@ public class ResumeIndexingPerfTest {
                 long traversalTime = ctx.asyncIndexUpdate.getLastDiffTimeMs();
                 traversalTimes.add(traversalTime);
                 
+                // Get nodes processed in this chunk
+                long nodesProcessed = ctx.asyncIndexUpdate.getLastNodesProcessed();
+                
                 // Get ResumingEditor timing (only non-zero during actual resume)
                 long resumeTimeToTarget = ctx.asyncIndexUpdate.getLastResumeTimeToTargetMs();
                 long resumeTotalTime = ctx.asyncIndexUpdate.getLastResumeTotalTimeMs();
@@ -351,7 +354,7 @@ public class ResumeIndexingPerfTest {
                 boolean hasResumeState = laneNode.exists() && laneNode.hasProperty("lastIndexedPath");
                 String currentResumeState = hasResumeState ? laneNode.getString("lastIndexedPath") : null;
                 
-                System.out.println("  Cycle #" + cycleCount + " completed in " + cycleTime + " ms (traversal: " + traversalTime + " ms)");
+                System.out.println("  Cycle #" + cycleCount + " completed in " + cycleTime + " ms (traversal: " + traversalTime + " ms, nodes: " + nodesProcessed + ")");
                 System.out.println("    checkpoint=" + currentCheckpoint + 
                     ", hasData=" + hasData + ", dataFiles=" + dataChildCount);
                 
@@ -431,12 +434,13 @@ public class ResumeIndexingPerfTest {
                     chunkSegmentStoreSizeMB.add(getSegmentStoreSize(ctx) / (1024 * 1024));
                     
                     // Output for script parsing - one line per chunk
-                    System.out.println(String.format("CHUNK_RESULT: cycle=%d, results=%d, time=%d, path=%s", 
-                        cycleCount, partialResults, queryTime, currentResumeState));
+                    System.out.println(String.format("CHUNK_RESULT: cycle=%d, results=%d, time=%d, nodes=%d, path=%s", 
+                        cycleCount, partialResults, queryTime, nodesProcessed, currentResumeState));
                     
                     // Output detailed metrics for this chunk
-                    System.out.println(String.format("CHUNK_METRICS: cycle=%d, heap=%dMB, nonHeap=%dMB, gc=%d, gcTime=%dms, cpu=%dms, segStore=%dMB",
-                        cycleCount, 
+                    System.out.println(String.format("CHUNK_METRICS: cycle=%d, nodes=%d, heap=%dMB, nonHeap=%dMB, gc=%d, gcTime=%dms, cpu=%dms, segStore=%dMB",
+                        cycleCount,
+                        nodesProcessed,
                         chunkHeapUsedMB.get(chunkHeapUsedMB.size() - 1),
                         chunkNonHeapUsedMB.get(chunkNonHeapUsedMB.size() - 1),
                         chunkGcCount.get(chunkGcCount.size() - 1),
@@ -476,7 +480,7 @@ public class ResumeIndexingPerfTest {
             System.out.println("  Total time: " + totalIndexTime + " ms");
             System.out.println("  Total cycles: " + cycleCount);
             
-            // Output per-cycle timing breakdown
+            // Output per-cycle timing breakdown (only for multi-cycle runs)
             if (cycleCount > 1) {
                 System.out.println("\n  Per-Cycle Timing Breakdown:");
                 System.out.println(String.format("    %-5s | %9s | %9s | %9s | %9s | %9s | %-40s", 
@@ -523,76 +527,76 @@ public class ResumeIndexingPerfTest {
                 System.out.println("    Resume(ms)   - Time ResumingEditor took to REACH resume point (0 if not resuming)");
                 System.out.println("    ResOH(ms)    - ResumingEditor overhead after reaching target (0 if not resuming)");
                 System.out.println("    Path         - Resume path or progress commit path");
-                
-                // === NEW: Detailed metrics analysis ===
-                System.out.println("\n  ===========================================");
-                System.out.println("  DETAILED METRICS ANALYSIS");
-                System.out.println("  ===========================================");
-                
-                // GC Overhead
-                double gcOverheadPct = (endGcTime - startGcTime) * 100.0 / totalIndexTime;
-                System.out.println(String.format("\n  GC Analysis:"));
-                System.out.println(String.format("    Total GC Time: %d ms", endGcTime - startGcTime));
-                System.out.println(String.format("    Total GC Count: %d collections", endGcCount - startGcCount));
-                System.out.println(String.format("    GC Overhead: %.2f%% of total time", gcOverheadPct));
-                if ((endGcCount - startGcCount) > 0) {
-                    System.out.println(String.format("    Average GC Pause: %.1f ms", 
-                        (endGcTime - startGcTime) / (double)(endGcCount - startGcCount)));
+            }
+            
+            // === Detailed metrics analysis (runs for both NORMAL and RESUME modes) ===
+            System.out.println("\n  ===========================================");
+            System.out.println("  DETAILED METRICS ANALYSIS");
+            System.out.println("  ===========================================");
+            
+            // GC Overhead
+            double gcOverheadPct = (endGcTime - startGcTime) * 100.0 / totalIndexTime;
+            System.out.println(String.format("\n  GC Analysis:"));
+            System.out.println(String.format("    Total GC Time: %d ms", endGcTime - startGcTime));
+            System.out.println(String.format("    Total GC Count: %d collections", endGcCount - startGcCount));
+            System.out.println(String.format("    GC Overhead: %.2f%% of total time", gcOverheadPct));
+            if ((endGcCount - startGcCount) > 0) {
+                System.out.println(String.format("    Average GC Pause: %.1f ms", 
+                    (endGcTime - startGcTime) / (double)(endGcCount - startGcCount)));
+            }
+            
+            // Memory Analysis
+            long memoryDelta = endMem - startMem;
+            double memoryEfficiency = memoryDelta / (double) NODE_COUNT;
+            System.out.println(String.format("\n  Memory Analysis:"));
+            System.out.println(String.format("    Memory Delta: %d MB", memoryDelta / (1024 * 1024)));
+            System.out.println(String.format("    Memory Efficiency: %.1f bytes/node", memoryEfficiency));
+            System.out.println(String.format("    Peak Heap: %d MB", 
+                ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getMax() / (1024 * 1024)));
+            
+            // Memory pool breakdown
+            System.out.println(String.format("\n  Memory Pools:"));
+            for (MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans()) {
+                if (pool.getType() == MemoryType.HEAP) {
+                    long used = pool.getUsage().getUsed() / (1024 * 1024);
+                    long max = pool.getUsage().getMax() / (1024 * 1024);
+                    System.out.println(String.format("    %-20s: %5d MB / %5d MB", 
+                        pool.getName(), used, max > 0 ? max : 0));
                 }
+            }
+            
+            // CPU Analysis
+            long cpuDelta = endCpuTime - startCpuTime;
+            double cpuEfficiency = NODE_COUNT / (cpuDelta / 1_000_000_000.0); // nodes per CPU second
+            double cpuUtilization = (cpuDelta / 1_000_000.0) * 100.0 / totalIndexTime; // percentage
+            System.out.println(String.format("\n  CPU Analysis:"));
+            System.out.println(String.format("    Total CPU Time: %.2f s", cpuDelta / 1_000_000_000.0));
+            System.out.println(String.format("    CPU Utilization: %.1f%% of wall time", cpuUtilization));
+            System.out.println(String.format("    CPU Efficiency: %.0f nodes/cpu-second", cpuEfficiency));
+            System.out.println(String.format("    Peak Threads: %d", threadBean.getPeakThreadCount()));
+            
+            // Disk Analysis
+            long segmentStoreSize = getSegmentStoreSize(ctx);
+            System.out.println(String.format("\n  Disk Analysis:"));
+            System.out.println(String.format("    SegmentStore Size: %d MB", segmentStoreSize / (1024 * 1024)));
+            System.out.println(String.format("    Lucene Index Size: %d MB", mainIndexSize / (1024 * 1024)));
+            System.out.println(String.format("    Total Disk Usage: %d MB", diskUsage / (1024 * 1024)));
+            
+            // Per-chunk metrics summary (if available)
+            if (!chunkHeapUsedMB.isEmpty()) {
+                System.out.println(String.format("\n  Per-Chunk Metrics Summary:"));
+                System.out.println(String.format("    Heap Growth: %d MB → %d MB", 
+                    chunkHeapUsedMB.get(0), 
+                    chunkHeapUsedMB.get(chunkHeapUsedMB.size() - 1)));
+                System.out.println(String.format("    SegmentStore Growth: %d MB → %d MB", 
+                    chunkSegmentStoreSizeMB.get(0), 
+                    chunkSegmentStoreSizeMB.get(chunkSegmentStoreSizeMB.size() - 1)));
                 
-                // Memory Analysis
-                long memoryDelta = endMem - startMem;
-                double memoryEfficiency = memoryDelta / (double) NODE_COUNT;
-                System.out.println(String.format("\n  Memory Analysis:"));
-                System.out.println(String.format("    Memory Delta: %d MB", memoryDelta / (1024 * 1024)));
-                System.out.println(String.format("    Memory Efficiency: %.1f bytes/node", memoryEfficiency));
-                System.out.println(String.format("    Peak Heap: %d MB", 
-                    ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getMax() / (1024 * 1024)));
-                
-                // Memory pool breakdown
-                System.out.println(String.format("\n  Memory Pools:"));
-                for (MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans()) {
-                    if (pool.getType() == MemoryType.HEAP) {
-                        long used = pool.getUsage().getUsed() / (1024 * 1024);
-                        long max = pool.getUsage().getMax() / (1024 * 1024);
-                        System.out.println(String.format("    %-20s: %5d MB / %5d MB", 
-                            pool.getName(), used, max > 0 ? max : 0));
-                    }
-                }
-                
-                // CPU Analysis
-                long cpuDelta = endCpuTime - startCpuTime;
-                double cpuEfficiency = NODE_COUNT / (cpuDelta / 1_000_000_000.0); // nodes per CPU second
-                double cpuUtilization = (cpuDelta / 1_000_000.0) * 100.0 / totalIndexTime; // percentage
-                System.out.println(String.format("\n  CPU Analysis:"));
-                System.out.println(String.format("    Total CPU Time: %.2f s", cpuDelta / 1_000_000_000.0));
-                System.out.println(String.format("    CPU Utilization: %.1f%% of wall time", cpuUtilization));
-                System.out.println(String.format("    CPU Efficiency: %.0f nodes/cpu-second", cpuEfficiency));
-                System.out.println(String.format("    Peak Threads: %d", threadBean.getPeakThreadCount()));
-                
-                // Disk Analysis
-                long segmentStoreSize = getSegmentStoreSize(ctx);
-                System.out.println(String.format("\n  Disk Analysis:"));
-                System.out.println(String.format("    SegmentStore Size: %d MB", segmentStoreSize / (1024 * 1024)));
-                System.out.println(String.format("    Lucene Index Size: %d MB", mainIndexSize / (1024 * 1024)));
-                System.out.println(String.format("    Total Disk Usage: %d MB", diskUsage / (1024 * 1024)));
-                
-                // Per-chunk metrics summary (if available)
-                if (!chunkHeapUsedMB.isEmpty()) {
-                    System.out.println(String.format("\n  Per-Chunk Metrics Summary:"));
-                    System.out.println(String.format("    Heap Growth: %d MB → %d MB", 
-                        chunkHeapUsedMB.get(0), 
-                        chunkHeapUsedMB.get(chunkHeapUsedMB.size() - 1)));
-                    System.out.println(String.format("    SegmentStore Growth: %d MB → %d MB", 
-                        chunkSegmentStoreSizeMB.get(0), 
-                        chunkSegmentStoreSizeMB.get(chunkSegmentStoreSizeMB.size() - 1)));
-                    
-                    // Calculate average per-chunk GC
-                    int totalChunkGc = 0;
-                    for (int gc : chunkGcCount) totalChunkGc += gc;
-                    System.out.println(String.format("    Average GC per chunk: %.1f collections", 
-                        totalChunkGc / (double) chunkGcCount.size()));
-                }
+                // Calculate average per-chunk GC
+                int totalChunkGc = 0;
+                for (int gc : chunkGcCount) totalChunkGc += gc;
+                System.out.println(String.format("    Average GC per chunk: %.1f collections", 
+                    totalChunkGc / (double) chunkGcCount.size()));
             }
 
             // Debug: Check index state (use nodeStore directly for accurate state)
@@ -746,8 +750,12 @@ public class ResumeIndexingPerfTest {
         dam.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
 
         // Create exactly QUERY_TARGET_COUNT dam:Asset nodes with status="approved"
+        // Spread them evenly across all nodes so each chunk sees some approved nodes
         int approvedInterval = Math.max(1, count / QUERY_TARGET_COUNT);
         int approvedCount = 0;
+        
+        System.out.println("Creating " + count + " nodes with " + QUERY_TARGET_COUNT + 
+            " approved nodes (every " + approvedInterval + "th node for even distribution)");
 
         for (int i = 0; i < count; i++) {
             Tree asset = dam.addChild("asset-" + i);
@@ -762,7 +770,8 @@ public class ResumeIndexingPerfTest {
             metadata.setProperty("dc:title", "Asset Title " + i);
             metadata.setProperty("dam:assetId", "asset-" + i);
             
-            // Set status for exactly QUERY_TARGET_COUNT nodes to "approved"
+            // Spread approved nodes evenly - every Nth node
+            // This ensures each chunk will have approved nodes to find in incremental queries
             if (i % approvedInterval == 0 && approvedCount < QUERY_TARGET_COUNT) {
                 metadata.setProperty("dam:status", "approved");
                 approvedCount++;
@@ -773,12 +782,12 @@ public class ResumeIndexingPerfTest {
             if ((i + 1) % batchSize == 0) {
                 ctx.root.commit();
                 if ((i + 1) % (batchSize * 10) == 0) {
-                    System.out.println("  Created " + (i + 1) + "/" + count + " assets");
+                    System.out.println("  Created " + (i + 1) + "/" + count + " assets (" + approvedCount + " approved so far)");
                 }
             }
         }
         ctx.root.commit();
-        System.out.println("Created " + count + " dam:Asset nodes (" + approvedCount + " with status=approved)");
+        System.out.println("Created " + count + " dam:Asset nodes (" + approvedCount + " with status=approved, spread evenly)");
     }
 
     // ========================================

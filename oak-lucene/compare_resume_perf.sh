@@ -617,12 +617,19 @@ print_stats_from_file() {
             echo ""
             print_table_header "Per-Chunk Search Results (Query results grow as indexing progresses)"
             echo "  -------------------------"
+            printf "    %-7s | %-8s | %-9s | %-9s | %s\n" "Chunk" "Nodes" "Results" "Time(ms)" "Resume Path"
+            echo "    $(printf '%.0s-' {1..80})"
             grep "CHUNK_RESULT:" "$FILE" | while read line; do
                 local cycle=$(echo $line | sed 's/.*cycle=\([0-9]*\).*/\1/')
+                local nodes=$(echo $line | sed 's/.*nodes=\([0-9]*\).*/\1/')
                 local results=$(echo $line | sed 's/.*results=\([0-9-]*\).*/\1/')
                 local ctime=$(echo $line | sed 's/.*time=\([0-9]*\).*/\1/')
                 local path=$(echo $line | sed 's/.*path=\(.*\)/\1/')
-                printf "    Chunk %2d: %4d results (%3d ms) - %s\n" "$cycle" "$results" "$ctime" "$path"
+                # Truncate path if too long
+                if [ ${#path} -gt 40 ]; then
+                    path="${path:0:37}..."
+                fi
+                printf "    %-7d | %-8s | %-9s | %-9s | %s\n" "$cycle" "$nodes" "$results" "$ctime" "$path"
             done
         fi
     fi
@@ -633,18 +640,19 @@ print_stats_from_file() {
             echo ""
             print_table_header "Per-Chunk Detailed Metrics (System resources per chunk)"
             echo "  ---------------------------"
-            echo "    Chunk | Heap(MB) | NonHeap(MB) | GC Count | GC Time(ms) | CPU(ms) | SegStore(MB)"
-            echo "    ------|----------|-------------|----------|-------------|---------|-------------"
+            echo "    Chunk | Nodes | Heap(MB) | NonHeap(MB) | GC Count | GC Time(ms) | CPU(ms) | SegStore(MB)"
+            echo "    ------|-------|----------|-------------|----------|-------------|---------|-------------"
             grep "CHUNK_METRICS:" "$FILE" | while read line; do
                 local cycle=$(echo $line | sed 's/.*cycle=\([0-9]*\).*/\1/')
+                local nodes=$(echo $line | sed 's/.*nodes=\([0-9]*\).*/\1/')
                 local heap=$(echo $line | sed 's/.*heap=\([0-9]*\)MB.*/\1/')
                 local nonheap=$(echo $line | sed 's/.*nonHeap=\([0-9]*\)MB.*/\1/')
                 local gc=$(echo $line | sed 's/.*gc=\([0-9]*\).*/\1/')
                 local gctime=$(echo $line | sed 's/.*gcTime=\([0-9]*\)ms.*/\1/')
                 local cpu=$(echo $line | sed 's/.*cpu=\([0-9]*\)ms.*/\1/')
                 local segstore=$(echo $line | sed 's/.*segStore=\([0-9]*\)MB.*/\1/')
-                printf "    %5d | %8d | %11d | %8d | %11d | %7d | %11d\n" \
-                       "$cycle" "$heap" "$nonheap" "$gc" "$gctime" "$cpu" "$segstore"
+                printf "    %5d | %5d | %8d | %11d | %8d | %11d | %7d | %11d\n" \
+                       "$cycle" "$nodes" "$heap" "$nonheap" "$gc" "$gctime" "$cpu" "$segstore"
             done
         fi
     fi

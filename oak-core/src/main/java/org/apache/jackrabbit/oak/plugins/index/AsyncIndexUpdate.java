@@ -1623,6 +1623,16 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
     }
     
     /**
+     * Gets the number of nodes processed (traversed) in the last run.
+     * This count excludes nodes that were fully processed and skipped via PathTree optimization.
+     * 
+     * @return number of nodes processed, 0 if no run has completed
+     */
+    public long getLastNodesProcessed() {
+        return indexStats.getNodesRead();
+    }
+    
+    /**
      * Gets the time taken by ResumingEditor to reach the resume point (target path).
      * This measures only the traversal time up to the resume point, not the total time.
      * 
@@ -1855,6 +1865,14 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
 
         @Override
         public long getNodesReadCount(){
+            return nodesRead;
+        }
+        
+        /**
+         * Alias for getNodesReadCount() - returns the number of nodes traversed.
+         * @return number of nodes read/traversed
+         */
+        public long getNodesRead() {
             return nodesRead;
         }
 
