@@ -44,10 +44,57 @@ cd "$(dirname "$0")"
 OUTPUT_FILE="perf_resume_results.txt"
 SUMMARY_FILE="perf_resume_summary.txt"
 
+# Control flags
+SHOW_TABLES=true  # Set to false to disable all tables
+
+# Table counter
+TABLE_NUM=0
+
+# Function to print a table header with numbering
+print_table_header() {
+    local title=$1
+    TABLE_NUM=$((TABLE_NUM + 1))
+    echo ""
+    echo "  [Table $TABLE_NUM] $title"
+    echo "  $(printf '=%.0s' $(seq 1 ${#title}))"
+}
+
+# Function to check if tables should be shown
+should_show_table() {
+    [ "$SHOW_TABLES" = true ]
+}
+
 echo "================================================================================"
 echo "RESUMABLE INDEXING PERFORMANCE TEST"
 echo "================================================================================"
 echo ""
+
+# Parse command-line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --no-tables)
+            SHOW_TABLES=false
+            shift
+            ;;
+        --tables)
+            SHOW_TABLES=true
+            shift
+            ;;
+        custom)
+            # Custom mode - pass through to existing logic
+            break
+            ;;
+        *)
+            # Unknown option, pass through
+            break
+            ;;
+    esac
+done
+
+if [ "$SHOW_TABLES" = false ]; then
+    echo "ℹ️  Table display disabled (use --tables to enable)"
+    echo ""
+fi
 
 # Clean previous results
 rm -f "$OUTPUT_FILE"
@@ -300,288 +347,318 @@ print_stats_from_file() {
     
     # PathTree loading times (Time to deserialize PathTree from NodeStore)
     if grep -q "\[DEBUG-PATHTREE\] Load time:" "$FILE" 2>/dev/null; then
-        echo "  PathTree Loading: (Time to load resume state from repository)"
-        grep "\[DEBUG-PATHTREE\] Load time:" "$FILE" | head -5 | while read line; do
-            local loadTime=$(echo $line | sed 's/.*Load time: \([0-9]*\)ms.*/\1/')
-            local nodes=$(echo $line | sed 's/.*nodes: \([0-9]*\).*/\1/')
-            local indexed=$(echo $line | sed 's/.*indexed: \([0-9]*\).*/\1/')
-            local fullyProcessed=$(echo $line | sed 's/.*fullyProcessed: \([0-9]*\).*/\1/')
-            local size=$(echo $line | sed 's/.*size: \([0-9]*\).*/\1/')
-            printf "    Load: %4d ms | Nodes: %6d | Indexed: %6d | FullyProc: %6d | Size: %8d bytes\n" \
-                   "$loadTime" "$nodes" "$indexed" "$fullyProcessed" "$size"
-        done
+        if should_show_table; then
+            print_table_header "PathTree Loading Times (Resume state deserialization)"
+            grep "\[DEBUG-PATHTREE\] Load time:" "$FILE" | head -5 | while read line; do
+                local loadTime=$(echo $line | sed 's/.*Load time: \([0-9]*\)ms.*/\1/')
+                local nodes=$(echo $line | sed 's/.*nodes: \([0-9]*\).*/\1/')
+                local indexed=$(echo $line | sed 's/.*indexed: \([0-9]*\).*/\1/')
+                local fullyProcessed=$(echo $line | sed 's/.*fullyProcessed: \([0-9]*\).*/\1/')
+                local size=$(echo $line | sed 's/.*size: \([0-9]*\).*/\1/')
+                printf "    Load: %4d ms | Nodes: %6d | Indexed: %6d | FullyProc: %6d | Size: %8d bytes\n" \
+                       "$loadTime" "$nodes" "$indexed" "$fullyProcessed" "$size"
+            done
+        fi
     fi
     
     # PathTree serialization times (including slim format) (Time to save PathTree to NodeStore)
     if grep -q "\[DEBUG-PATHTREE\] Serialize time:" "$FILE" 2>/dev/null; then
-        echo "  PathTree Serialization: (Time to save resume state to repository)"
-        local chunk_num=0
-        grep "\[DEBUG-PATHTREE\] Serialize time:" "$FILE" | while read line; do
-            chunk_num=$((chunk_num + 1))
-            local serTime=$(echo $line | sed 's/.*Serialize time: \([0-9]*\)ms.*/\1/')
-            local total=$(echo $line | sed 's/.*total: \([0-9]*\).*/\1/')
-            local fullyProcessed=$(echo $line | sed 's/.*fullyProcessed: \([0-9]*\).*/\1/')
-            local unprocessed=$(echo $line | sed 's/.*unprocessed: \([0-9]*\).*/\1/')
-            printf "    Chunk %2d: Serialize: %4d ms | Total: %6d | FullyProc: %6d | Unproc: %4d\n" \
-                   "$chunk_num" "$serTime" "$total" "$fullyProcessed" "$unprocessed"
-        done
+        if should_show_table; then
+            print_table_header "PathTree Serialization Times (Resume state saving)"
+            local chunk_num=0
+            grep "\[DEBUG-PATHTREE\] Serialize time:" "$FILE" | while read line; do
+                chunk_num=$((chunk_num + 1))
+                local serTime=$(echo $line | sed 's/.*Serialize time: \([0-9]*\)ms.*/\1/')
+                local total=$(echo $line | sed 's/.*total: \([0-9]*\).*/\1/')
+                local fullyProcessed=$(echo $line | sed 's/.*fullyProcessed: \([0-9]*\).*/\1/')
+                local unprocessed=$(echo $line | sed 's/.*unprocessed: \([0-9]*\).*/\1/')
+                printf "    Chunk %2d: Serialize: %4d ms | Total: %6d | FullyProc: %6d | Unproc: %4d\n" \
+                       "$chunk_num" "$serTime" "$total" "$fullyProcessed" "$unprocessed"
+            done
+        fi
     fi
     
     # PathTree slim serialization (unprocessed nodes only) (SLIM format: stores only frontier nodes)
     if grep -q "\[DEBUG-PATHTREE-SLIM\]" "$FILE" 2>/dev/null; then
-        echo "  PathTree SLIM Serialization: (Frontier-based format - minimal storage)"
-        local chunk_num=0
-        grep "\[DEBUG-PATHTREE-SLIM\]" "$FILE" | while read line; do
-            chunk_num=$((chunk_num + 1))
-            local unproc=$(echo $line | sed 's/.*Serialized \([0-9]*\) unprocessed.*/\1/')
-            local total=$(echo $line | sed 's/.*vs \([0-9]*\) total.*/\1/')
-            local savings="0"
-            if [ "$total" -gt 0 ] 2>/dev/null; then
-                savings=$(echo "scale=1; 100 - ($unproc * 100 / $total)" | bc 2>/dev/null || echo "N/A")
-            fi
-            printf "    Chunk %2d: Serialized %4d unprocessed paths (vs %6d total) -> %s%% savings\n" \
-                   "$chunk_num" "$unproc" "$total" "$savings"
-        done
+        if should_show_table; then
+            print_table_header "PathTree SLIM Serialization (Frontier-based format - minimal storage)"
+            local chunk_num=0
+            grep "\[DEBUG-PATHTREE-SLIM\]" "$FILE" | while read line; do
+                chunk_num=$((chunk_num + 1))
+                local unproc=$(echo $line | sed 's/.*Serialized \([0-9]*\) unprocessed.*/\1/')
+                local total=$(echo $line | sed 's/.*vs \([0-9]*\) total.*/\1/')
+                local savings="0"
+                if [ "$total" -gt 0 ] 2>/dev/null; then
+                    savings=$(echo "scale=1; 100 - ($unproc * 100 / $total)" | bc 2>/dev/null || echo "N/A")
+                fi
+                printf "    Chunk %2d: Serialized %4d unprocessed paths (vs %6d total) -> %s%% savings\n" \
+                       "$chunk_num" "$unproc" "$total" "$savings"
+            done
+        fi
     fi
     
     # PathTree size comparison - just show the raw log lines (Storage comparison: Full vs SLIM format)
     if grep -q "\[DEBUG-PATHTREE-SIZE\]" "$FILE" 2>/dev/null; then
-        echo "  PathTree Size: (Full vs SLIM storage requirements)"
-        local chunk_num=0
-        grep "\[DEBUG-PATHTREE-SIZE\]" "$FILE" | while read line; do
-            chunk_num=$((chunk_num + 1))
-            # Extract just the size info part
-            local sizeInfo=$(echo "$line" | sed 's/.*\[DEBUG-PATHTREE-SIZE\] //')
-            printf "    Chunk %2d: %s\n" "$chunk_num" "$sizeInfo"
-        done
+        if should_show_table; then
+            print_table_header "PathTree Size (Full vs SLIM storage requirements)"
+            local chunk_num=0
+            grep "\[DEBUG-PATHTREE-SIZE\]" "$FILE" | while read line; do
+                chunk_num=$((chunk_num + 1))
+                # Extract just the size info part
+                local sizeInfo=$(echo "$line" | sed 's/.*\[DEBUG-PATHTREE-SIZE\] //')
+                printf "    Chunk %2d: %s\n" "$chunk_num" "$sizeInfo"
+            done
+        fi
     fi
     
     # PathTree pruning times
     if grep -q "\[DEBUG-PATHTREE\] Prune time:" "$FILE" 2>/dev/null; then
-        echo "  PathTree Pruning:"
-        grep "\[DEBUG-PATHTREE\] Prune time:" "$FILE" | while read line; do
-            local pruneTime=$(echo $line | sed 's/.*Prune time: \([0-9]*\)ms.*/\1/')
-            local pruned=$(echo $line | sed 's/.*pruned: \([0-9]*\).*/\1/')
-            local before=$(echo $line | sed 's/.*before: \([0-9]*\).*/\1/')
-            local after=$(echo $line | sed 's/.*after: \([0-9]*\).*/\1/')
-            printf "    Prune: %4d ms | Pruned: %6d nodes | Before: %6d | After: %6d\n" \
-                   "$pruneTime" "$pruned" "$before" "$after"
-        done
+        if should_show_table; then
+            print_table_header "PathTree Pruning"
+            grep "\[DEBUG-PATHTREE\] Prune time:" "$FILE" | while read line; do
+                local pruneTime=$(echo $line | sed 's/.*Prune time: \([0-9]*\)ms.*/\1/')
+                local pruned=$(echo $line | sed 's/.*pruned: \([0-9]*\).*/\1/')
+                local before=$(echo $line | sed 's/.*before: \([0-9]*\).*/\1/')
+                local after=$(echo $line | sed 's/.*after: \([0-9]*\).*/\1/')
+                printf "    Prune: %4d ms | Pruned: %6d nodes | Before: %6d | After: %6d\n" \
+                       "$pruneTime" "$pruned" "$before" "$after"
+            done
+        fi
     fi
     
     # Mode-specific timing (NORMAL or RESUME) (Indexing execution mode)
     if grep -q "\[DEBUG-MODE\]" "$FILE" 2>/dev/null; then
-        echo ""
-        echo "  Indexing Mode: (NORMAL=traditional | RESUME=chunked)"
-        grep "\[DEBUG-MODE\]" "$FILE" | tail -1 | while read line; do
-            echo "    $line"
-        done
+        if should_show_table; then
+            echo ""
+            print_table_header "Indexing Mode (NORMAL=traditional | RESUME=chunked)"
+            grep "\[DEBUG-MODE\]" "$FILE" | tail -1 | while read line; do
+                echo "    $line"
+            done
+        fi
     fi
     
     # Diff time (Tree traversal time per chunk/run)
     if grep -q "\[DEBUG-TIMING\].*Diff time:" "$FILE" 2>/dev/null; then
-        echo "  Diff Timing: (Tree traversal time - the main indexing loop)"
-        grep "\[DEBUG-TIMING\].*Diff time:" "$FILE" | while read line; do
-            local diffTime=$(echo $line | sed 's/.*Diff time: \([0-9]*\)ms.*/\1/')
-            local mode=$(echo $line | sed 's/.*\[DEBUG-TIMING\] \([A-Z]*\) Diff.*/\1/')
-            printf "    %s Diff: %4d ms\n" "$mode" "$diffTime"
-        done
+        if should_show_table; then
+            print_table_header "Diff Timing (Tree traversal time - the main indexing loop)"
+            grep "\[DEBUG-TIMING\].*Diff time:" "$FILE" | while read line; do
+                local diffTime=$(echo $line | sed 's/.*Diff time: \([0-9]*\)ms.*/\1/')
+                local mode=$(echo $line | sed 's/.*\[DEBUG-TIMING\] \([A-Z]*\) Diff.*/\1/')
+                printf "    %s Diff: %4d ms\n" "$mode" "$diffTime"
+            done
+        fi
     fi
     
     # Commit summary (flush + merge) (Lucene index commit timing breakdown)
     if grep -q "\[DEBUG-TIMING\].*COMMIT SUMMARY:" "$FILE" 2>/dev/null; then
-        echo "  Commit Timing: (Lucene flush + merge times)"
-        grep "\[DEBUG-TIMING\].*COMMIT SUMMARY:" "$FILE" | while read line; do
-            local mode=$(echo $line | sed 's/.*\[DEBUG-TIMING\] \([A-Z]*\) COMMIT.*/\1/')
-            local flush=$(echo $line | sed 's/.*flush=\([0-9]*\)ms.*/\1/')
-            local merge=$(echo $line | sed 's/.*merge=\([0-9]*\)ms.*/\1/')
-            local total=$(echo $line | sed 's/.*TOTAL=\([0-9]*\)ms.*/\1/')
-            printf "    %s: flush=%4dms | merge=%4dms | TOTAL=%4dms\n" \
-                   "$mode" "$flush" "$merge" "$total"
-        done
+        if should_show_table; then
+            print_table_header "Commit Timing (Lucene flush + merge times)"
+            grep "\[DEBUG-TIMING\].*COMMIT SUMMARY:" "$FILE" | while read line; do
+                local mode=$(echo $line | sed 's/.*\[DEBUG-TIMING\] \([A-Z]*\) COMMIT.*/\1/')
+                local flush=$(echo $line | sed 's/.*flush=\([0-9]*\)ms.*/\1/')
+                local merge=$(echo $line | sed 's/.*merge=\([0-9]*\)ms.*/\1/')
+                local total=$(echo $line | sed 's/.*TOTAL=\([0-9]*\)ms.*/\1/')
+                printf "    %s: flush=%4dms | merge=%4dms | TOTAL=%4dms\n" \
+                       "$mode" "$flush" "$merge" "$total"
+            done
+        fi
     fi
     
     # Resume path timing (Time to reach resume point before starting new indexing)
     if grep -q "\[DEBUG-RESUME\]" "$FILE" 2>/dev/null; then
-        echo "  Resume Path Timing: (Time to skip already-indexed nodes)"
-        grep "\[DEBUG-RESUME\] Resume path reached" "$FILE" | while read line; do
-            local resumeTime=$(echo $line | sed 's/.*reached in \([0-9]*\)ms.*/\1/')
-            printf "    Time to reach resume path: %4d ms\n" "$resumeTime"
-        done
-        
-        grep "\[DEBUG-RESUME\] Total diff time:" "$FILE" | head -3 | while read line; do
-            local diffTime=$(echo $line | sed 's/.*Total diff time: \([0-9]*\)ms.*/\1/')
-            local toResume=$(echo $line | sed 's/.*time to resume path: \([0-9]*\)ms.*/\1/')
-            local afterResume=$(echo $line | sed 's/.*indexing time after resume: \([0-9]*\)ms.*/\1/')
-            printf "    Total diff: %4d ms | To resume: %4d ms | After resume: %4d ms\n" \
-                   "$diffTime" "$toResume" "$afterResume"
-        done
+        if should_show_table; then
+            print_table_header "Resume Path Timing (Time to skip already-indexed nodes)"
+            grep "\[DEBUG-RESUME\] Resume path reached" "$FILE" | while read line; do
+                local resumeTime=$(echo $line | sed 's/.*reached in \([0-9]*\)ms.*/\1/')
+                printf "    Time to reach resume path: %4d ms\n" "$resumeTime"
+            done
+            
+            grep "\[DEBUG-RESUME\] Total diff time:" "$FILE" | head -3 | while read line; do
+                local diffTime=$(echo $line | sed 's/.*Total diff time: \([0-9]*\)ms.*/\1/')
+                local toResume=$(echo $line | sed 's/.*time to resume path: \([0-9]*\)ms.*/\1/')
+                local afterResume=$(echo $line | sed 's/.*indexing time after resume: \([0-9]*\)ms.*/\1/')
+                printf "    Total diff: %4d ms | To resume: %4d ms | After resume: %4d ms\n" \
+                       "$diffTime" "$toResume" "$afterResume"
+            done
+        fi
     fi
     
     # Skip stats (NodeStore optimization) (How many nodes were skipped using PathTree)
     if grep -q "\[DEBUG-SKIP\]" "$FILE" 2>/dev/null; then
-        echo "  Skip Stats: (NodeStore read optimization via PathTree)"
-        local total_skip_full=0
-        local total_processed=0
-        local chunk_num=0
-        grep "\[DEBUG-SKIP\]" "$FILE" | while read line; do
-            chunk_num=$((chunk_num + 1))
-            local skipFull=$(echo $line | sed 's/.*skipFull=\([0-9]*\).*/\1/')
-            local skipIndexed=$(echo $line | sed 's/.*skipIndexed=\([0-9]*\).*/\1/')
-            local processed=$(echo $line | sed 's/.*processed=\([0-9]*\).*/\1/')
-            printf "    Chunk %2d: skipFull=%6d | skipIndexed=%5d | processed=%5d\n" \
-                   "$chunk_num" "$skipFull" "$skipIndexed" "$processed"
-        done
-        
-        # Summary
-        echo ""
-        echo "  Skip Summary:"
-        local last_skip=$(grep "\[DEBUG-SKIP\]" "$FILE" | tail -1)
-        local last_skip_full=$(echo $last_skip | sed 's/.*skipFull=\([0-9]*\).*/\1/')
-        local last_processed=$(echo $last_skip | sed 's/.*processed=\([0-9]*\).*/\1/')
-        local skip_pct=0
-        if [ "$last_skip_full" -gt 0 ] && [ "$last_processed" -gt 0 ]; then
-            skip_pct=$(echo "scale=1; $last_skip_full * 100 / ($last_skip_full + $last_processed)" | bc 2>/dev/null || echo "N/A")
+        if should_show_table; then
+            print_table_header "Skip Stats (NodeStore read optimization via PathTree)"
+            local total_skip_full=0
+            local total_processed=0
+            local chunk_num=0
+            grep "\[DEBUG-SKIP\]" "$FILE" | while read line; do
+                chunk_num=$((chunk_num + 1))
+                local skipFull=$(echo $line | sed 's/.*skipFull=\([0-9]*\).*/\1/')
+                local skipIndexed=$(echo $line | sed 's/.*skipIndexed=\([0-9]*\).*/\1/')
+                local processed=$(echo $line | sed 's/.*processed=\([0-9]*\).*/\1/')
+                printf "    Chunk %2d: skipFull=%6d | skipIndexed=%5d | processed=%5d\n" \
+                       "$chunk_num" "$skipFull" "$skipIndexed" "$processed"
+            done
+            
+            # Summary
+            echo ""
+            print_table_header "Skip Summary"
+            local last_skip=$(grep "\[DEBUG-SKIP\]" "$FILE" | tail -1)
+            local last_skip_full=$(echo $last_skip | sed 's/.*skipFull=\([0-9]*\).*/\1/')
+            local last_processed=$(echo $last_skip | sed 's/.*processed=\([0-9]*\).*/\1/')
+            local skip_pct=0
+            if [ "$last_skip_full" -gt 0 ] && [ "$last_processed" -gt 0 ]; then
+                skip_pct=$(echo "scale=1; $last_skip_full * 100 / ($last_skip_full + $last_processed)" | bc 2>/dev/null || echo "N/A")
+            fi
+            echo "    Final run: $last_skip_full nodes skipped (${skip_pct}% skip rate)"
         fi
-        echo "    Final run: $last_skip_full nodes skipped (${skip_pct}% skip rate)"
     fi
     
     # PathTree Traversal stats (new optimization) (PathTree vs SegmentStore traversal comparison)
     if grep -q "\[DEBUG-PATHTREE-TRAVERSAL\]" "$FILE" 2>/dev/null; then
-        echo ""
-        echo "  PathTree Traversal Stats: (NEW OPTIMIZATION - Skip SegmentStore reads)"
-        echo "  ============================================"
-        
-        # Show traversal mode
-        if grep -q "Using PathTree traversal mode" "$FILE" 2>/dev/null; then
-            echo "    ✓ PathTree-driven traversal ENABLED"
-        else
-            echo "    ⚠ Standard EditorDiff mode (PathTree traversal disabled)"
-        fi
-        
-        # Show PathTree stats
-        grep "\[DEBUG-PATHTREE-TRAVERSAL\] PathTree stats:" "$FILE" 2>/dev/null | while read line; do
-            local total=$(echo $line | sed 's/.*total=\([0-9]*\).*/\1/')
-            local fp=$(echo $line | sed 's/.*fullyProcessed=\([0-9]*\).*/\1/')
-            local nfp=$(echo $line | sed 's/.*notFullyProcessed=\([0-9]*\).*/\1/')
-            local eo=$(echo $line | sed 's/.*enterOnly=\([0-9]*\).*/\1/')
-            printf "    PathTree: total=%d | fullyProcessed=%d | notFullyProcessed=%d | enterOnly=%d\n" \
-                   "$total" "$fp" "$nfp" "$eo"
-        done
-        
-        # Show traversal stats
-        local chunk_num=0
-        grep "\[DEBUG-PATHTREE-TRAVERSAL\] pathTreeTraversals=" "$FILE" 2>/dev/null | while read line; do
-            chunk_num=$((chunk_num + 1))
-            local ptTrav=$(echo $line | sed 's/.*pathTreeTraversals=\([0-9]*\).*/\1/')
-            local ssTrav=$(echo $line | sed 's/.*segmentStoreTraversals=\([0-9]*\).*/\1/')
-            local ptLookup=$(echo $line | sed 's/.*pathTreeChildLookups=\([0-9]*\).*/\1/')
-            local ssLookup=$(echo $line | sed 's/.*segmentStoreChildLookups=\([0-9]*\).*/\1/')
+        if should_show_table; then
+            echo ""
+            print_table_header "PathTree Traversal Stats (NEW OPTIMIZATION - Skip SegmentStore reads)"
+            echo "  ============================================"
             
-            # Calculate savings percentage
-            local totalTrav=$((ptTrav + ssTrav))
-            local pct="0"
-            if [ "$totalTrav" -gt 0 ]; then
-                pct=$(echo "scale=1; $ptTrav * 100 / $totalTrav" | bc 2>/dev/null || echo "N/A")
+            # Show traversal mode
+            if grep -q "Using PathTree traversal mode" "$FILE" 2>/dev/null; then
+                echo "    ✓ PathTree-driven traversal ENABLED"
+            else
+                echo "    ⚠ Standard EditorDiff mode (PathTree traversal disabled)"
             fi
             
-            printf "    Chunk %2d: PathTree=%5d | SegmentStore=%5d | Savings=%s%%\n" \
-                   "$chunk_num" "$ptTrav" "$ssTrav" "$pct"
-        done
-        
-        # Summary
-        local last_pt_stat=$(grep "\[DEBUG-PATHTREE-TRAVERSAL\] pathTreeTraversals=" "$FILE" 2>/dev/null | tail -1)
-        if [ -n "$last_pt_stat" ]; then
-            local lastPtTrav=$(echo $last_pt_stat | sed 's/.*pathTreeTraversals=\([0-9]*\).*/\1/')
-            local lastSsTrav=$(echo $last_pt_stat | sed 's/.*segmentStoreTraversals=\([0-9]*\).*/\1/')
-            local lastTotal=$((lastPtTrav + lastSsTrav))
-            local lastPct="0"
-            if [ "$lastTotal" -gt 0 ]; then
-                lastPct=$(echo "scale=1; $lastPtTrav * 100 / $lastTotal" | bc 2>/dev/null || echo "N/A")
-            fi
-            echo ""
-            echo "    *** Final Traversal: $lastPtTrav from PathTree, $lastSsTrav from SegmentStore ($lastPct% optimization) ***"
-        fi
-        
-        # PathTree timing breakdown (Breakdown of PathTree operation times)
-        if grep -q "\[DEBUG-PATHTREE-TIMING\]" "$FILE" 2>/dev/null; then
-            echo ""
-            echo "  PathTree Timing Breakdown: (Detailed timing for PathTree operations)"
-            echo "  -------------------------"
-            grep "\[DEBUG-PATHTREE-TIMING\]" "$FILE" | head -5 | while read line; do
-                echo "    $line" | sed 's/.*\[DEBUG-PATHTREE-TIMING\] //'
+            # Show PathTree stats
+            grep "\[DEBUG-PATHTREE-TRAVERSAL\] PathTree stats:" "$FILE" 2>/dev/null | while read line; do
+                local total=$(echo $line | sed 's/.*total=\([0-9]*\).*/\1/')
+                local fp=$(echo $line | sed 's/.*fullyProcessed=\([0-9]*\).*/\1/')
+                local nfp=$(echo $line | sed 's/.*notFullyProcessed=\([0-9]*\).*/\1/')
+                local eo=$(echo $line | sed 's/.*enterOnly=\([0-9]*\).*/\1/')
+                printf "    PathTree: total=%d | fullyProcessed=%d | notFullyProcessed=%d | enterOnly=%d\n" \
+                       "$total" "$fp" "$nfp" "$eo"
             done
             
-            # Show SegmentStore I/O times
-            local ss_times=$(grep "SegmentStore I/O time:" "$FILE" | sed 's/.*SegmentStore I/O time: \([0-9]*\)ms.*/\1/' | tail -5)
-            if [ -n "$ss_times" ]; then
-                echo "  SegmentStore I/O (per chunk):"
-                local idx=0
-                for t in $ss_times; do
-                    idx=$((idx + 1))
-                    printf "    Chunk %2d: %4d ms\n" "$idx" "$t"
+            # Show traversal stats
+            local chunk_num=0
+            grep "\[DEBUG-PATHTREE-TRAVERSAL\] pathTreeTraversals=" "$FILE" 2>/dev/null | while read line; do
+                chunk_num=$((chunk_num + 1))
+                local ptTrav=$(echo $line | sed 's/.*pathTreeTraversals=\([0-9]*\).*/\1/')
+                local ssTrav=$(echo $line | sed 's/.*segmentStoreTraversals=\([0-9]*\).*/\1/')
+                local ptLookup=$(echo $line | sed 's/.*pathTreeChildLookups=\([0-9]*\).*/\1/')
+                local ssLookup=$(echo $line | sed 's/.*segmentStoreChildLookups=\([0-9]*\).*/\1/')
+                
+                # Calculate savings percentage
+                local totalTrav=$((ptTrav + ssTrav))
+                local pct="0"
+                if [ "$totalTrav" -gt 0 ]; then
+                    pct=$(echo "scale=1; $ptTrav * 100 / $totalTrav" | bc 2>/dev/null || echo "N/A")
+                fi
+                
+                printf "    Chunk %2d: PathTree=%5d | SegmentStore=%5d | Savings=%s%%\n" \
+                       "$chunk_num" "$ptTrav" "$ssTrav" "$pct"
+            done
+            
+            # Summary
+            local last_pt_stat=$(grep "\[DEBUG-PATHTREE-TRAVERSAL\] pathTreeTraversals=" "$FILE" 2>/dev/null | tail -1)
+            if [ -n "$last_pt_stat" ]; then
+                local lastPtTrav=$(echo $last_pt_stat | sed 's/.*pathTreeTraversals=\([0-9]*\).*/\1/')
+                local lastSsTrav=$(echo $last_pt_stat | sed 's/.*segmentStoreTraversals=\([0-9]*\).*/\1/')
+                local lastTotal=$((lastPtTrav + lastSsTrav))
+                local lastPct="0"
+                if [ "$lastTotal" -gt 0 ]; then
+                    lastPct=$(echo "scale=1; $lastPtTrav * 100 / $lastTotal" | bc 2>/dev/null || echo "N/A")
+                fi
+                echo ""
+                echo "    *** Final Traversal: $lastPtTrav from PathTree, $lastSsTrav from SegmentStore ($lastPct% optimization) ***"
+            fi
+            
+            # PathTree timing breakdown (Breakdown of PathTree operation times)
+            if grep -q "\[DEBUG-PATHTREE-TIMING\]" "$FILE" 2>/dev/null; then
+                echo ""
+                print_table_header "PathTree Timing Breakdown (Detailed timing for PathTree operations)"
+                echo "  -------------------------"
+                grep "\[DEBUG-PATHTREE-TIMING\]" "$FILE" | head -5 | while read line; do
+                    echo "    $line" | sed 's/.*\[DEBUG-PATHTREE-TIMING\] //'
                 done
+                
+                # Show SegmentStore I/O times
+                local ss_times=$(grep "SegmentStore I/O time:" "$FILE" | sed 's/.*SegmentStore I/O time: \([0-9]*\)ms.*/\1/' | tail -5)
+                if [ -n "$ss_times" ]; then
+                    print_table_header "SegmentStore I/O (per chunk)"
+                    local idx=0
+                    for t in $ss_times; do
+                        idx=$((idx + 1))
+                        printf "    Chunk %2d: %4d ms\n" "$idx" "$t"
+                    done
+                fi
             fi
         fi
     fi
     
     # Chunk commit timing (Per-chunk Lucene commit breakdown)
     if grep -q "\[DEBUG-TIMING\] CHUNK COMMIT SUMMARY:" "$FILE" 2>/dev/null; then
-        echo "  Per-Chunk Commit Timing: (Lucene flush + merge + state save per chunk)"
-        local chunk_num=0
-        grep "\[DEBUG-TIMING\] CHUNK COMMIT SUMMARY:" "$FILE" | while read line; do
-            chunk_num=$((chunk_num + 1))
-            local flush=$(echo $line | sed 's/.*flush=\([0-9]*\)ms.*/\1/')
-            local merge=$(echo $line | sed 's/.*merge=\([0-9]*\)ms.*/\1/')
-            local save=$(echo $line | sed 's/.*saveState=\([0-9]*\)ms.*/\1/')
-            local total=$(echo $line | sed 's/.*TOTAL=\([0-9]*\)ms.*/\1/')
-            printf "    Chunk %2d: flush=%4dms | merge=%4dms | save=%4dms | TOTAL=%4dms\n" \
-                   "$chunk_num" "$flush" "$merge" "$save" "$total"
-        done
+        if should_show_table; then
+            print_table_header "Per-Chunk Commit Timing (Lucene flush + merge + state save per chunk)"
+            local chunk_num=0
+            grep "\[DEBUG-TIMING\] CHUNK COMMIT SUMMARY:" "$FILE" | while read line; do
+                chunk_num=$((chunk_num + 1))
+                local flush=$(echo $line | sed 's/.*flush=\([0-9]*\)ms.*/\1/')
+                local merge=$(echo $line | sed 's/.*merge=\([0-9]*\)ms.*/\1/')
+                local save=$(echo $line | sed 's/.*saveState=\([0-9]*\)ms.*/\1/')
+                local total=$(echo $line | sed 's/.*TOTAL=\([0-9]*\)ms.*/\1/')
+                printf "    Chunk %2d: flush=%4dms | merge=%4dms | save=%4dms | TOTAL=%4dms\n" \
+                       "$chunk_num" "$flush" "$merge" "$save" "$total"
+            done
+        fi
     fi
     
     # Print per-chunk search results if available (Incremental query results after each chunk)
     if grep -q "CHUNK_RESULT:" "$FILE" 2>/dev/null; then
-        echo ""
-        echo "  Per-Chunk Search Results: (Query results grow as indexing progresses)"
-        echo "  -------------------------"
-        grep "CHUNK_RESULT:" "$FILE" | while read line; do
-            local cycle=$(echo $line | sed 's/.*cycle=\([0-9]*\).*/\1/')
-            local results=$(echo $line | sed 's/.*results=\([0-9-]*\).*/\1/')
-            local ctime=$(echo $line | sed 's/.*time=\([0-9]*\).*/\1/')
-            local path=$(echo $line | sed 's/.*path=\(.*\)/\1/')
-            printf "    Chunk %2d: %4d results (%3d ms) - %s\n" "$cycle" "$results" "$ctime" "$path"
-        done
+        if should_show_table; then
+            echo ""
+            print_table_header "Per-Chunk Search Results (Query results grow as indexing progresses)"
+            echo "  -------------------------"
+            grep "CHUNK_RESULT:" "$FILE" | while read line; do
+                local cycle=$(echo $line | sed 's/.*cycle=\([0-9]*\).*/\1/')
+                local results=$(echo $line | sed 's/.*results=\([0-9-]*\).*/\1/')
+                local ctime=$(echo $line | sed 's/.*time=\([0-9]*\).*/\1/')
+                local path=$(echo $line | sed 's/.*path=\(.*\)/\1/')
+                printf "    Chunk %2d: %4d results (%3d ms) - %s\n" "$cycle" "$results" "$ctime" "$path"
+            done
+        fi
     fi
     
     # Print per-chunk detailed metrics if available (Memory, GC, CPU, Disk per chunk)
     if grep -q "CHUNK_METRICS:" "$FILE" 2>/dev/null; then
-        echo ""
-        echo "  Per-Chunk Detailed Metrics: (System resources per chunk)"
-        echo "  ---------------------------"
-        echo "    Chunk | Heap(MB) | NonHeap(MB) | GC Count | GC Time(ms) | CPU(ms) | SegStore(MB)"
-        echo "    ------|----------|-------------|----------|-------------|---------|-------------"
-        grep "CHUNK_METRICS:" "$FILE" | while read line; do
-            local cycle=$(echo $line | sed 's/.*cycle=\([0-9]*\).*/\1/')
-            local heap=$(echo $line | sed 's/.*heap=\([0-9]*\)MB.*/\1/')
-            local nonheap=$(echo $line | sed 's/.*nonHeap=\([0-9]*\)MB.*/\1/')
-            local gc=$(echo $line | sed 's/.*gc=\([0-9]*\).*/\1/')
-            local gctime=$(echo $line | sed 's/.*gcTime=\([0-9]*\)ms.*/\1/')
-            local cpu=$(echo $line | sed 's/.*cpu=\([0-9]*\)ms.*/\1/')
-            local segstore=$(echo $line | sed 's/.*segStore=\([0-9]*\)MB.*/\1/')
-            printf "    %5d | %8d | %11d | %8d | %11d | %7d | %11d\n" \
-                   "$cycle" "$heap" "$nonheap" "$gc" "$gctime" "$cpu" "$segstore"
-        done
+        if should_show_table; then
+            echo ""
+            print_table_header "Per-Chunk Detailed Metrics (System resources per chunk)"
+            echo "  ---------------------------"
+            echo "    Chunk | Heap(MB) | NonHeap(MB) | GC Count | GC Time(ms) | CPU(ms) | SegStore(MB)"
+            echo "    ------|----------|-------------|----------|-------------|---------|-------------"
+            grep "CHUNK_METRICS:" "$FILE" | while read line; do
+                local cycle=$(echo $line | sed 's/.*cycle=\([0-9]*\).*/\1/')
+                local heap=$(echo $line | sed 's/.*heap=\([0-9]*\)MB.*/\1/')
+                local nonheap=$(echo $line | sed 's/.*nonHeap=\([0-9]*\)MB.*/\1/')
+                local gc=$(echo $line | sed 's/.*gc=\([0-9]*\).*/\1/')
+                local gctime=$(echo $line | sed 's/.*gcTime=\([0-9]*\)ms.*/\1/')
+                local cpu=$(echo $line | sed 's/.*cpu=\([0-9]*\)ms.*/\1/')
+                local segstore=$(echo $line | sed 's/.*segStore=\([0-9]*\)MB.*/\1/')
+                printf "    %5d | %8d | %11d | %8d | %11d | %7d | %11d\n" \
+                       "$cycle" "$heap" "$nonheap" "$gc" "$gctime" "$cpu" "$segstore"
+            done
+        fi
     fi
     
     # Check for PathTree dump files
     if ls pathtree_dump_*.json 2>/dev/null | head -1 > /dev/null; then
-        echo ""
-        echo "  PathTree Dump Files:"
-        echo "  --------------------"
-        ls -la pathtree_dump_*.json 2>/dev/null | while read line; do
-            echo "    $line"
-        done
+        if should_show_table; then
+            echo ""
+            print_table_header "PathTree Dump Files"
+            echo "  --------------------"
+            ls -la pathtree_dump_*.json 2>/dev/null | while read line; do
+                echo "    $line"
+            done
+        fi
     fi
     
     echo ""
@@ -701,41 +778,44 @@ done
 
 # Display comparison table
 if [ -s "$METRICS_FILE" ]; then
-    echo "Found $SCENARIO_COUNT scenario(s) from this run:"
-    echo ""
-    echo "┌─────────────────────────────────────────┬──────────┬────────────┬──────┬─────────┬─────────┬──────────┬─────────┬──────────┐"
-    printf "│ %-39s │ %8s │ %10s │ %4s │ %7s │ %7s │ %8s │ %7s │ %8s │\n" \
-           "Scenario" "Time(s)" "Throughput" "Runs" "Indexed" "GC(ms)" "GC Count" "Mem(MB)" "PT Save%"
-    echo "├─────────────────────────────────────────┼──────────┼────────────┼──────┼─────────┼─────────┼──────────┼─────────┼──────────┤"
-    
-    while IFS='|' read -r scenario time throughput runs indexed gc_time gc_count mem pt_savings; do
-        # Truncate scenario name if too long
-        if [ ${#scenario} -gt 39 ]; then
-            scenario="${scenario:0:36}..."
-        fi
-        
-        # Handle N/A values
-        [ -z "$time" ] && time="N/A"
-        [ -z "$throughput" ] && throughput="N/A"
-        [ -z "$runs" ] && runs="N/A"
-        [ -z "$indexed" ] && indexed="N/A"
-        [ -z "$gc_time" ] && gc_time="N/A"
-        [ -z "$gc_count" ] && gc_count="N/A"
-        
-        # Convert memory from KB to MB
-        if [ "$mem" != "N/A" ] && [ -n "$mem" ] && [ "$mem" -gt 0 ] 2>/dev/null; then
-            mem=$(echo "scale=0; $mem / 1024" | bc 2>/dev/null || echo "$mem")
-        else
-            mem="N/A"
-        fi
-        
-        [ -z "$pt_savings" ] && pt_savings="N/A"
-        
+    if should_show_table; then
+        echo "Found $SCENARIO_COUNT scenario(s) from this run:"
+        echo ""
+        print_table_header "Performance Comparison - All Scenarios"
+        echo "┌─────────────────────────────────────────┬──────────┬────────────┬──────┬─────────┬─────────┬──────────┬─────────┬──────────┐"
         printf "│ %-39s │ %8s │ %10s │ %4s │ %7s │ %7s │ %8s │ %7s │ %8s │\n" \
-               "$scenario" "$time" "$throughput" "$runs" "$indexed" "$gc_time" "$gc_count" "$mem" "$pt_savings"
-    done < "$METRICS_FILE"
-    
-    echo "└─────────────────────────────────────────┴──────────┴────────────┴──────┴─────────┴─────────┴──────────┴─────────┴──────────┘"
+               "Scenario" "Time(s)" "Throughput" "Runs" "Indexed" "GC(ms)" "GC Count" "Mem(MB)" "PT Save%"
+        echo "├─────────────────────────────────────────┼──────────┼────────────┼──────┼─────────┼─────────┼──────────┼─────────┼──────────┤"
+        
+        while IFS='|' read -r scenario time throughput runs indexed gc_time gc_count mem pt_savings; do
+            # Truncate scenario name if too long
+            if [ ${#scenario} -gt 39 ]; then
+                scenario="${scenario:0:36}..."
+            fi
+            
+            # Handle N/A values
+            [ -z "$time" ] && time="N/A"
+            [ -z "$throughput" ] && throughput="N/A"
+            [ -z "$runs" ] && runs="N/A"
+            [ -z "$indexed" ] && indexed="N/A"
+            [ -z "$gc_time" ] && gc_time="N/A"
+            [ -z "$gc_count" ] && gc_count="N/A"
+            
+            # Convert memory from KB to MB
+            if [ "$mem" != "N/A" ] && [ -n "$mem" ] && [ "$mem" -gt 0 ] 2>/dev/null; then
+                mem=$(echo "scale=0; $mem / 1024" | bc 2>/dev/null || echo "$mem")
+            else
+                mem="N/A"
+            fi
+            
+            [ -z "$pt_savings" ] && pt_savings="N/A"
+            
+            printf "│ %-39s │ %8s │ %10s │ %4s │ %7s │ %7s │ %8s │ %7s │ %8s │\n" \
+                   "$scenario" "$time" "$throughput" "$runs" "$indexed" "$gc_time" "$gc_count" "$mem" "$pt_savings"
+        done < "$METRICS_FILE"
+        
+        echo "└─────────────────────────────────────────┴──────────┴────────────┴──────┴─────────┴─────────┴──────────┴─────────┴──────────┘"
+    fi
     
     # Find best performers
     echo ""
@@ -893,11 +973,18 @@ echo "Quick Test Commands:"
 echo "  # Run all scenarios (normal + resume modes)"
 echo "  ./compare_resume_perf.sh"
 echo ""
+echo "  # Run with tables disabled"
+echo "  ./compare_resume_perf.sh --no-tables"
+echo ""
 echo "  # Custom: 10K nodes, 2s time chunks, SLIM format"
 echo "  ./compare_resume_perf.sh custom SEGMENT 10000 0 2000 true true true"
 echo ""
 echo "  # Custom: 10K nodes, normal mode (no chunking)"
 echo "  ./compare_resume_perf.sh custom SEGMENT 10000 0 0 false false false"
+echo ""
+echo "Options:"
+echo "  --tables      : Enable table display (default)"
+echo "  --no-tables   : Disable all table output for cleaner logs"
 echo ""
 echo "Parameter Guide:"
 echo "  STORE         : SEGMENT | DOCUMENT"
