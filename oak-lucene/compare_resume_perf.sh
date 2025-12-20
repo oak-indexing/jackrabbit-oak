@@ -538,6 +538,26 @@ print_stats_from_file() {
         done
     fi
     
+    # Print per-chunk detailed metrics if available
+    if grep -q "CHUNK_METRICS:" "$FILE" 2>/dev/null; then
+        echo ""
+        echo "  Per-Chunk Detailed Metrics:"
+        echo "  ---------------------------"
+        echo "    Chunk | Heap(MB) | NonHeap(MB) | GC Count | GC Time(ms) | CPU(ms) | SegStore(MB)"
+        echo "    ------|----------|-------------|----------|-------------|---------|-------------"
+        grep "CHUNK_METRICS:" "$FILE" | while read line; do
+            local cycle=$(echo $line | sed 's/.*cycle=\([0-9]*\).*/\1/')
+            local heap=$(echo $line | sed 's/.*heap=\([0-9]*\)MB.*/\1/')
+            local nonheap=$(echo $line | sed 's/.*nonHeap=\([0-9]*\)MB.*/\1/')
+            local gc=$(echo $line | sed 's/.*gc=\([0-9]*\).*/\1/')
+            local gctime=$(echo $line | sed 's/.*gcTime=\([0-9]*\)ms.*/\1/')
+            local cpu=$(echo $line | sed 's/.*cpu=\([0-9]*\)ms.*/\1/')
+            local segstore=$(echo $line | sed 's/.*segStore=\([0-9]*\)MB.*/\1/')
+            printf "    %5d | %8d | %11d | %8d | %11d | %7d | %11d\n" \
+                   "$cycle" "$heap" "$nonheap" "$gc" "$gctime" "$cpu" "$segstore"
+        done
+    fi
+    
     # Check for PathTree dump files
     if ls pathtree_dump_*.json 2>/dev/null | head -1 > /dev/null; then
         echo ""
