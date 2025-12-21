@@ -150,7 +150,7 @@ SCENARIOS=(
      "SEGMENT 20000 0 0 false false false"
      
      # Resume mode - FULL PathTree format with time-based chunking (1 second chunks)
-     "SEGMENT 20000 0 1000 true true false"
+    #  "SEGMENT 20000 0 1000 true true false"
      
      # Resume mode - SLIM/Frontier PathTree format with time-based chunking (1 second chunks)
      "SEGMENT 20000 0 1000 true true true"
@@ -182,6 +182,10 @@ SCENARIOS=(
     # Resume mode - SLIM/Frontier PathTree format (minimal storage, optimized!)
     # "SEGMENT 50000 0 5000 true true true"
 
+    # "SEGMENT 50000 0 10000 true true true"
+    # "SEGMENT 50000 0 15000 true true true"
+    # "SEGMENT 50000 0 20000 true true true"
+    # "SEGMENT 50000 0 25000 true true true"
     
     # Example: 2000 nodes OR 5000ms chunks
 # ./compare_resume_perf.sh custom SEGMENT 10000 2000 5000 true true
@@ -897,7 +901,12 @@ for outfile in SEGMENT_*.out DOCUMENT_*.out; do
     # Parse GC and Memory metrics from DETAILED METRICS ANALYSIS section
     GC_TIME=$(grep "Total GC Time:" "$outfile" 2>/dev/null | awk '{print $4}' | head -1)
     GC_COUNT=$(grep "Total GC Count:" "$outfile" 2>/dev/null | awk '{print $4}' | head -1)
+    
+    # Parse new memory format: "Memory Delta: 245 MB (peak - start)"
     MEMORY_DELTA=$(grep "Memory Delta:" "$outfile" 2>/dev/null | awk '{print $3}' | head -1)
+    PEAK_HEAP=$(grep "Peak Heap:" "$outfile" 2>/dev/null | awk '{print $3}' | head -1)
+    START_HEAP=$(grep "Start Heap:" "$outfile" 2>/dev/null | awk '{print $3}' | head -1)
+    END_HEAP=$(grep "End Heap:" "$outfile" 2>/dev/null | awk '{print $3}' | head -1)
     
     # Parse CPU metrics
     CPU_TIME=$(grep "Total CPU Time:" "$outfile" 2>/dev/null | awk '{print $4}' | head -1)
@@ -918,8 +927,8 @@ for outfile in SEGMENT_*.out DOCUMENT_*.out; do
         TIME_SEC=$(echo "scale=1; $TOTAL_TIME / 1000" | bc 2>/dev/null || echo "N/A")
     fi
     
-    # Store in temp file
-    echo "$SCENARIO|$TIME_SEC|$THROUGHPUT|$RUN_COUNT|$ACTUAL_COUNT|$GC_TIME|$GC_COUNT|$MEMORY_DELTA|$PT_SAVINGS|$SEGSTORE_SIZE|$LUCENE_SIZE|$TOTAL_DISK|$CPU_TIME|$CPU_UTIL|$CPU_EFF" >> "$METRICS_FILE"
+    # Store in temp file (add peak heap for better memory tracking)
+    echo "$SCENARIO|$TIME_SEC|$THROUGHPUT|$RUN_COUNT|$ACTUAL_COUNT|$GC_TIME|$GC_COUNT|$MEMORY_DELTA|$PT_SAVINGS|$SEGSTORE_SIZE|$LUCENE_SIZE|$TOTAL_DISK|$CPU_TIME|$CPU_UTIL|$CPU_EFF|$PEAK_HEAP" >> "$METRICS_FILE"
 done
 
 # Display comparison table
@@ -933,7 +942,7 @@ if [ -s "$METRICS_FILE" ]; then
                "Scenario" "Time(s)" "Throughput" "Runs" "Indexed" "GC(ms)" "GC Count" "Mem(MB)" "PT Save%"
         echo "├─────────────────────────────────────────┼──────────┼────────────┼──────┼─────────┼─────────┼──────────┼─────────┼──────────┤"
         
-        while IFS='|' read -r scenario time throughput runs indexed gc_time gc_count mem pt_savings segstore lucene totaldisk cpu_time cpu_util cpu_eff; do
+        while IFS='|' read -r scenario time throughput runs indexed gc_time gc_count mem pt_savings segstore lucene totaldisk cpu_time cpu_util cpu_eff peak_heap; do
             # Truncate scenario name if too long
             if [ ${#scenario} -gt 39 ]; then
                 scenario="${scenario:0:36}..."
@@ -947,12 +956,8 @@ if [ -s "$METRICS_FILE" ]; then
             [ -z "$gc_time" ] && gc_time="N/A"
             [ -z "$gc_count" ] && gc_count="N/A"
             
-            # Convert memory from KB to MB
-            if [ "$mem" != "N/A" ] && [ -n "$mem" ] && [ "$mem" -gt 0 ] 2>/dev/null; then
-                mem=$(echo "scale=0; $mem / 1024" | bc 2>/dev/null || echo "$mem")
-            else
-                mem="N/A"
-            fi
+            # Memory is already in MB from new format
+            [ -z "$mem" ] || [ "$mem" = "N/A" ] && mem="N/A"
             
             [ -z "$pt_savings" ] && pt_savings="N/A"
             
@@ -992,27 +997,31 @@ if [ -s "$METRICS_FILE" ]; then
     GCC_MEDIAN=$(awk -F'|' '{if ($7 != "N/A" && $7 >= 0) print $7}' "$METRICS_FILE" | sort -n | awk '{a[NR]=$1} END {if (NR==0) print "N/A"; else if (NR%2==1) printf "%.0f", a[(NR+1)/2]; else printf "%.0f", (a[NR/2]+a[NR/2+1])/2}')
     GCC_P95=$(awk -F'|' '{if ($7 != "N/A" && $7 >= 0) print $7}' "$METRICS_FILE" | sort -n | awk '{a[NR]=$1} END {if (NR==0) print "N/A"; else {idx=int(NR*0.95); if (idx<1) idx=1; printf "%.0f", a[idx]}}')
     
-    # Memory statistics (convert KB to MB)
-    MEM_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($8 != "N/A" && $8 > 0 && $8 < min) min=$8} END {if (min==999999) print "N/A"; else printf "%.0f", min/1024}' "$METRICS_FILE")
-    MEM_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($8 != "N/A" && $8 > max) max=$8} END {if (max==0) print "N/A"; else printf "%.0f", max/1024}' "$METRICS_FILE")
-    MEM_AVG=$(awk -F'|' '{if ($8 != "N/A" && $8 > 0) {sum+=$8; count++}} END {if (count>0) printf "%.0f", sum/count/1024; else print "N/A"}' "$METRICS_FILE")
-    MEM_MEDIAN=$(awk -F'|' '{if ($8 != "N/A" && $8 > 0) print $8}' "$METRICS_FILE" | sort -n | awk '{a[NR]=$1} END {if (NR==0) print "N/A"; else if (NR%2==1) printf "%.0f", a[(NR+1)/2]/1024; else printf "%.0f", (a[NR/2]+a[NR/2+1])/2/1024}')
-    MEM_P95=$(awk -F'|' '{if ($8 != "N/A" && $8 > 0) print $8}' "$METRICS_FILE" | sort -n | awk '{a[NR]=$1} END {if (NR==0) print "N/A"; else {idx=int(NR*0.95); if (idx<1) idx=1; printf "%.0f", a[idx]/1024}}')
+    # Memory statistics (already in MB from new format)
+    MEM_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($8 != "N/A" && $8 > 0 && $8 < min) min=$8} END {if (min==999999) print "N/A"; else printf "%.0f", min}' "$METRICS_FILE")
+    MEM_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($8 != "N/A" && $8 > max) max=$8} END {if (max==0) print "N/A"; else printf "%.0f", max}' "$METRICS_FILE")
+    MEM_AVG=$(awk -F'|' '{if ($8 != "N/A" && $8 > 0) {sum+=$8; count++}} END {if (count>0) printf "%.0f", sum/count; else print "N/A"}' "$METRICS_FILE")
+    MEM_MEDIAN=$(awk -F'|' '{if ($8 != "N/A" && $8 > 0) print $8}' "$METRICS_FILE" | sort -n | awk '{a[NR]=$1} END {if (NR==0) print "N/A"; else if (NR%2==1) printf "%.0f", a[(NR+1)/2]; else printf "%.0f", (a[NR/2]+a[NR/2+1])/2}')
+    MEM_P95=$(awk -F'|' '{if ($8 != "N/A" && $8 > 0) print $8}' "$METRICS_FILE" | sort -n | awk '{a[NR]=$1} END {if (NR==0) print "N/A"; else {idx=int(NR*0.95); if (idx<1) idx=1; printf "%.0f", a[idx]}}')
     
+    # Peak Heap statistics (already in MB)
+    PEAK_MIN=$(awk -F'|' 'BEGIN{min=999999} {if ($16 != "N/A" && $16 > 0 && $16 < min) min=$16} END {if (min==999999) print "N/A"; else printf "%.0f", min}' "$METRICS_FILE")
+    PEAK_MAX=$(awk -F'|' 'BEGIN{max=0} {if ($16 != "N/A" && $16 > max) max=$16} END {if (max==0) print "N/A"; else printf "%.0f", max}' "$METRICS_FILE")
+    PEAK_AVG=$(awk -F'|' '{if ($16 != "N/A" && $16 > 0) {sum+=$16; count++}} END {if (count>0) printf "%.0f", sum/count; else print "N/A"}' "$METRICS_FILE")
     # Display aggregated statistics (ALWAYS VISIBLE)
     echo ""
     echo "================================================================================"
     echo "AGGREGATED STATISTICS (All Scenarios)"
     echo "================================================================================"
     echo ""
-    printf "%-11s | %8s | %10s | %7s | %8s | %7s\n" \
-           "Statistic" "Time(s)" "Throughput" "GC(ms)" "GC Count" "Mem(MB)"
-    echo "------------|----------|------------|---------|----------|--------"
-    printf "%-11s | %8s | %10s | %7s | %8s | %7s\n" "Min" "$TIME_MIN" "$TP_MIN" "$GC_MIN" "$GCC_MIN" "$MEM_MIN"
-    printf "%-11s | %8s | %10s | %7s | %8s | %7s\n" "Max" "$TIME_MAX" "$TP_MAX" "$GC_MAX" "$GCC_MAX" "$MEM_MAX"
-    printf "%-11s | %8s | %10s | %7s | %8s | %7s\n" "Average" "$TIME_AVG" "$TP_AVG" "$GC_AVG" "$GCC_AVG" "$MEM_AVG"
-    printf "%-11s | %8s | %10s | %7s | %8s | %7s\n" "Median" "$TIME_MEDIAN" "$TP_MEDIAN" "$GC_MEDIAN" "$GCC_MEDIAN" "$MEM_MEDIAN"
-    printf "%-11s | %8s | %10s | %7s | %8s | %7s\n" "P95" "$TIME_P95" "$TP_P95" "$GC_P95" "$GCC_P95" "$MEM_P95"
+    printf "%-11s | %8s | %10s | %7s | %8s | %9s | %9s\n" \
+           "Statistic" "Time(s)" "Throughput" "GC(ms)" "GC Count" "MemDelta(MB)" "PeakHeap(MB)"
+    echo "------------|----------|------------|---------|----------|-----------|-------------"
+    printf "%-11s | %8s | %10s | %7s | %8s | %9s | %9s\n" "Min" "$TIME_MIN" "$TP_MIN" "$GC_MIN" "$GCC_MIN" "$MEM_MIN" "$PEAK_MIN"
+    printf "%-11s | %8s | %10s | %7s | %8s | %9s | %9s\n" "Max" "$TIME_MAX" "$TP_MAX" "$GC_MAX" "$GCC_MAX" "$MEM_MAX" "$PEAK_MAX"
+    printf "%-11s | %8s | %10s | %7s | %8s | %9s | %9s\n" "Average" "$TIME_AVG" "$TP_AVG" "$GC_AVG" "$GCC_AVG" "$MEM_AVG" "$PEAK_AVG"
+    printf "%-11s | %8s | %10s | %7s | %8s | %9s | %9s\n" "Median" "$TIME_MEDIAN" "$TP_MEDIAN" "$GC_MEDIAN" "$GCC_MEDIAN" "$MEM_MEDIAN" "N/A"
+    printf "%-11s | %8s | %10s | %7s | %8s | %9s | %9s\n" "P95" "$TIME_P95" "$TP_P95" "$GC_P95" "$GCC_P95" "$MEM_P95" "N/A"
     echo ""
     
     # Display detailed GC and Memory breakdown (ALWAYS VISIBLE)
@@ -1024,7 +1033,7 @@ if [ -s "$METRICS_FILE" ]; then
            "Scenario" "GC(ms)" "GC Count" "GC/sec" "Mem(MB)"
     echo "----------------------------------------|---------|----------|-----------|--------"
     
-    while IFS='|' read -r scenario time throughput runs indexed gc_time gc_count mem pt_savings; do
+    while IFS='|' read -r scenario time throughput runs indexed gc_time gc_count mem pt_savings segstore lucene totaldisk cpu_time cpu_util cpu_eff peak_heap; do
         # Truncate scenario name if too long
         if [ ${#scenario} -gt 39 ]; then
             scenario="${scenario:0:36}..."
@@ -1042,11 +1051,9 @@ if [ -s "$METRICS_FILE" ]; then
         [ -z "$gc_time" ] && gc_time="N/A"
         [ -z "$gc_count" ] && gc_count="N/A"
         
-        # Convert memory from KB to MB
-        mem_mb="N/A"
-        if [ "$mem" != "N/A" ] && [ -n "$mem" ] && [ "$mem" -gt 0 ] 2>/dev/null; then
-            mem_mb=$(echo "scale=0; $mem / 1024" | bc 2>/dev/null || echo "N/A")
-        fi
+        # Memory is already in MB from new format
+        mem_mb="$mem"
+        [ -z "$mem" ] || [ "$mem" = "N/A" ] && mem_mb="N/A"
         
         printf "%-39s | %7s | %8s | %9s | %7s\n" \
                "$scenario" "$gc_time" "$gc_count" "$gc_per_sec" "$mem_mb"
@@ -1062,7 +1069,7 @@ if [ -s "$METRICS_FILE" ]; then
            "Scenario" "SegStore(MB)" "Lucene(MB)" "Total(MB)"
     echo "----------------------------------------|-------------|-------------|------------"
     
-    while IFS='|' read -r scenario time throughput runs indexed gc_time gc_count mem pt_savings segstore lucene totaldisk; do
+    while IFS='|' read -r scenario time throughput runs indexed gc_time gc_count mem pt_savings segstore lucene totaldisk cpu_time cpu_util cpu_eff peak_heap; do
         # Truncate scenario name if too long
         if [ ${#scenario} -gt 39 ]; then
             scenario="${scenario:0:36}..."
@@ -1140,13 +1147,12 @@ if [ -s "$METRICS_FILE" ]; then
         echo "  🧹 Lowest GC Time: $GC_NAME ($GC_VALUE ms)"
     fi
     
-    # Lowest memory usage
+    # Lowest memory usage (already in MB)
     LOWEST_MEM=$(sort -t'|' -k8 -n "$METRICS_FILE" | grep -v "N/A" | grep -v "^-" | head -1)
     if [ -n "$LOWEST_MEM" ]; then
         MEM_NAME=$(echo "$LOWEST_MEM" | cut -d'|' -f1)
         MEM_VALUE=$(echo "$LOWEST_MEM" | cut -d'|' -f8)
-        MEM_MB=$(echo "scale=0; $MEM_VALUE / 1024" | bc 2>/dev/null || echo "$MEM_VALUE")
-        echo "  💾 Lowest Memory Usage: $MEM_NAME ($MEM_MB MB)"
+        echo "  💾 Lowest Memory Usage: $MEM_NAME ($MEM_VALUE MB)"
     fi
     
     # Calculate speedup if we have NORMAL and SLIM scenarios
@@ -1168,9 +1174,11 @@ if [ -s "$METRICS_FILE" ]; then
     echo ""
     echo "✅ Verification Status:"
     echo "======================="
+    echo "  Note: All counts verified using keyset pagination (bypasses 100K result limits)"
+    echo ""
     
     ALL_PASS=true
-    while IFS='|' read -r scenario time throughput runs indexed gc_time gc_count mem pt_savings; do
+    while IFS='|' read -r scenario time throughput runs indexed gc_time gc_count mem pt_savings segstore lucene totaldisk cpu_time cpu_util cpu_eff peak_heap; do
         if [ "$indexed" != "N/A" ] && [ "$indexed" -gt 0 ] 2>/dev/null; then
             echo "  ✓ $scenario: $indexed documents indexed"
         else
@@ -1284,7 +1292,7 @@ echo ""
 echo "Key Metrics Explained:"
 echo "  Time(s)       : Total indexing time"
 echo "  Throughput    : Nodes indexed per second"
-echo "  Verified      : Count of successfully indexed documents (uses COUNT query)"
+echo "  Verified      : Count of successfully indexed documents (uses keyset pagination)"
 echo "  Runs          : Number of chunks/cycles"
 echo "  PTTrav        : PathTree traversal enabled (Y/N)"
 echo ""

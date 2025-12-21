@@ -262,7 +262,17 @@ public class ResumeIndexingPerfTest {
             }
             threadBean.resetPeakThreadCount();
 
+            // Force GC to get clean memory baseline
+            System.gc();
+            try { Thread.sleep(100); } catch (InterruptedException e) {}
+            
             long startMem = getUsedMemory();
+            
+            // Reset peak usage counters for memory pools
+            for (MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans()) {
+                pool.resetPeakUsage();
+            }
+            
             long startGcCount = getGcCount();
             long startGcTime = getGcTime();
             long startCpuTime = getProcessCpuTime();
@@ -486,6 +496,7 @@ public class ResumeIndexingPerfTest {
             long totalIndexTime = System.currentTimeMillis() - startIndexing;
 
             long endMem = getUsedMemory();
+            long peakHeapUsed = getMaxHeapUsed(); // Peak usage during indexing
             long endGcCount = getGcCount();
             long endGcTime = getGcTime();
             long endCpuTime = getProcessCpuTime();
@@ -563,12 +574,16 @@ public class ResumeIndexingPerfTest {
             }
             
             // Memory Analysis
-            long memoryDelta = endMem - startMem;
+            // Use peak heap usage to avoid negative values from GC
+            long memoryDelta = peakHeapUsed - startMem;
             double memoryEfficiency = memoryDelta / (double) NODE_COUNT;
             System.out.println(String.format("\n  Memory Analysis:"));
-            System.out.println(String.format("    Memory Delta: %d MB", memoryDelta / (1024 * 1024)));
+            System.out.println(String.format("    Memory Delta: %d MB (peak - start)", memoryDelta / (1024 * 1024)));
+            System.out.println(String.format("    Start Heap: %d MB", startMem / (1024 * 1024)));
+            System.out.println(String.format("    Peak Heap: %d MB", peakHeapUsed / (1024 * 1024)));
+            System.out.println(String.format("    End Heap: %d MB", endMem / (1024 * 1024)));
             System.out.println(String.format("    Memory Efficiency: %.1f bytes/node", memoryEfficiency));
-            System.out.println(String.format("    Peak Heap: %d MB", 
+            System.out.println(String.format("    Max Heap Available: %d MB", 
                 ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getMax() / (1024 * 1024)));
             
             // Memory pool breakdown
@@ -695,12 +710,64 @@ public class ResumeIndexingPerfTest {
             
             long queryTime = System.currentTimeMillis() - queryStart;
             
-            // Assertions - use actual count for verification
-            System.out.println("  Expected approved nodes: " + QUERY_TARGET_COUNT);
-            System.out.println("  Actual indexed nodes: " + actualCount);
-            assertTrue("Actual count should be positive", actualCount > 0);
-            assertTrue("Should have approximately " + QUERY_TARGET_COUNT + " approved nodes (±5%)", 
-                      actualCount >= QUERY_TARGET_COUNT * 0.95 && actualCount <= QUERY_TARGET_COUNT * 1.05);
+            // ===== COMPREHENSIVE DATA VERIFICATION =====
+            System.out.println("\n--- Data Completeness Verification ---");
+            System.out.println("  Using keyset pagination to count all indexed nodes...");
+            
+            // 1. Verify approved nodes count
+            System.out.println("\n  [1/4] Counting approved nodes...");
+            String approvedQuery = 
+                "SELECT * FROM [dam:Asset] WHERE ISDESCENDANTNODE('/content/dam') " +
+                "AND [jcr:content/metadata/dam:status] = 'approved'";
+            
+            long approvedCount = countAllNodesWithPagination(ctx, approvedQuery);
+            assertTrue("Approved count must be positive", approvedCount > 0);
+            assertEquals("Should have exactly " + QUERY_TARGET_COUNT + " approved nodes indexed", 
+                        QUERY_TARGET_COUNT, (int) approvedCount);
+            
+            // 2. Verify ALL nodes (approved + draft) were indexed
+            System.out.println("\n  [2/4] Counting all nodes...");
+            String allNodesQuery = 
+                "SELECT * FROM [dam:Asset] WHERE ISDESCENDANTNODE('/content/dam')";
+            
+            long totalIndexedNodes = countAllNodesWithPagination(ctx, allNodesQuery);
+            assertTrue("Total indexed nodes must be positive", totalIndexedNodes > 0);
+            assertTrue("Should not have more nodes than created", totalIndexedNodes <= NODE_COUNT);
+            assertEquals("Should have exactly " + NODE_COUNT + " nodes indexed", 
+                        NODE_COUNT, (int) totalIndexedNodes);
+            
+            // 3. Verify draft nodes were also indexed
+            System.out.println("\n  [3/4] Counting draft nodes...");
+            String draftQuery = 
+                "SELECT * FROM [dam:Asset] WHERE ISDESCENDANTNODE('/content/dam') " +
+                "AND [jcr:content/metadata/dam:status] = 'draft'";
+            
+            long draftCount = countAllNodesWithPagination(ctx, draftQuery);
+            int expectedDraftCount = NODE_COUNT - QUERY_TARGET_COUNT;
+            assertTrue("Draft count must be positive", draftCount > 0);
+            assertTrue("Should not have more draft nodes than expected", draftCount <= expectedDraftCount);
+            assertEquals("Should have exactly " + expectedDraftCount + " draft nodes indexed", 
+                        expectedDraftCount, (int) draftCount);
+            
+            // 4. Verify sum of approved + draft equals total
+            System.out.println("\n  [4/4] Verifying arithmetic...");
+            long sumApprovedAndDraft = approvedCount + draftCount;
+            assertTrue("Sum must be positive", sumApprovedAndDraft > 0);
+            assertTrue("Should not have more approved nodes than expected", approvedCount <= QUERY_TARGET_COUNT);
+            assertEquals("Sum of approved and draft must equal total indexed nodes", 
+                        totalIndexedNodes, sumApprovedAndDraft);
+            
+            // 5. Summary (only after all assertions pass)
+            System.out.println("\n✅ Data Completeness Verification PASSED:");
+            System.out.println("  ✓ All " + NODE_COUNT + " nodes were indexed (verified with pagination)");
+            System.out.println("  ✓ Approved nodes: " + approvedCount + " (expected: " + QUERY_TARGET_COUNT + ")");
+            System.out.println("  ✓ Draft nodes: " + draftCount + " (expected: " + expectedDraftCount + ")");
+            System.out.println("  ✓ Total indexed: " + totalIndexedNodes + " nodes");
+            System.out.println("  ✓ Arithmetic check: " + approvedCount + " + " + draftCount + " = " + totalIndexedNodes);
+            System.out.println("  ✓ Index is complete and searchable");
+            
+            // Use approved count for legacy compatibility with shell script
+            actualCount = approvedCount;
             
             // The queryApproved is capped at 1000, so verify it's at or below that
             assertTrue("Query result should be capped at 1000 or match actual count if less", 
@@ -977,6 +1044,73 @@ public class ResumeIndexingPerfTest {
     // ========================================
     // Query Execution
     // ========================================
+
+    /**
+     * Count all nodes using keyset pagination to bypass result size limits.
+     * Uses jcr:path for cursor-based pagination (more reliable than custom properties).
+     */
+    private long countAllNodesWithPagination(PerfContext ctx, String baseQuery) {
+        final int PAGE_SIZE = 10000;  // Safe page size well below 100K limit
+        long totalCount = 0;
+        String lastPath = "";
+        boolean hasMore = true;
+        
+        System.out.println("  Using keyset pagination (10K page size) to count all nodes...");
+        
+        while (hasMore) {
+            // Build paginated query using path comparison for keyset
+            String query;
+            if (lastPath.isEmpty()) {
+                // First page
+                query = baseQuery + 
+                    " ORDER BY [jcr:path] " +
+                    "option(traversal fail, index name damAssetLucene)";
+            } else {
+                // Subsequent pages - use keyset where path > lastPath
+                query = baseQuery + 
+                    " AND [jcr:path] > '" + lastPath + "' " +
+                    " ORDER BY [jcr:path] " +
+                    "option(traversal fail, index name damAssetLucene)";
+            }
+            
+            try {
+                ctx.root.refresh();
+                org.apache.jackrabbit.oak.api.Result result = ctx.root.getQueryEngine().executeQuery(
+                    query, "JCR-SQL2",
+                    java.util.Collections.emptyMap(),
+                    org.apache.jackrabbit.oak.api.QueryEngine.NO_MAPPINGS
+                );
+                
+                int pageCount = 0;
+                for (org.apache.jackrabbit.oak.api.ResultRow row : result.getRows()) {
+                    pageCount++;
+                    totalCount++;
+                    
+                    // Get path for next page cursor
+                    lastPath = row.getPath();
+                    
+                    // Safety check - don't iterate forever
+                    if (pageCount >= PAGE_SIZE) {
+                        break;
+                    }
+                }
+                
+                // If we got fewer results than PAGE_SIZE, we're done
+                hasMore = (pageCount >= PAGE_SIZE);
+                
+                if (hasMore) {
+                    System.out.println("    Page complete: " + totalCount + " nodes so far, continuing from " + lastPath + "...");
+                }
+                
+            } catch (Exception e) {
+                System.out.println("    Pagination query ERROR: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+                hasMore = false;
+            }
+        }
+        
+        System.out.println("  Pagination complete: " + totalCount + " total nodes found");
+        return totalCount;
+    }
 
     /**
      * Execute a query and return the result count.
