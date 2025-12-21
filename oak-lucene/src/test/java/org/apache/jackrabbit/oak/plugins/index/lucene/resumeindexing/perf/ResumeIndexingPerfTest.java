@@ -691,19 +691,20 @@ public class ResumeIndexingPerfTest {
             // Verify with query using Lucene index (traversal fail ensures index is used)
             System.out.println("  Running query verification (with traversal fail)...");
             
-            // Use regular query and count results to get actual total count
+            // Use CONTAINS query to force fulltext index usage (not property index)
+            // Property index iteration counts as traversal, fulltext index does not
             String countQuery = 
                 "SELECT [jcr:path] FROM [dam:Asset] WHERE ISDESCENDANTNODE('/content/dam') " +
-                "AND [jcr:content/metadata/dam:status] = 'approved' " +
+                "AND CONTAINS([jcr:content/metadata/dam:status], 'approved') " +
                 "option(traversal fail, index name damAssetLucene)";
             
             long actualCount = executeCountQueryWithRetry(ctx, countQuery, 10, 500);
             System.out.println("    Actual count from index: " + actualCount);
             
-            // Also run the regular query to show the capped result
+            // Also run the regular query to show the capped result (also use CONTAINS)
             int queryApproved = executeQueryWithRetry(ctx, 
                 "SELECT * FROM [dam:Asset] WHERE ISDESCENDANTNODE('/content/dam') " +
-                "AND [jcr:content/metadata/dam:status] = 'approved' " +
+                "AND CONTAINS([jcr:content/metadata/dam:status], 'approved') " +
                 "option(traversal fail, index name damAssetLucene)", 
                 10, 500);
             System.out.println("    Query result count (capped at 1000): " + queryApproved);

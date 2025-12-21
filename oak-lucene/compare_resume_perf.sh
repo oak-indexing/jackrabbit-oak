@@ -95,6 +95,46 @@ while [[ $# -gt 0 ]]; do
             # Custom mode - pass through to existing logic
             break
             ;;
+        [0-9]*)
+            # Shorthand syntax: ./compare_resume_perf.sh [--tables|--no-tables] NODES MODE1,MODE2,...
+            # Example: ./compare_resume_perf.sh 20000 NORMAL,SLIM
+            NODE_COUNT=$1
+            shift
+            if [[ $# -gt 0 ]]; then
+                MODE_LIST=$1
+                shift
+            else
+                MODE_LIST="NORMAL"
+            fi
+            
+            # Clear any default scenarios
+            SCENARIOS=()
+            
+            # Parse comma-separated modes
+            IFS=',' read -ra MODES <<< "$MODE_LIST"
+            for mode in "${MODES[@]}"; do
+                case "$mode" in
+                    NORMAL)
+                        SCENARIOS+=("SEGMENT $NODE_COUNT 0 0 false false false")
+                        ;;
+                    SLIM)
+                        SCENARIOS+=("SEGMENT $NODE_COUNT 0 1000 true true true")
+                        ;;
+                    PTFULL)
+                        SCENARIOS+=("SEGMENT $NODE_COUNT 0 1000 true true false")
+                        ;;
+                    RESUME)
+                        SCENARIOS+=("SEGMENT $NODE_COUNT 0 1000 true false false")
+                        ;;
+                    *)
+                        echo "Unknown mode: $mode"
+                        echo "Valid modes: NORMAL, SLIM, PTFULL, RESUME"
+                        exit 1
+                        ;;
+                esac
+            done
+            break
+            ;;
         *)
             # Unknown option, pass through
             break
@@ -116,7 +156,7 @@ rm -f "$SUMMARY_FILE"
 
 # Clean old scenario output files from previous runs
 echo "Cleaning old test output files..."
-rm -f SEGMENT_*.out DOCUMENT_*.out 2>/dev/null
+rm -f SEGMENT_*.out DOCUMENT_*.out SEG_*.out DOC_*.out 2>/dev/null
 rm -f pathtree_dump_*.json 2>/dev/null
 echo "Old files cleaned."
 echo ""
@@ -186,20 +226,23 @@ SCENARIOS=(
     # "SEGMENT 50000 0 20000 true true true"
     # "SEGMENT 50000 0 25000 true true true"
 
-    "SEGMENT 100000 0 5000 false false false"
+    # Example active scenarios - uncomment or use shorthand syntax instead
+    # Example: ./compare_resume_perf.sh 50000 NORMAL,SLIM
+    "SEGMENT 50000 0 5000 false false false"
     # "SEGMENT 100000 0 25000 true true true"
     # "SEGMENT 100000 0 30000 true true true"
-    "SEGMENT 100000 0 35000 true true true"
-    # "SEGMENT 100000 0 40000 true true true"
-    # "SEGMENT 100000 0 45000 true true true"
-    # "SEGMENT 100000 0 50000 true true true"
+    "SEGMENT 50000 0 20000 true true true"
+    # "SEGMENT 50000 0 40000 true true true"
+    # "SEGMENT 50000 0 45000 true true true"
+    # "SEGMENT 50000 0 50000 true true true"
+    # "SEGMENT 50000 0 60000 true true true"
     
     # Example: 2000 nodes OR 5000ms chunks
 # ./compare_resume_perf.sh custom SEGMENT 10000 2000 5000 true true
 )
 
 # JVM Configuration
-JVM_CONFIG="-Xmx4G -Xms4G"
+JVM_CONFIG="-Xmx1G -Xms1G"
 
 # Get classpath from Maven
 echo "Building classpath..."
@@ -220,14 +263,26 @@ run_single_scenario() {
     local PATHTREE_TRAVERSAL=${6:-false}
     local SLIM_FORMAT=${7:-false}  # Use frontier-based slim PathTree format
     
-    local MODE="NORMAL"
-    if [ "$RESUME" = "true" ]; then
-        MODE="RESUME"
+    # Build concise scenario name
+    local STORE_SHORT="SEG"
+    if [ "$STORE" = "DOCUMENT" ]; then
+        STORE_SHORT="DOC"
     fi
     
-    local TRAVERSAL_SUFFIX=""
-    if [ "$PATHTREE_TRAVERSAL" = "true" ]; then
-        TRAVERSAL_SUFFIX="_PTTRAVERSAL"
+    local MODE_SUFFIX=""
+    if [ "$RESUME" = "true" ]; then
+        # For resume mode, build a compact suffix
+        if [ "$PATHTREE_TRAVERSAL" = "true" ] && [ "$SLIM_FORMAT" = "true" ]; then
+            MODE_SUFFIX="PTSLIM"
+        elif [ "$PATHTREE_TRAVERSAL" = "true" ]; then
+            MODE_SUFFIX="PTFULL"
+        elif [ "$SLIM_FORMAT" = "true" ]; then
+            MODE_SUFFIX="SLIM"
+        else
+            MODE_SUFFIX="RESUME"
+        fi
+    else
+        MODE_SUFFIX="NORMAL"
     fi
     
     local TIME_SUFFIX=""
@@ -235,12 +290,13 @@ run_single_scenario() {
         TIME_SUFFIX="_TIME${CHUNK_TIME}"
     fi
     
-    local SLIM_SUFFIX=""
-    if [ "$SLIM_FORMAT" = "true" ]; then
-        SLIM_SUFFIX="_SLIM"
-    fi
+    local SCENARIO_NAME="${STORE_SHORT}_${NODES}_${MODE_SUFFIX}${TIME_SUFFIX}"
     
-    local SCENARIO_NAME="${STORE}_${NODES}_${MODE}${TRAVERSAL_SUFFIX}${SLIM_SUFFIX}${TIME_SUFFIX}"
+    # Determine display mode
+    local MODE="NORMAL"
+    if [ "$RESUME" = "true" ]; then
+        MODE="RESUME"
+    fi
     
     echo "--------------------------------------------------------------------------------"
     echo "Running: Store=$STORE, Nodes=$NODES, Mode=$MODE"
@@ -879,7 +935,7 @@ METRICS_FILE=$(mktemp)
 
 # Parse all output files to extract key metrics
 SCENARIO_COUNT=0
-for outfile in SEGMENT_*.out DOCUMENT_*.out; do
+for outfile in SEG_*.out DOC_*.out SEGMENT_*.out DOCUMENT_*.out; do
     if [ ! -f "$outfile" ]; then
         continue
     fi
