@@ -177,23 +177,22 @@ SCENARIOS=(
     # "SEGMENT 50000 0 0 false false false"
     
     # Resume mode - FULL PathTree format (larger storage, works reliably)
-    "SEGMENT 50000 0 5000 false false false"
+    # "SEGMENT 50000 0 5000 false false false"
     
     # Resume mode - SLIM/Frontier PathTree format (minimal storage, optimized!)
-    "SEGMENT 50000 0 5000 true true true"
-
-    "SEGMENT 50000 0 10000 true true true"
-    "SEGMENT 50000 0 15000 true true true"
-    "SEGMENT 50000 0 20000 true true true"
-    "SEGMENT 50000 0 25000 true true true"
+    # "SEGMENT 50000 0 5000 true true true"
+    # "SEGMENT 50000 0 10000 true true true"
+    # "SEGMENT 50000 0 15000 true true true"
+    # "SEGMENT 50000 0 20000 true true true"
+    # "SEGMENT 50000 0 25000 true true true"
 
     "SEGMENT 100000 0 5000 false false false"
-    "SEGMENT 100000 0 25000 true true true"
-    "SEGMENT 100000 0 30000 true true true"
+    # "SEGMENT 100000 0 25000 true true true"
+    # "SEGMENT 100000 0 30000 true true true"
     "SEGMENT 100000 0 35000 true true true"
-    "SEGMENT 100000 0 40000 true true true"
-    "SEGMENT 100000 0 45000 true true true"
-    "SEGMENT 100000 0 50000 true true true"
+    # "SEGMENT 100000 0 40000 true true true"
+    # "SEGMENT 100000 0 45000 true true true"
+    # "SEGMENT 100000 0 50000 true true true"
     
     # Example: 2000 nodes OR 5000ms chunks
 # ./compare_resume_perf.sh custom SEGMENT 10000 2000 5000 true true

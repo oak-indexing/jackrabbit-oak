@@ -712,10 +712,11 @@ public class ResumeIndexingPerfTest {
             
             // ===== COMPREHENSIVE DATA VERIFICATION =====
             System.out.println("\n--- Data Completeness Verification ---");
-            System.out.println("  Using keyset pagination to count all indexed nodes...");
+            System.out.println("  Using keyset pagination with CONTAINS queries to count indexed nodes...");
+            System.out.println("  Note: CONTAINS queries use fulltext index and avoid traversal limits");
             
             // 1. Verify approved nodes count
-            System.out.println("\n  [1/4] Counting approved nodes...");
+            System.out.println("\n  [1/3] Counting approved nodes...");
             String approvedQuery = 
                 "SELECT * FROM [dam:Asset] WHERE ISDESCENDANTNODE('/content/dam') " +
                 "AND CONTAINS([jcr:content/metadata/dam:status], 'approved')";
@@ -725,19 +726,8 @@ public class ResumeIndexingPerfTest {
             assertEquals("Should have exactly " + QUERY_TARGET_COUNT + " approved nodes indexed", 
                         QUERY_TARGET_COUNT, (int) approvedCount);
             
-            // 2. Verify ALL nodes (approved + draft) were indexed
-            System.out.println("\n  [2/4] Counting all nodes...");
-            String allNodesQuery = 
-                "SELECT * FROM [dam:Asset] WHERE ISDESCENDANTNODE('/content/dam')";
-            
-            long totalIndexedNodes = countAllNodesWithPagination(ctx, allNodesQuery);
-            assertTrue("Total indexed nodes must be positive", totalIndexedNodes > 0);
-            assertTrue("Should not have more nodes than created", totalIndexedNodes <= NODE_COUNT);
-            assertEquals("Should have exactly " + NODE_COUNT + " nodes indexed", 
-                        NODE_COUNT, (int) totalIndexedNodes);
-            
-            // 3. Verify draft nodes were also indexed
-            System.out.println("\n  [3/4] Counting draft nodes...");
+            // 2. Verify draft nodes were also indexed
+            System.out.println("\n  [2/3] Counting draft nodes...");
             String draftQuery = 
                 "SELECT * FROM [dam:Asset] WHERE ISDESCENDANTNODE('/content/dam') " +
                 "AND CONTAINS([jcr:content/metadata/dam:status], 'draft')";
@@ -749,22 +739,22 @@ public class ResumeIndexingPerfTest {
             assertEquals("Should have exactly " + expectedDraftCount + " draft nodes indexed", 
                         expectedDraftCount, (int) draftCount);
             
-            // 4. Verify sum of approved + draft equals total
-            System.out.println("\n  [4/4] Verifying arithmetic...");
-            long sumApprovedAndDraft = approvedCount + draftCount;
-            assertTrue("Sum must be positive", sumApprovedAndDraft > 0);
-            assertTrue("Should not have more approved nodes than expected", approvedCount <= QUERY_TARGET_COUNT);
-            assertEquals("Sum of approved and draft must equal total indexed nodes", 
-                        totalIndexedNodes, sumApprovedAndDraft);
+            // 3. Verify sum of approved + draft equals total created nodes
+            System.out.println("\n  [3/3] Verifying arithmetic...");
+            long totalIndexedNodes = approvedCount + draftCount;
+            assertTrue("Sum of approved and draft must be positive", totalIndexedNodes > 0);
+            assertEquals("Sum of approved and draft must equal total nodes created", 
+                        NODE_COUNT, (int) totalIndexedNodes);
             
-            // 5. Summary (only after all assertions pass)
+            // 4. Summary (only after all assertions pass)
             System.out.println("\n✅ Data Completeness Verification PASSED:");
-            System.out.println("  ✓ All " + NODE_COUNT + " nodes were indexed (verified with pagination)");
+            System.out.println("  ✓ All " + NODE_COUNT + " nodes were indexed (verified via approved + draft counts)");
             System.out.println("  ✓ Approved nodes: " + approvedCount + " (expected: " + QUERY_TARGET_COUNT + ")");
             System.out.println("  ✓ Draft nodes: " + draftCount + " (expected: " + expectedDraftCount + ")");
             System.out.println("  ✓ Total indexed: " + totalIndexedNodes + " nodes");
             System.out.println("  ✓ Arithmetic check: " + approvedCount + " + " + draftCount + " = " + totalIndexedNodes);
             System.out.println("  ✓ Index is complete and searchable");
+            System.out.println("  ✓ Used CONTAINS queries to ensure fulltext index usage (avoids traversal limits)");
             
             // Use approved count for legacy compatibility with shell script
             actualCount = approvedCount;
