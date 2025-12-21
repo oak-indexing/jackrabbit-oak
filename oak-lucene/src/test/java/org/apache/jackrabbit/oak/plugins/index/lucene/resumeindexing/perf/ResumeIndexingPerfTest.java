@@ -424,11 +424,11 @@ public class ResumeIndexingPerfTest {
                     
                     long queryStart = System.currentTimeMillis();
                     
-                    // Use regular query and count results (Oak's rep:count() doesn't work reliably)
-                    // Use traversal fail to ensure index is being used
+                    // DIAGNOSTIC: Use CONTAINS query which ONLY works via fulltext index
+                    // This tests if index is actually being used
                     String incrementalQuery = 
                         "SELECT [jcr:path] FROM [dam:Asset] WHERE ISDESCENDANTNODE('/content/dam') " +
-                        "AND [jcr:content/metadata/dam:status] = 'approved' " +
+                        "AND CONTAINS([jcr:content/metadata/dam:status], 'approved') " +
                         "option(traversal fail, index name damAssetLucene)";
                     
                     long partialResults = executeCountQuery(ctx, incrementalQuery);
@@ -718,7 +718,7 @@ public class ResumeIndexingPerfTest {
             System.out.println("\n  [1/4] Counting approved nodes...");
             String approvedQuery = 
                 "SELECT * FROM [dam:Asset] WHERE ISDESCENDANTNODE('/content/dam') " +
-                "AND [jcr:content/metadata/dam:status] = 'approved'";
+                "AND CONTAINS([jcr:content/metadata/dam:status], 'approved')";
             
             long approvedCount = countAllNodesWithPagination(ctx, approvedQuery);
             assertTrue("Approved count must be positive", approvedCount > 0);
@@ -740,7 +740,7 @@ public class ResumeIndexingPerfTest {
             System.out.println("\n  [3/4] Counting draft nodes...");
             String draftQuery = 
                 "SELECT * FROM [dam:Asset] WHERE ISDESCENDANTNODE('/content/dam') " +
-                "AND [jcr:content/metadata/dam:status] = 'draft'";
+                "AND CONTAINS([jcr:content/metadata/dam:status], 'draft')";
             
             long draftCount = countAllNodesWithPagination(ctx, draftQuery);
             int expectedDraftCount = NODE_COUNT - QUERY_TARGET_COUNT;
@@ -1023,10 +1023,13 @@ public class ResumeIndexingPerfTest {
         assetIdProp.setProperty("propertyIndex", true);
 
         // dam:status property (used for query verification)
+        // DIAGNOSTIC: Set analyzed=true to test fulltext CONTAINS query
         Tree statusProp = properties.addChild("damStatus");
         statusProp.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
         statusProp.setProperty("name", "jcr:content/metadata/dam:status");
         statusProp.setProperty("propertyIndex", true);
+        statusProp.setProperty("analyzed", true);  // Enable fulltext search
+        statusProp.setProperty("nodeScopeIndex", true);  // Include in fulltext
 
         root.commit();
     }
@@ -1138,7 +1141,7 @@ public class ResumeIndexingPerfTest {
     
     /**
      * Execute a COUNT query and return the actual count.
-     * Iterates through all results (no limit) to get the true count.
+     * Iterates through results to count (CONTAINS queries don't have getSize).
      */
     private long executeCountQuery(PerfContext ctx, String statement) {
         try {
@@ -1149,7 +1152,7 @@ public class ResumeIndexingPerfTest {
                 org.apache.jackrabbit.oak.api.QueryEngine.NO_MAPPINGS
             );
             
-            // Iterate through all results and count (no Oak limit applied)
+            // Count results by iteration
             long count = 0;
             for (org.apache.jackrabbit.oak.api.ResultRow row : result.getRows()) {
                 row.getPath();  // Access to ensure result is valid
