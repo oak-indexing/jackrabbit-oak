@@ -896,6 +896,7 @@ echo "==========================================================================
 echo ""
 echo "Test Parameter Descriptions:"
 echo "----------------------------"
+echo "  JVM Heap : $JVM_CONFIG"
 echo "  Store    : NodeStore type - SEGMENT or DOCUMENT"
 echo "  Nodes    : Total number of nodes to index"
 echo "  Mode     : NORMAL or RESUME - traditional vs chunked with resume capability"
@@ -974,7 +975,7 @@ for outfile in SEG_*.out DOC_*.out SEGMENT_*.out DOCUMENT_*.out; do
     # Parse CPU metrics
     CPU_TIME=$(grep "Total CPU Time:" "$outfile" 2>/dev/null | awk '{print $4}' | head -1)
     CPU_UTIL=$(grep "CPU Utilization:" "$outfile" 2>/dev/null | awk '{print $3}' | head -1 | sed 's/%//')
-    CPU_EFF=$(grep "CPU Efficiency:" "$outfile" 2>/dev/null | awk '{print $3}' | head -1)
+    CPU_EFF=$(grep "CPU Efficiency:" "$outfile" 2>/dev/null | awk '{print $3}' | head -1)  # Extract just the number
     
     # Parse Disk Analysis metrics
     SEGSTORE_SIZE=$(grep "SegmentStore Size:" "$outfile" 2>/dev/null | awk '{print $3}' | head -1)
@@ -1157,7 +1158,7 @@ if [ -s "$METRICS_FILE" ]; then
            "Scenario" "CPU(s)" "Utiliz(%)" "Efficiency(n/s)"
     echo "----------------------------------------|------------|--------------|------------------"
     
-    while IFS='|' read -r scenario time throughput runs indexed gc_time gc_count mem pt_savings segstore lucene totaldisk cpu_time cpu_util cpu_eff; do
+    while IFS='|' read -r scenario time throughput runs indexed gc_time gc_count mem pt_savings segstore lucene totaldisk cpu_time cpu_util cpu_eff peak_heap; do
         # Truncate scenario name if too long
         if [ ${#scenario} -gt 39 ]; then
             scenario="${scenario:0:36}..."
