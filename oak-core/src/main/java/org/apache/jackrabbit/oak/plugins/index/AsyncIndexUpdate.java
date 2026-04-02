@@ -32,6 +32,7 @@ import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -39,6 +40,7 @@ import java.util.Set;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
@@ -74,9 +76,11 @@ import org.apache.jackrabbit.oak.spi.commit.CommitHook;
 import org.apache.jackrabbit.oak.spi.commit.CommitInfo;
 import org.apache.jackrabbit.oak.spi.commit.CompositeEditorProvider;
 import org.apache.jackrabbit.oak.spi.commit.CompositeHook;
+import org.apache.jackrabbit.oak.spi.commit.Editor;
 import org.apache.jackrabbit.oak.spi.commit.EditorDiff;
 import org.apache.jackrabbit.oak.spi.commit.EditorHook;
 import org.apache.jackrabbit.oak.spi.commit.EditorProvider;
+import org.apache.jackrabbit.oak.spi.commit.EmptyHook;
 import org.apache.jackrabbit.oak.spi.commit.ResetCommitAttributeHook;
 import org.apache.jackrabbit.oak.spi.commit.SimpleCommitContext;
 import org.apache.jackrabbit.oak.spi.commit.ValidatorProvider;
@@ -197,6 +201,12 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             = Integer.getInteger("oak.async.checkpointCleanupIntervalMinutes", 5);
 
     /**
+     * The time limit in milliseconds for a single indexing chunk. Defaults to -1 (disabled).
+     * Use oak.async.timeLimitMs system property to configure.
+     */
+    private final int asyncTimeLimitMs = Integer.getInteger("oak.async.timeLimitMs", -1);
+
+    /**
      * Setting this to true lead to lane execution (node traversal) even if there
      * is no index assigned to this lane under /oak:index. (Default value is true).
      */
@@ -257,6 +267,21 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
      *
      * @see <a href="https://issues.apache.org/jira/browse/OAK-1292">OAK-1292</a>
      */
+    /**
+     * Callback interface for progressive commits during indexing.
+     * Used for continuous processing mode to avoid exiting and re-entering the diff traversal.
+     */
+    public interface ProgressCommitCallback {
+        /**
+         * Called when chunk/time limit is reached during diff traversal.
+         * Should flush index data and save resume position WITHOUT exiting the traversal.
+         * 
+         * @param currentPath the current path being processed
+         * @throws CommitFailedException if commit fails
+         */
+        void commitProgress(String currentPath) throws CommitFailedException;
+    }
+
     protected static class AsyncUpdateCallback implements IndexUpdateCallback, NodeTraversalCallback {
         /**
          * Interval in terms of number of nodes traversed after which
@@ -283,6 +308,10 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
 
         private final AtomicBoolean forcedStop;
 
+        private int updateLimit = Integer.getInteger("oak.async.chunkSize", -1);
+        private int timeLimit = -1;
+        private long startTime;
+
         private List<ValidatorProvider> validatorProviders = Collections.emptyList();
 
         /**
@@ -292,6 +321,17 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         private Long lease = null;
 
         private boolean hasLease = false;
+        
+        /**
+         * Optional callback for continuous processing mode.
+         * When set, reaching chunk/time limit calls this instead of throwing SuspendException.
+         */
+        private ProgressCommitCallback progressCommitCallback;
+        
+        /**
+         * When true, use continuous processing mode (callback instead of exception).
+         */
+        private boolean continuousMode = false;
 
         public AsyncUpdateCallback(NodeStore store, String name,
                                    long leaseTimeOut, String checkpoint,
@@ -304,6 +344,27 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             this.tempCpName = getTempCpName(name);
             this.indexStats = indexStats;
             this.leaseName = leasify(name);
+        }
+
+        /**
+         * Sets the time limit in milliseconds for resumable indexing.
+         * @param milliseconds time limit in milliseconds, or -1 to disable
+         */
+        public void setTimeLimit(int milliseconds) {
+            this.timeLimit = milliseconds;
+        }
+        
+        /**
+         * Enables continuous processing mode with the given callback.
+         * In this mode, reaching chunk/time limit calls the callback instead of
+         * throwing SuspendException, allowing the diff traversal to continue
+         * without re-entering from root.
+         * 
+         * @param callback the progress commit callback
+         */
+        public void setContinuousMode(ProgressCommitCallback callback) {
+            this.progressCommitCallback = callback;
+            this.continuousMode = (callback != null);
         }
 
         protected void initLease() throws CommitFailedException {
@@ -338,6 +399,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
 
         protected void prepare(String afterCheckpoint)
                 throws CommitFailedException {
+            startTime = System.currentTimeMillis();
             if (!hasLease) {
                 initLease();
             }
@@ -354,14 +416,15 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
 
         private void updateTempCheckpoints(NodeBuilder async,
                                            String checkpoint, String afterCheckpoint) {
-
             indexStats.setReferenceCheckpoint(checkpoint);
             indexStats.setProcessedCheckpoint(afterCheckpoint);
 
             // try to drop temp cps, add 'currentCp' to the temp cps list
+            // IMPORTANT: Don't release the afterCheckpoint - we need it for the current/resume diff!
             Set<String> temps = new HashSet<>();
             for (String cp : getStrings(async, tempCpName)) {
-                if (cp.equals(checkpoint)) {
+                if (cp.equals(checkpoint) || cp.equals(afterCheckpoint)) {
+                    // Keep before and after checkpoints
                     temps.add(cp);
                     continue;
                 }
@@ -399,8 +462,33 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         @Override
         public void traversedNode(PathSource pathSource) throws CommitFailedException{
             checkIfStopped();
+            
+            // Increment traversal count first
+            long nodesRead = indexStats.incTraversal();
+            
+            // Check if we should log progress (continuous mode only)
+            // Traditional mode has no intermediate checkpointing
+            boolean shouldLogProgress = false;
+            if (updateLimit > 0 && nodesRead >= updateLimit) {
+                shouldLogProgress = true;
+            }
+            if (timeLimit > 0 && System.currentTimeMillis() - startTime > timeLimit) {
+                shouldLogProgress = true;
+            }
+            
+            if (shouldLogProgress && continuousMode && progressCommitCallback != null) {
+                // Continuous mode: log progress and continue traversal
+                progressCommitCallback.commitProgress(pathSource.getPath());
+                
+                // Reset counters for next chunk
+                indexStats.reset();
+                startTime = System.currentTimeMillis();
+                
+                log.info("[{}] Progress checkpoint at {}, continuing traversal...", 
+                    name, pathSource.getPath());
+            }
 
-            if (indexStats.incTraversal() % LEASE_CHECK_INTERVAL == 0 && isLeaseCheckEnabled(leaseTimeOut)) {
+            if (nodesRead % LEASE_CHECK_INTERVAL == 0 && isLeaseCheckEnabled(leaseTimeOut)) {
                 long now = getTime();
                 if (now + leaseTimeOut > lease) {
                     long newLease = now + 2 * leaseTimeOut;
@@ -568,11 +656,13 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         String afterTime = now();
         String oldThreadName = Thread.currentThread().getName();
         boolean threadNameChanged = false;
+
         String afterCheckpoint = store.checkpoint(lifetime, Map.of(
                 "creator", AsyncIndexUpdate.class.getSimpleName(),
                 "created", afterTime,
                 "thread", oldThreadName,
                 "name", name));
+
         NodeState after = store.retrieve(afterCheckpoint);
         if (after == null) {
             log.debug(
@@ -592,18 +682,21 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             updatePostRunStatus = updateIndex(before, beforeCheckpoint, after,
                     afterCheckpoint, afterTime, callback, checkpointToReleaseRef);
 
-            // the update succeeded, i.e. it no longer fails
-            if (indexStats.didLastIndexingCycleFailed()) {
-                indexStats.fixed();
-            }
+            // Update checkpoint state if update completed
+            if (updatePostRunStatus) {
+                // the update succeeded, i.e. it no longer fails
+                if (indexStats.didLastIndexingCycleFailed()) {
+                    indexStats.fixed();
+                }
 
-            // the update succeeded, so we are sure we can release the earlier checkpoint -
-            // otherwise the new checkpoint associated with the failed update
-            // may still get released in the finally block (depending on where the index update failed)
-            checkpointToReleaseRef.set(beforeCheckpoint);
-            indexStats.setReferenceCheckpoint(afterCheckpoint);
-            indexStats.setProcessedCheckpoint("");
-            indexStats.releaseTempCheckpoint(afterCheckpoint);
+                // the update succeeded, so we are sure we can release the earlier checkpoint -
+                // otherwise the new checkpoint associated with the failed update
+                // may still get released in the finally block (depending on where the index update failed)
+                checkpointToReleaseRef.set(beforeCheckpoint);
+                indexStats.setReferenceCheckpoint(afterCheckpoint);
+                indexStats.setProcessedCheckpoint("");
+                indexStats.releaseTempCheckpoint(afterCheckpoint);
+            }
 
         } catch (Exception e) {
             indexStats.failed(e);
@@ -779,9 +872,30 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         AsyncUpdateCallback callback = new AsyncUpdateCallback(store, name, leaseTimeOut,
                 beforeCheckpoint, indexStats, stopFlag);
         callback.setValidatorProviders(validatorProviders);
+        callback.setTimeLimit(asyncTimeLimitMs);
         return callback;
     }
 
+    /**
+     * System property to enable continuous processing mode.
+     * When enabled, indexing logs progress at regular intervals without
+     * interrupting the diff traversal.
+     */
+    private static final boolean CONTINUOUS_MODE = Boolean.getBoolean("oak.async.continuousMode");
+
+    /**
+     * Updates the index by comparing the before and after state of the repository.
+     *
+     * @param before the before state
+     * @param beforeCheckpoint the before checkpoint
+     * @param after the after state
+     * @param afterCheckpoint the after checkpoint
+     * @param afterTime the time of the after checkpoint
+     * @param callback the callback
+     * @param checkpointToReleaseRef reference to checkpoint to release
+     * @return true if the index was updated successfully
+     * @throws CommitFailedException if the update failed
+     */
     protected boolean updateIndex(NodeState before, String beforeCheckpoint,
                                   NodeState after, String afterCheckpoint, String afterTime,
                                   AsyncUpdateCallback callback,
@@ -789,50 +903,71 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         Stopwatch watch = Stopwatch.createStarted();
         boolean updatePostRunStatus = true;
         boolean progressLogged = false;
-        // prepare the update callback for tracking index updates
-        // and maintaining the update lease
-        callback.prepare(afterCheckpoint);
-
-        // check for index tasks split requests, if a split happened, make
-        // sure to not delete the reference checkpoint, as the other index
-        // task will take care of it
-        taskSplitter.maybeSplit(beforeCheckpoint, callback.lease);
         IndexUpdate indexUpdate = null;
-        boolean indexingFailed = true;
-        try {
-            NodeBuilder builder = store.getRoot().builder();
 
+        // Prepare callback - resets counters
+        callback.prepare(afterCheckpoint);
+        
+        // Enable continuous mode if configured
+        // In this mode, progress is logged at regular intervals but the diff
+        // traversal is never interrupted. The complete result is saved at the end.
+        if (CONTINUOUS_MODE && (callback.updateLimit > 0 || callback.timeLimit > 0)) {
+            final AtomicInteger progressCount = new AtomicInteger(0);
+            callback.setContinuousMode(currentPath -> {
+                // Log progress without saving to repository
+                int count = progressCount.incrementAndGet();
+                log.info("[{}] Progress checkpoint #{} at {}", name, count, currentPath);
+            });
+            log.info("[{}] Continuous mode enabled - will complete in single traversal", name);
+        }
+        
+
+        // Check for index tasks split requests
+        taskSplitter.maybeSplit(beforeCheckpoint, callback.lease);
+        
+        boolean indexingFailed = true;
+        NodeBuilder builder = store.getRoot().builder();
+        long diffStartTime = 0;
+
+        try {
             markFailingIndexesAsCorrupt(builder);
 
             CommitInfo info = new CommitInfo(CommitInfo.OAK_UNKNOWN, CommitInfo.OAK_UNKNOWN,
                     Map.of(IndexConstants.CHECKPOINT_CREATION_TIME, afterTime));
-            indexUpdate =
-                    new IndexUpdate(provider, name, after, builder, callback, callback, info, corruptIndexHandler)
-                            .withMissingProviderStrategy(missingStrategy);
+            indexUpdate = new IndexUpdate(provider, name, after, builder, callback, callback, info, corruptIndexHandler)
+                    .withMissingProviderStrategy(missingStrategy);
             configureRateEstimator(indexUpdate);
-            CommitFailedException exception =
-                    EditorDiff.process(VisibleEditor.wrap(indexUpdate), before, after);
+
+            // Create editor - no ResumingEditor needed since we don't support suspend/resume
+            Editor editor = VisibleEditor.wrap(indexUpdate);
+
+            // Process diff
+            diffStartTime = System.currentTimeMillis();
+            CommitFailedException exception = EditorDiff.process(editor, before, after);
+            long diffTime = System.currentTimeMillis() - diffStartTime;
+            indexStats.setDiffTimeMs(diffTime);
+            log.debug("[{}] Diff completed in {} ms", name, diffTime);
             if (exception != null) {
                 throw exception;
             }
 
+            // Diff completed successfully - update checkpoint state
             builder.child(ASYNC).setProperty(name, afterCheckpoint);
             builder.child(ASYNC).setProperty(PropertyStates.createProperty(lastIndexedTo, afterTime, Type.DATE));
+
             if (callback.isDirty() || before == MISSING_NODE) {
                 if (switchOnSync) {
-                    reindexedDefinitions.addAll(indexUpdate
-                            .getReindexedDefinitions());
+                    reindexedDefinitions.addAll(indexUpdate.getReindexedDefinitions());
                     updatePostRunStatus = false;
                 } else {
                     updatePostRunStatus = true;
                 }
             } else {
                 if (switchOnSync) {
-                    log.debug(
-                            "[{}] No changes detected after diff; will try to switch to synchronous updates on {}",
+                    log.debug("[{}] No changes detected after diff; will try to switch to synchronous updates on {}",
                             name, reindexedDefinitions);
 
-                    // no changes after diff, switch to sync on the async defs
+                    // No changes after diff, switch to sync on the async defs
                     for (String path : reindexedDefinitions) {
                         NodeBuilder c = builder;
                         for (String p : elements(path)) {
@@ -852,24 +987,24 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 }
                 updatePostRunStatus = true;
             }
-            mergeWithConcurrencyCheck(store, validatorProviders, builder, beforeCheckpoint,
-                    callback.lease, name);
-            // we successfully merged the change that updated the lane to the
-            // afterCheckpoint - so we need to release the beforeCheckpoint now
+
+            mergeWithConcurrencyCheck(store, validatorProviders, builder, beforeCheckpoint, callback.lease, name);
+            
+            // Successfully merged - mark beforeCheckpoint for release
             checkpointToReleaseRef.set(beforeCheckpoint);
             indexingFailed = false;
 
             if (indexUpdate.isReindexingPerformed()) {
                 log.info("[{}] Reindexing completed for indexes: {} in {} ({} ms)",
-                        name, indexUpdate.getReindexStats(),
-                        watch, watch.elapsed(TimeUnit.MILLISECONDS));
+                        name, indexUpdate.getReindexStats(), watch, watch.elapsed(TimeUnit.MILLISECONDS));
                 progressLogged = true;
             }
 
             corruptIndexHandler.markWorkingIndexes(indexUpdate.getUpdatedIndexPaths());
+
         } finally {
             if (indexUpdate != null) {
-                if ( !indexingFailed ) {
+                if (!indexingFailed) {
                     indexUpdate.commitProgress(IndexCommitCallback.IndexProgress.COMMIT_SUCCEDED);
                 } else {
                     indexUpdate.commitProgress(IndexCommitCallback.IndexProgress.COMMIT_FAILED);
@@ -878,13 +1013,12 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             callback.close();
         }
 
-        if (!progressLogged) {
+        if (!progressLogged && indexingFailed == false) {
             String msg = "[{}] AsyncIndex update run completed in {}. Indexed {} nodes, {}";
-            //Log at info level if time taken is more than 5 min
             if (watch.elapsed(TimeUnit.MINUTES) >= 5) {
-                log.info(msg, name, watch, indexStats.getUpdates(), indexUpdate.getIndexingStats());
+                log.info(msg, name, watch, indexStats.getUpdates(), indexStats.getNodesReadCount());
             } else {
-                log.debug(msg, name, watch, indexStats.getUpdates(), indexUpdate.getIndexingStats());
+                log.debug(msg, name, watch, indexStats.getUpdates(), indexStats.getNodesReadCount());
             }
         }
 
@@ -1015,6 +1149,10 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         return indexStats;
     }
 
+    public long getLastDiffTimeMs() {
+        return indexStats.getDiffTimeMs();
+    }
+
     public boolean isFinished() {
         return indexStats.getStatus() == STATUS_DONE;
     }
@@ -1037,6 +1175,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         private volatile boolean forcedLeaseRelease;
         private volatile long updates;
         private volatile long nodesRead;
+        private volatile long diffTimeMs;
         private final Stopwatch watch = Stopwatch.createUnstarted();
         private final ExecutionStats execStats;
 
@@ -1229,6 +1368,14 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         @Override
         public long getNodesReadCount(){
             return nodesRead;
+        }
+
+        void setDiffTimeMs(long diffTimeMs) {
+            this.diffTimeMs = diffTimeMs;
+        }
+
+        public long getDiffTimeMs() {
+            return diffTimeMs;
         }
 
         void setReferenceCheckpoint(String checkpoint) {
@@ -1654,4 +1801,5 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
     private static CommitFailedException newConcurrentUpdateException() {
         return new CommitFailedException("Async", 1, "Concurrent update detected");
     }
+
 }

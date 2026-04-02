@@ -149,6 +149,18 @@ public abstract class FulltextIndexEditorContext<D> {
     }
 
     /**
+     * Flushes the writer without closing it.
+     * Used for incremental commits during resumable indexing.
+     */
+    public void flushWriter() throws IOException {
+        if (writer != null) {
+            final long start = PERF_LOGGER.start();
+            writer.flush();
+            PERF_LOGGER.end(start, -1, "Flushed writer for directory {}", definition);
+        }
+    }
+
+    /**
      * close writer if it's not null
      */
     public void closeWriter() throws IOException {
