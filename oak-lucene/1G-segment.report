@@ -1,0 +1,1054 @@
+mokatari@Mohits-MacBook-Pro-2 oak-lucene % ./compare_resume_perf.sh 
+================================================================================
+RESUMABLE INDEXING PERFORMANCE TEST
+================================================================================
+
+ℹ️  Table display enabled (default) - use --no-tables to show summary only
+
+Cleaning old test output files...
+Old files cleaned.
+
+Compiling oak-core and oak-lucene...
+Compilation complete.
+
+Building classpath...
+✓ Maven classpath obtained
+
+
+================================================================================
+RESULTS
+================================================================================
+
+Test Parameter Descriptions:
+----------------------------
+  JVM Heap : -Xmx1G -Xms1G
+  Store    : NodeStore type - SEGMENT or DOCUMENT
+  Nodes    : Total number of nodes to index
+  Mode     : NORMAL or RESUME - traditional vs chunked with resume capability
+  Chunk    : Node count per chunk - 0 means disabled
+  ChunkMs  : Time limit per chunk in milliseconds - 0 means disabled
+  PTTrav   : PathTree Traversal enabled - Y/N optimizes skip logic
+  Time(s)  : Total indexing time in seconds
+  Throughput: Nodes indexed per second
+  Verified : Number of documents successfully indexed and searchable
+  Runs     : Number of indexing cycles - 1 for NORMAL, multiple for RESUME
+
+Store    | Nodes    | Mode     | Chunk    | ChunkMs  | PTTrav |   Time(s) | Throughput |   Verified | Runs 
+---------|----------|----------|----------|----------|--------|-----------|------------|------------|-------
+--------------------------------------------------------------------------------
+Running: Store=SEGMENT, Nodes=50000, Mode=NORMAL
+         ChunkSize=0 nodes, ChunkTime=5000ms
+         Resume=false, PathTreeTraversal=false, SlimFormat=false
+--------------------------------------------------------------------------------
+SEGMENT  | 50000    | NORMAL   | 0        | N      |    462.0s |      108.2 |       1000 | 1    
+  ⚠ Incremental Searchability: NOT WORKING - Index only searchable after final commit
+
+  DETAILED TIMING BREAKDOWN:
+  --------------------------
+  (Shows per-chunk performance metrics and timing breakdowns)
+
+
+
+  [Table 1] Indexing Mode (NORMAL=traditional | RESUME=chunked)
+  ===================================================
+    [DEBUG-MODE] Indexing complete, mode: NORMAL
+
+  [Table 2] Diff Timing (Tree traversal time per indexing run)
+  ==================================================
+  Note: NORMAL mode has 2 runs - initial index creation + new content indexing
+    Run 1 - NORMAL Diff:   95 ms
+    Run 2 - NORMAL Diff: 462007 ms
+
+  [Table 3] Commit Timing (Lucene flush + merge per run)
+  ============================================
+  Note: NORMAL mode has 2 runs - initial index creation + new content indexing
+    Run 1 - NORMAL: flush=   0ms | merge=   2ms | TOTAL=   2ms
+    Run 2 - NORMAL: flush=   0ms | merge=   4ms | TOTAL=   4ms
+
+  [Table 4] Skip Stats (NodeStore read optimization - cumulative counters)
+  ==============================================================
+  Note: Counters are cumulative across test
+        NORMAL mode: Run 1 = initial index, Run 2 = new content
+        RESUME mode: Each run is a chunk (counters grow each chunk)
+    Run  1: skipFull=     0 | skipIndexed=    0 | processed=  302
+    Run  2: skipFull=     0 | skipIndexed=    0 | processed=150007
+
+
+  [Table 5] Skip Summary
+  ============
+    Final run: 0 nodes skipped (0% skip rate)
+
+
+  [Table 6] PathTree Traversal Stats (NEW OPTIMIZATION - Skip SegmentStore reads)
+  =====================================================================
+  ============================================
+    ⚠ Standard EditorDiff mode (PathTree traversal disabled)
+
+
+  [Table 7] PathTree Dump Files
+  ===================
+  --------------------
+
+  Output saved to: SEG_50000_NORMAL_TIME5000.out
+--------------------------------------------------------------------------------
+Running: Store=SEGMENT, Nodes=50000, Mode=RESUME
+         ChunkSize=0 nodes, ChunkTime=20000ms
+         Resume=true, PathTreeTraversal=true, SlimFormat=true
+--------------------------------------------------------------------------------
+SEGMENT  | 50000    | RESUME   | 0        | Y      |    105.4s |      474.1 |       1000 | 6    
+  ✓ Incremental Searchability: WORKING
+    Max results during indexing: 975 / 1000
+    Actual indexed count: N/A
+    Chunks with search results: 5 / 5
+
+  DETAILED TIMING BREAKDOWN:
+  --------------------------
+  (Shows per-chunk performance metrics and timing breakdowns)
+
+
+  [Table 8] PathTree Loading Times (Resume state deserialization)
+  =====================================================
+    Load:   12 ms | Nodes:  53952 | Indexed:  40461 | FullyProc:  13487 | Size:      160 bytes
+    Load:   13 ms | Nodes: 111048 | Indexed:  73240 | FullyProc:  24315 | Size:      160 bytes
+    Load:   23 ms | Nodes: 172329 | Indexed: 100963 | FullyProc:  33556 | Size:      160 bytes
+    Load:   20 ms | Nodes: 238771 | Indexed: 125626 | FullyProc:  41777 | Size:      160 bytes
+    Load:   17 ms | Nodes: 307478 | Indexed: 145822 | FullyProc:  48509 | Size:      160 bytes
+
+  [Table 9] PathTree Serialization Times (Resume state saving)
+  ==================================================
+    Chunk  1: Serialize:    8 ms | Total:  40463 | FullyProc:  40461 | Unproc:    2
+    Chunk  2: Serialize:   10 ms | Total:  86731 | FullyProc:  46266 | Unproc:    2
+    Chunk  3: Serialize:    8 ms | Total: 138771 | FullyProc:  52038 | Unproc:    2
+    Chunk  4: Serialize:   14 ms | Total: 196992 | FullyProc:  58219 | Unproc:    2
+    Chunk  5: Serialize:    8 ms | Total: 258967 | FullyProc:  61973 | Unproc:    2
+
+  [Table 10] PathTree Size (Full vs SLIM storage requirements)
+  =================================================
+    Chunk  1: Full: ~2023150 bytes, SLIM: ~160 bytes (potential savings: 100%)
+    Chunk  2: Full: ~4336550 bytes, SLIM: ~160 bytes (potential savings: 100%)
+    Chunk  3: Full: ~6938550 bytes, SLIM: ~160 bytes (potential savings: 100%)
+    Chunk  4: Full: ~9849600 bytes, SLIM: ~160 bytes (potential savings: 100%)
+    Chunk  5: Full: ~12948350 bytes, SLIM: ~160 bytes (potential savings: 100%)
+
+
+  [Table 11] Indexing Mode (NORMAL=traditional | RESUME=chunked)
+  ===================================================
+    [DEBUG-MODE] Indexing complete, mode: RESUME
+
+  [Table 12] Diff Timing (Tree traversal time per indexing run)
+  ==================================================
+  Note: NORMAL mode has 2 runs - initial index creation + new content indexing
+    Run 1 - RESUME Diff:   90 ms
+    Run 2 - RESUME Diff: 20003 ms
+    Run 3 - RESUME Diff: 19985 ms
+    Run 4 - RESUME Diff: 19981 ms
+    Run 5 - RESUME Diff: 19976 ms
+    Run 6 - RESUME Diff: 19978 ms
+    Run 7 - RESUME Diff: 3426 ms
+
+  [Table 13] Commit Timing (Lucene flush + merge per run)
+  ============================================
+  Note: NORMAL mode has 2 runs - initial index creation + new content indexing
+    Run 1 - RESUME: flush=   0ms | merge=   2ms | TOTAL=   2ms
+    Run 2 - CHUNK: flush= 217ms | merge=   2ms | TOTAL= 267ms
+    Run 3 - CHUNK: flush= 102ms | merge=   1ms | TOTAL= 156ms
+    Run 4 - CHUNK: flush=  82ms | merge=   0ms | TOTAL= 118ms
+    Run 5 - CHUNK: flush=  72ms | merge=   1ms | TOTAL= 121ms
+    Run 6 - CHUNK: flush=  67ms | merge=   0ms | TOTAL= 111ms
+    Run 7 - RESUME: flush=   0ms | merge=   8ms | TOTAL=   8ms
+
+  [Table 14] Resume Path Timing (Time to skip already-indexed nodes)
+  =======================================================
+    Total diff: 19985 ms | To resume:    0 ms | After resume: 19985 ms
+    Total diff: 19981 ms | To resume:    0 ms | After resume: 19981 ms
+    Total diff: 19976 ms | To resume:    0 ms | After resume: 19976 ms
+
+  [Table 15] Skip Stats (NodeStore read optimization - cumulative counters)
+  ==============================================================
+  Note: Counters are cumulative across test
+        NORMAL mode: Run 1 = initial index, Run 2 = new content
+        RESUME mode: Each run is a chunk (counters grow each chunk)
+    Run  1: skipFull=     0 | skipIndexed=    0 | processed=  302
+    Run  2: skipFull=     0 | skipIndexed=    0 | processed=40465
+    Run  3: skipFull=     0 | skipIndexed=    2 | processed=32783
+    Run  4: skipFull=     0 | skipIndexed=    2 | processed=27727
+    Run  5: skipFull=     0 | skipIndexed=    2 | processed=24667
+    Run  6: skipFull=     0 | skipIndexed=    2 | processed=20200
+    Run  7: skipFull=     0 | skipIndexed=    2 | processed= 4482
+
+
+  [Table 16] Skip Summary
+  ============
+    Final run: 0 nodes skipped (0% skip rate)
+
+
+  [Table 17] PathTree Traversal Stats (NEW OPTIMIZATION - Skip SegmentStore reads)
+  =====================================================================
+  ============================================
+    ✓ PathTree-driven traversal ENABLED
+    PathTree: total=13489 | fullyProcessed=13487 | notFullyProcessed=2 | enterOnly=2
+    PathTree: total=24317 | fullyProcessed=24315 | notFullyProcessed=2 | enterOnly=2
+    PathTree: total=33558 | fullyProcessed=33556 | notFullyProcessed=2 | enterOnly=2
+    PathTree: total=41779 | fullyProcessed=41777 | notFullyProcessed=2 | enterOnly=2
+    PathTree: total=48511 | fullyProcessed=48509 | notFullyProcessed=2 | enterOnly=2
+    Chunk  1: PathTree=    0 | SegmentStore=    0 | Savings=0%
+    Chunk  2: PathTree=    0 | SegmentStore=    0 | Savings=0%
+    Chunk  3: PathTree=13487 | SegmentStore=32783 | Savings=29.1%
+    Chunk  4: PathTree=24315 | SegmentStore=27727 | Savings=46.7%
+    Chunk  5: PathTree=33556 | SegmentStore=24667 | Savings=57.6%
+    Chunk  6: PathTree=41777 | SegmentStore=20200 | Savings=67.4%
+    Chunk  7: PathTree=48509 | SegmentStore= 4482 | Savings=91.5%
+
+    *** Final Traversal: 48509 from PathTree, 4482 from SegmentStore (91.5% optimization) ***
+
+
+  [Table 18] PathTree Timing Breakdown (Detailed timing for PathTree operations)
+  ===================================================================
+  -------------------------
+segmentStoreReadTime=0.00ms, pathTreeLookupTime=0.00ms, editorCallbackTime=0.00ms
+SegmentStore I/O time: 0ms (this is the expensive part!)
+segmentStoreReadTime=0.00ms, pathTreeLookupTime=0.00ms, editorCallbackTime=0.00ms
+SegmentStore I/O time: 0ms (this is the expensive part!)
+segmentStoreReadTime=9.20ms, pathTreeLookupTime=33.76ms, editorCallbackTime=19880.93ms
+sed: 1: "s/.*SegmentStore I/O ti ...": bad flag in substitute command: '\'
+
+  [Table 19] Per-Chunk Commit Timing (Lucene flush + merge + state save per chunk)
+  =====================================================================
+    Chunk  1: flush= 217ms | merge=   2ms | save=  48ms | TOTAL= 267ms
+    Chunk  2: flush= 102ms | merge=   1ms | save=  53ms | TOTAL= 156ms
+    Chunk  3: flush=  82ms | merge=   0ms | save=  36ms | TOTAL= 118ms
+    Chunk  4: flush=  72ms | merge=   1ms | save=  48ms | TOTAL= 121ms
+    Chunk  5: flush=  67ms | merge=   0ms | save=  44ms | TOTAL= 111ms
+
+
+  [Table 20] Per-Chunk Search Results (Query results grow as indexing progresses)
+  ====================================================================
+  -------------------------
+  Note: Test creates exactly 1000 approved nodes distributed evenly across all nodes.
+        Results cap at 1000 because that's the total number of approved assets.
+
+  Column Definitions:
+    Processed  = Newly indexed nodes (not already in index)
+    Traversed  = Total nodes visited (includes skipped nodes)
+    Skipped    = Nodes skipped by PathTree (already indexed)
+
+    Chunk   | Processed  | Traversed  | Skipped    | Results   | Time(ms)  | Resume Path
+    ----------------------------------------------------------------------------------------------------
+    1       | 40465      | 40465      | 0          | 261       | 71        | /content/dam/asset-14118
+    2       | 32783      | 32783      | 0          | 473       | 12        | /content/dam/asset-5308
+    3       | 27727      | 27727      | 0          | 675       | 13        | /content/dam/asset-40000
+    4       | 24667      | 24667      | 0          | 836       | 11        | /content/dam/asset-48296
+    5       | 20200      | 20200      | 0          | 975       | 11        | /content/dam/asset-1876
+    ----------------------------------------------------------------------------------------------------
+    Aggregated Statistics:
+    Min     | 20200      | 20200      | 0          | 261       | 11        |
+    Max     | 40465      | 40465      | N/A        | 975       | 71        |
+    Average | 29168      | 29168      | 0          | 644       | 24        |
+
+
+  [Table 21] Per-Chunk Detailed Metrics (System resources per chunk)
+  =======================================================
+  ---------------------------
+    Chunk | Nodes | Heap(MB) | NonHeap(MB) | GC Count | GC Time(ms) | CPU(ms) | SegStore(MB)
+    ------|-------|----------|-------------|----------|-------------|---------|-------------
+        1 | 40465 |      534 |          85 |       85 |         146 |   39169 |          63
+        2 | 32783 |      967 |          88 |      172 |         275 |   62866 |          64
+        3 | 27727 |      324 |          88 |      269 |         428 |   85163 |          65
+        4 | 24667 |      424 |          85 |      374 |         561 |  106924 |          67
+        5 | 20200 |      767 |          86 |      476 |         706 |  134108 |          68
+    ------|-------|----------|-------------|----------|-------------|---------|-------------
+      Min |     - |      324 |           - |       85 |         146 |       - |           -
+      Max |     - |      967 |           - |      476 |         706 |       - |           -
+      Avg | 29168 |      603 |          86 |      275 |         423 |   85646 |          65
+
+
+  [Table 22] PathTree Dump Files
+  ===================
+  --------------------
+
+  Output saved to: SEG_50000_PTSLIM_TIME20000.out
+--------------------------------------------------------------------------------
+Running: Store=SEGMENT, Nodes=50000, Mode=RESUME
+         ChunkSize=0 nodes, ChunkTime=40000ms
+         Resume=true, PathTreeTraversal=true, SlimFormat=true
+--------------------------------------------------------------------------------
+SEGMENT  | 50000    | RESUME   | 0        | Y      |    136.3s |      366.6 |       1000 | 4    
+  ✓ Incremental Searchability: WORKING
+    Max results during indexing: 883 / 1000
+    Actual indexed count: N/A
+    Chunks with search results: 3 / 3
+
+  DETAILED TIMING BREAKDOWN:
+  --------------------------
+  (Shows per-chunk performance metrics and timing breakdowns)
+
+
+  [Table 23] PathTree Loading Times (Resume state deserialization)
+  =====================================================
+    Load:   18 ms | Nodes:  72348 | Indexed:  54258 | FullyProc:  18086 | Size:      160 bytes
+    Load:   20 ms | Nodes: 147387 | Indexed:  97045 | FullyProc:  32250 | Size:      160 bytes
+    Load:   25 ms | Nodes: 227043 | Indexed: 132598 | FullyProc:  44101 | Size:      160 bytes
+
+  [Table 24] PathTree Serialization Times (Resume state saving)
+  ==================================================
+    Chunk  1: Serialize:   13 ms | Total:  54260 | FullyProc:  54258 | Unproc:    2
+    Chunk  2: Serialize:   15 ms | Total: 115135 | FullyProc:  60873 | Unproc:    2
+    Chunk  3: Serialize:    9 ms | Total: 182940 | FullyProc:  67803 | Unproc:    2
+
+  [Table 25] PathTree Size (Full vs SLIM storage requirements)
+  =================================================
+    Chunk  1: Full: ~2713000 bytes, SLIM: ~160 bytes (potential savings: 100%)
+    Chunk  2: Full: ~5756750 bytes, SLIM: ~160 bytes (potential savings: 100%)
+    Chunk  3: Full: ~9147000 bytes, SLIM: ~160 bytes (potential savings: 100%)
+
+
+  [Table 26] Indexing Mode (NORMAL=traditional | RESUME=chunked)
+  ===================================================
+    [DEBUG-MODE] Indexing complete, mode: RESUME
+
+  [Table 27] Diff Timing (Tree traversal time per indexing run)
+  ==================================================
+  Note: NORMAL mode has 2 runs - initial index creation + new content indexing
+    Run 1 - RESUME Diff:   89 ms
+    Run 2 - RESUME Diff: 40001 ms
+    Run 3 - RESUME Diff: 39979 ms
+    Run 4 - RESUME Diff: 39982 ms
+    Run 5 - RESUME Diff: 14880 ms
+
+  [Table 28] Commit Timing (Lucene flush + merge per run)
+  ============================================
+  Note: NORMAL mode has 2 runs - initial index creation + new content indexing
+    Run 1 - RESUME: flush=   0ms | merge=   1ms | TOTAL=   1ms
+    Run 2 - CHUNK: flush= 251ms | merge=   3ms | TOTAL= 313ms
+    Run 3 - CHUNK: flush= 135ms | merge=   3ms | TOTAL= 212ms
+    Run 4 - CHUNK: flush= 111ms | merge=   1ms | TOTAL= 157ms
+    Run 5 - RESUME: flush=   0ms | merge=   8ms | TOTAL=   8ms
+
+  [Table 29] Resume Path Timing (Time to skip already-indexed nodes)
+  =======================================================
+    Total diff: 39979 ms | To resume:    0 ms | After resume: 39979 ms
+    Total diff: 39982 ms | To resume:    0 ms | After resume: 39982 ms
+    Total diff: 14880 ms | To resume:    0 ms | After resume: 14880 ms
+
+  [Table 30] Skip Stats (NodeStore read optimization - cumulative counters)
+  ==============================================================
+  Note: Counters are cumulative across test
+        NORMAL mode: Run 1 = initial index, Run 2 = new content
+        RESUME mode: Each run is a chunk (counters grow each chunk)
+    Run  1: skipFull=     0 | skipIndexed=    0 | processed=  302
+    Run  2: skipFull=     0 | skipIndexed=    0 | processed=54262
+    Run  3: skipFull=     0 | skipIndexed=    2 | processed=42791
+    Run  4: skipFull=     0 | skipIndexed=    2 | processed=35557
+    Run  5: skipFull=     0 | skipIndexed=    2 | processed=17706
+
+
+  [Table 31] Skip Summary
+  ============
+    Final run: 0 nodes skipped (0% skip rate)
+
+
+  [Table 32] PathTree Traversal Stats (NEW OPTIMIZATION - Skip SegmentStore reads)
+  =====================================================================
+  ============================================
+    ✓ PathTree-driven traversal ENABLED
+    PathTree: total=18088 | fullyProcessed=18086 | notFullyProcessed=2 | enterOnly=2
+    PathTree: total=32252 | fullyProcessed=32250 | notFullyProcessed=2 | enterOnly=2
+    PathTree: total=44103 | fullyProcessed=44101 | notFullyProcessed=2 | enterOnly=2
+    Chunk  1: PathTree=    0 | SegmentStore=    0 | Savings=0%
+    Chunk  2: PathTree=    0 | SegmentStore=    0 | Savings=0%
+    Chunk  3: PathTree=18086 | SegmentStore=42791 | Savings=29.7%
+    Chunk  4: PathTree=32250 | SegmentStore=35557 | Savings=47.5%
+    Chunk  5: PathTree=44101 | SegmentStore=17706 | Savings=71.3%
+
+    *** Final Traversal: 44101 from PathTree, 17706 from SegmentStore (71.3% optimization) ***
+
+
+  [Table 33] PathTree Timing Breakdown (Detailed timing for PathTree operations)
+  ===================================================================
+  -------------------------
+segmentStoreReadTime=0.00ms, pathTreeLookupTime=0.00ms, editorCallbackTime=0.00ms
+SegmentStore I/O time: 0ms (this is the expensive part!)
+segmentStoreReadTime=0.00ms, pathTreeLookupTime=0.00ms, editorCallbackTime=0.00ms
+SegmentStore I/O time: 0ms (this is the expensive part!)
+segmentStoreReadTime=17.35ms, pathTreeLookupTime=48.99ms, editorCallbackTime=39844.83ms
+sed: 1: "s/.*SegmentStore I/O ti ...": bad flag in substitute command: '\'
+
+  [Table 34] Per-Chunk Commit Timing (Lucene flush + merge + state save per chunk)
+  =====================================================================
+    Chunk  1: flush= 251ms | merge=   3ms | save=  59ms | TOTAL= 313ms
+    Chunk  2: flush= 135ms | merge=   3ms | save=  74ms | TOTAL= 212ms
+    Chunk  3: flush= 111ms | merge=   1ms | save=  45ms | TOTAL= 157ms
+
+
+  [Table 35] Per-Chunk Search Results (Query results grow as indexing progresses)
+  ====================================================================
+  -------------------------
+  Note: Test creates exactly 1000 approved nodes distributed evenly across all nodes.
+        Results cap at 1000 because that's the total number of approved assets.
+
+  Column Definitions:
+    Processed  = Newly indexed nodes (not already in index)
+    Traversed  = Total nodes visited (includes skipped nodes)
+    Skipped    = Nodes skipped by PathTree (already indexed)
+
+    Chunk   | Processed  | Traversed  | Skipped    | Results   | Time(ms)  | Resume Path
+    ----------------------------------------------------------------------------------------------------
+    1       | 54262      | 54262      | 0          | 349       | 78        | /content/dam/asset-42698
+    2       | 42791      | 42791      | 0          | 652       | 15        | /content/dam/asset-44391
+    3       | 35557      | 35557      | 0          | 883       | 16        | /content/dam/asset-34715
+    ----------------------------------------------------------------------------------------------------
+    Aggregated Statistics:
+    Min     | 35557      | 35557      | 0          | 349       | 15        |
+    Max     | 54262      | 54262      | N/A        | 883       | 78        |
+    Average | 44203      | 44203      | 0          | 628       | 36        |
+
+
+  [Table 36] Per-Chunk Detailed Metrics (System resources per chunk)
+  =======================================================
+  ---------------------------
+    Chunk | Nodes | Heap(MB) | NonHeap(MB) | GC Count | GC Time(ms) | CPU(ms) | SegStore(MB)
+    ------|-------|----------|-------------|----------|-------------|---------|-------------
+        1 | 54262 |      215 |          85 |      143 |         211 |   59711 |          63
+        2 | 42791 |      342 |          88 |      295 |         384 |  103145 |          65
+        3 | 35557 |      297 |          87 |      455 |         555 |  145504 |          66
+    ------|-------|----------|-------------|----------|-------------|---------|-------------
+      Min |     - |      215 |           - |      143 |         211 |       - |           -
+      Max |     - |      342 |           - |      455 |         555 |       - |           -
+      Avg | 44203 |      285 |          87 |      298 |         383 |  102787 |          65
+
+
+  [Table 37] PathTree Dump Files
+  ===================
+  --------------------
+
+  Output saved to: SEG_50000_PTSLIM_TIME40000.out
+--------------------------------------------------------------------------------
+Running: Store=SEGMENT, Nodes=50000, Mode=RESUME
+         ChunkSize=0 nodes, ChunkTime=45000ms
+         Resume=true, PathTreeTraversal=true, SlimFormat=true
+--------------------------------------------------------------------------------
+SEGMENT  | 50000    | RESUME   | 0        | Y      |    139.8s |      357.4 |       1000 | 4    
+  ✓ Incremental Searchability: WORKING
+    Max results during indexing: 975 / 1000
+    Actual indexed count: N/A
+    Chunks with search results: 3 / 3
+
+  DETAILED TIMING BREAKDOWN:
+  --------------------------
+  (Shows per-chunk performance metrics and timing breakdowns)
+
+
+  [Table 38] PathTree Loading Times (Resume state deserialization)
+  =====================================================
+    Load:   20 ms | Nodes:  78012 | Indexed:  58506 | FullyProc:  19502 | Size:      160 bytes
+    Load:   21 ms | Nodes: 158883 | Indexed: 104605 | FullyProc:  34770 | Size:      160 bytes
+    Load:   26 ms | Nodes: 248751 | Indexed: 145927 | FullyProc:  48544 | Size:      160 bytes
+
+  [Table 39] PathTree Serialization Times (Resume state saving)
+  ==================================================
+    Chunk  1: Serialize:   10 ms | Total:  58508 | FullyProc:  58506 | Unproc:    2
+    Chunk  2: Serialize:   11 ms | Total: 124111 | FullyProc:  65601 | Unproc:    2
+    Chunk  3: Serialize:   18 ms | Total: 200205 | FullyProc:  76092 | Unproc:    2
+
+  [Table 40] PathTree Size (Full vs SLIM storage requirements)
+  =================================================
+    Chunk  1: Full: ~2925400 bytes, SLIM: ~160 bytes (potential savings: 100%)
+    Chunk  2: Full: ~6205550 bytes, SLIM: ~160 bytes (potential savings: 100%)
+    Chunk  3: Full: ~10010250 bytes, SLIM: ~160 bytes (potential savings: 100%)
+
+
+  [Table 41] Indexing Mode (NORMAL=traditional | RESUME=chunked)
+  ===================================================
+    [DEBUG-MODE] Indexing complete, mode: RESUME
+
+  [Table 42] Diff Timing (Tree traversal time per indexing run)
+  ==================================================
+  Note: NORMAL mode has 2 runs - initial index creation + new content indexing
+    Run 1 - RESUME Diff:  126 ms
+    Run 2 - RESUME Diff: 45003 ms
+    Run 3 - RESUME Diff: 44979 ms
+    Run 4 - RESUME Diff: 44979 ms
+    Run 5 - RESUME Diff: 3308 ms
+
+  [Table 43] Commit Timing (Lucene flush + merge per run)
+  ============================================
+  Note: NORMAL mode has 2 runs - initial index creation + new content indexing
+    Run 1 - RESUME: flush=   1ms | merge=   2ms | TOTAL=   3ms
+    Run 2 - CHUNK: flush= 291ms | merge=   3ms | TOTAL= 352ms
+    Run 3 - CHUNK: flush= 137ms | merge=   1ms | TOTAL= 199ms
+    Run 4 - CHUNK: flush= 122ms | merge=   1ms | TOTAL= 182ms
+    Run 5 - RESUME: flush=   0ms | merge=   9ms | TOTAL=   9ms
+
+  [Table 44] Resume Path Timing (Time to skip already-indexed nodes)
+  =======================================================
+    Total diff: 44979 ms | To resume:    0 ms | After resume: 44979 ms
+    Total diff: 44979 ms | To resume:    0 ms | After resume: 44979 ms
+    Total diff: 3308 ms | To resume:    0 ms | After resume: 3308 ms
+
+  [Table 45] Skip Stats (NodeStore read optimization - cumulative counters)
+  ==============================================================
+  Note: Counters are cumulative across test
+        NORMAL mode: Run 1 = initial index, Run 2 = new content
+        RESUME mode: Each run is a chunk (counters grow each chunk)
+    Run  1: skipFull=     0 | skipIndexed=    0 | processed=  302
+    Run  2: skipFull=     0 | skipIndexed=    0 | processed=58510
+    Run  3: skipFull=     0 | skipIndexed=    2 | processed=46103
+    Run  4: skipFull=     0 | skipIndexed=    2 | processed=41326
+    Run  5: skipFull=     0 | skipIndexed=    2 | processed= 4377
+
+
+  [Table 46] Skip Summary
+  ============
+    Final run: 0 nodes skipped (0% skip rate)
+
+
+  [Table 47] PathTree Traversal Stats (NEW OPTIMIZATION - Skip SegmentStore reads)
+  =====================================================================
+  ============================================
+    ✓ PathTree-driven traversal ENABLED
+    PathTree: total=19504 | fullyProcessed=19502 | notFullyProcessed=2 | enterOnly=2
+    PathTree: total=34772 | fullyProcessed=34770 | notFullyProcessed=2 | enterOnly=2
+    PathTree: total=48546 | fullyProcessed=48544 | notFullyProcessed=2 | enterOnly=2
+    Chunk  1: PathTree=    0 | SegmentStore=    0 | Savings=0%
+    Chunk  2: PathTree=    0 | SegmentStore=    0 | Savings=0%
+    Chunk  3: PathTree=19502 | SegmentStore=46103 | Savings=29.7%
+    Chunk  4: PathTree=34770 | SegmentStore=41326 | Savings=45.6%
+    Chunk  5: PathTree=48544 | SegmentStore= 4377 | Savings=91.7%
+
+    *** Final Traversal: 48544 from PathTree, 4377 from SegmentStore (91.7% optimization) ***
+
+
+  [Table 48] PathTree Timing Breakdown (Detailed timing for PathTree operations)
+  ===================================================================
+  -------------------------
+segmentStoreReadTime=0.00ms, pathTreeLookupTime=0.00ms, editorCallbackTime=0.00ms
+SegmentStore I/O time: 0ms (this is the expensive part!)
+segmentStoreReadTime=0.00ms, pathTreeLookupTime=0.00ms, editorCallbackTime=0.00ms
+SegmentStore I/O time: 0ms (this is the expensive part!)
+segmentStoreReadTime=15.86ms, pathTreeLookupTime=50.67ms, editorCallbackTime=44843.26ms
+sed: 1: "s/.*SegmentStore I/O ti ...": bad flag in substitute command: '\'
+
+  [Table 49] Per-Chunk Commit Timing (Lucene flush + merge + state save per chunk)
+  =====================================================================
+    Chunk  1: flush= 291ms | merge=   3ms | save=  58ms | TOTAL= 352ms
+    Chunk  2: flush= 137ms | merge=   1ms | save=  61ms | TOTAL= 199ms
+    Chunk  3: flush= 122ms | merge=   1ms | save=  59ms | TOTAL= 182ms
+
+
+  [Table 50] Per-Chunk Search Results (Query results grow as indexing progresses)
+  ====================================================================
+  -------------------------
+  Note: Test creates exactly 1000 approved nodes distributed evenly across all nodes.
+        Results cap at 1000 because that's the total number of approved assets.
+
+  Column Definitions:
+    Processed  = Newly indexed nodes (not already in index)
+    Traversed  = Total nodes visited (includes skipped nodes)
+    Skipped    = Nodes skipped by PathTree (already indexed)
+
+    Chunk   | Processed  | Traversed  | Skipped    | Results   | Time(ms)  | Resume Path
+    ----------------------------------------------------------------------------------------------------
+    1       | 58510      | 58510      | 0          | 380       | 89        | /content/dam/asset-44424
+    2       | 46103      | 46103      | 0          | 692       | 16        | /content/dam/asset-38548
+    3       | 41326      | 41326      | 0          | 975       | 17        | /content/dam/asset-41815
+    ----------------------------------------------------------------------------------------------------
+    Aggregated Statistics:
+    Min     | 41326      | 41326      | 0          | 380       | 16        |
+    Max     | 58510      | 58510      | N/A        | 975       | 89        |
+    Average | 48646      | 48646      | 0          | 682       | 41        |
+
+
+  [Table 51] Per-Chunk Detailed Metrics (System resources per chunk)
+  =======================================================
+  ---------------------------
+    Chunk | Nodes | Heap(MB) | NonHeap(MB) | GC Count | GC Time(ms) | CPU(ms) | SegStore(MB)
+    ------|-------|----------|-------------|----------|-------------|---------|-------------
+        1 | 58510 |      270 |          86 |      165 |         238 |   61968 |          63
+        2 | 46103 |      402 |          84 |      341 |         468 |  110451 |          65
+        3 | 41326 |      323 |          87 |      547 |         692 |  158398 |          66
+    ------|-------|----------|-------------|----------|-------------|---------|-------------
+      Min |     - |      270 |           - |      165 |         238 |       - |           -
+      Max |     - |      402 |           - |      547 |         692 |       - |           -
+      Avg | 48646 |      332 |          86 |      351 |         466 |  110272 |          65
+
+
+  [Table 52] PathTree Dump Files
+  ===================
+  --------------------
+
+  Output saved to: SEG_50000_PTSLIM_TIME45000.out
+--------------------------------------------------------------------------------
+Running: Store=SEGMENT, Nodes=50000, Mode=RESUME
+         ChunkSize=0 nodes, ChunkTime=50000ms
+         Resume=true, PathTreeTraversal=true, SlimFormat=true
+--------------------------------------------------------------------------------
+SEGMENT  | 50000    | RESUME   | 0        | Y      |    147.1s |      339.8 |       1000 | 3    
+  ✓ Incremental Searchability: WORKING
+    Max results during indexing: 732 / 1000
+    Actual indexed count: N/A
+    Chunks with search results: 2 / 2
+
+  DETAILED TIMING BREAKDOWN:
+  --------------------------
+  (Shows per-chunk performance metrics and timing breakdowns)
+
+
+  [Table 53] PathTree Loading Times (Resume state deserialization)
+  =====================================================
+    Load:   14 ms | Nodes:  81676 | Indexed:  61254 | FullyProc:  20418 | Size:      160 bytes
+    Load:   20 ms | Nodes: 166531 | Indexed: 109654 | FullyProc:  36453 | Size:      160 bytes
+
+  [Table 54] PathTree Serialization Times (Resume state saving)
+  ==================================================
+    Chunk  1: Serialize:   11 ms | Total:  61256 | FullyProc:  61254 | Unproc:    2
+    Chunk  2: Serialize:   11 ms | Total: 130076 | FullyProc:  68818 | Unproc:    2
+
+  [Table 55] PathTree Size (Full vs SLIM storage requirements)
+  =================================================
+    Chunk  1: Full: ~3062800 bytes, SLIM: ~160 bytes (potential savings: 100%)
+    Chunk  2: Full: ~6503800 bytes, SLIM: ~160 bytes (potential savings: 100%)
+
+
+  [Table 56] Indexing Mode (NORMAL=traditional | RESUME=chunked)
+  ===================================================
+    [DEBUG-MODE] Indexing complete, mode: RESUME
+
+  [Table 57] Diff Timing (Tree traversal time per indexing run)
+  ==================================================
+  Note: NORMAL mode has 2 runs - initial index creation + new content indexing
+    Run 1 - RESUME Diff:  106 ms
+    Run 2 - RESUME Diff: 50005 ms
+    Run 3 - RESUME Diff: 49987 ms
+    Run 4 - RESUME Diff: 45987 ms
+
+  [Table 58] Commit Timing (Lucene flush + merge per run)
+  ============================================
+  Note: NORMAL mode has 2 runs - initial index creation + new content indexing
+    Run 1 - RESUME: flush=   0ms | merge=   1ms | TOTAL=   1ms
+    Run 2 - CHUNK: flush= 290ms | merge=   2ms | TOTAL= 347ms
+    Run 3 - CHUNK: flush= 143ms | merge=   4ms | TOTAL= 211ms
+    Run 4 - RESUME: flush=   0ms | merge=   8ms | TOTAL=   8ms
+
+  [Table 59] Resume Path Timing (Time to skip already-indexed nodes)
+  =======================================================
+    Total diff: 49987 ms | To resume:    0 ms | After resume: 49987 ms
+    Total diff: 45987 ms | To resume:    0 ms | After resume: 45987 ms
+
+  [Table 60] Skip Stats (NodeStore read optimization - cumulative counters)
+  ==============================================================
+  Note: Counters are cumulative across test
+        NORMAL mode: Run 1 = initial index, Run 2 = new content
+        RESUME mode: Each run is a chunk (counters grow each chunk)
+    Run  1: skipFull=     0 | skipIndexed=    0 | processed=  302
+    Run  2: skipFull=     0 | skipIndexed=    0 | processed=61258
+    Run  3: skipFull=     0 | skipIndexed=    2 | processed=48404
+    Run  4: skipFull=     0 | skipIndexed=    2 | processed=40650
+
+
+  [Table 61] Skip Summary
+  ============
+    Final run: 0 nodes skipped (0% skip rate)
+
+
+  [Table 62] PathTree Traversal Stats (NEW OPTIMIZATION - Skip SegmentStore reads)
+  =====================================================================
+  ============================================
+    ✓ PathTree-driven traversal ENABLED
+    PathTree: total=20420 | fullyProcessed=20418 | notFullyProcessed=2 | enterOnly=2
+    PathTree: total=36455 | fullyProcessed=36453 | notFullyProcessed=2 | enterOnly=2
+    Chunk  1: PathTree=    0 | SegmentStore=    0 | Savings=0%
+    Chunk  2: PathTree=    0 | SegmentStore=    0 | Savings=0%
+    Chunk  3: PathTree=20418 | SegmentStore=48404 | Savings=29.6%
+    Chunk  4: PathTree=36453 | SegmentStore=40650 | Savings=47.2%
+
+    *** Final Traversal: 36453 from PathTree, 40650 from SegmentStore (47.2% optimization) ***
+
+
+  [Table 63] PathTree Timing Breakdown (Detailed timing for PathTree operations)
+  ===================================================================
+  -------------------------
+segmentStoreReadTime=0.00ms, pathTreeLookupTime=0.00ms, editorCallbackTime=0.00ms
+SegmentStore I/O time: 0ms (this is the expensive part!)
+segmentStoreReadTime=0.00ms, pathTreeLookupTime=0.00ms, editorCallbackTime=0.00ms
+SegmentStore I/O time: 0ms (this is the expensive part!)
+segmentStoreReadTime=18.23ms, pathTreeLookupTime=52.28ms, editorCallbackTime=49840.50ms
+sed: 1: "s/.*SegmentStore I/O ti ...": bad flag in substitute command: '\'
+
+  [Table 64] Per-Chunk Commit Timing (Lucene flush + merge + state save per chunk)
+  =====================================================================
+    Chunk  1: flush= 290ms | merge=   2ms | save=  55ms | TOTAL= 347ms
+    Chunk  2: flush= 143ms | merge=   4ms | save=  64ms | TOTAL= 211ms
+
+
+  [Table 65] Per-Chunk Search Results (Query results grow as indexing progresses)
+  ====================================================================
+  -------------------------
+  Note: Test creates exactly 1000 approved nodes distributed evenly across all nodes.
+        Results cap at 1000 because that's the total number of approved assets.
+
+  Column Definitions:
+    Processed  = Newly indexed nodes (not already in index)
+    Traversed  = Total nodes visited (includes skipped nodes)
+    Skipped    = Nodes skipped by PathTree (already indexed)
+
+    Chunk   | Processed  | Traversed  | Skipped    | Results   | Time(ms)  | Resume Path
+    ----------------------------------------------------------------------------------------------------
+    1       | 61258      | 61258      | 0          | 395       | 69        | /content/dam/asset-33797
+    2       | 48404      | 48404      | 0          | 732       | 24        | /content/dam/asset-10728
+    ----------------------------------------------------------------------------------------------------
+    Aggregated Statistics:
+    Min     | 48404      | 48404      | 0          | 395       | 24        |
+    Max     | 61258      | 61258      | N/A        | 732       | 69        |
+    Average | 54831      | 54831      | 0          | 564       | 46        |
+
+
+  [Table 66] Per-Chunk Detailed Metrics (System resources per chunk)
+  =======================================================
+  ---------------------------
+    Chunk | Nodes | Heap(MB) | NonHeap(MB) | GC Count | GC Time(ms) | CPU(ms) | SegStore(MB)
+    ------|-------|----------|-------------|----------|-------------|---------|-------------
+        1 | 61258 |      253 |          85 |      179 |         236 |   67807 |          63
+        2 | 48404 |      853 |          87 |      370 |         474 |  122262 |          65
+    ------|-------|----------|-------------|----------|-------------|---------|-------------
+      Min |     - |      253 |           - |      179 |         236 |       - |           -
+      Max |     - |      853 |           - |      370 |         474 |       - |           -
+      Avg | 54831 |      553 |          86 |      274 |         355 |   95034 |          64
+
+
+  [Table 67] PathTree Dump Files
+  ===================
+  --------------------
+
+  Output saved to: SEG_50000_PTSLIM_TIME50000.out
+--------------------------------------------------------------------------------
+Running: Store=SEGMENT, Nodes=50000, Mode=RESUME
+         ChunkSize=0 nodes, ChunkTime=60000ms
+         Resume=true, PathTreeTraversal=true, SlimFormat=true
+--------------------------------------------------------------------------------
+SEGMENT  | 50000    | RESUME   | 0        | Y      |    157.6s |      317.1 |       1000 | 3    
+  ✓ Incremental Searchability: WORKING
+    Max results during indexing: 778 / 1000
+    Actual indexed count: N/A
+    Chunks with search results: 2 / 2
+
+  DETAILED TIMING BREAKDOWN:
+  --------------------------
+  (Shows per-chunk performance metrics and timing breakdowns)
+
+
+  [Table 68] PathTree Loading Times (Resume state deserialization)
+  =====================================================
+    Load:   18 ms | Nodes:  87784 | Indexed:  65835 | FullyProc:  21945 | Size:      160 bytes
+    Load:   22 ms | Nodes: 179406 | Indexed: 118165 | FullyProc:  39290 | Size:      160 bytes
+
+  [Table 69] PathTree Serialization Times (Resume state saving)
+  ==================================================
+    Chunk  1: Serialize:   14 ms | Total:  65837 | FullyProc:  65835 | Unproc:    2
+    Chunk  2: Serialize:   16 ms | Total: 140114 | FullyProc:  74275 | Unproc:    2
+
+  [Table 70] PathTree Size (Full vs SLIM storage requirements)
+  =================================================
+    Chunk  1: Full: ~3291850 bytes, SLIM: ~160 bytes (potential savings: 100%)
+    Chunk  2: Full: ~7005700 bytes, SLIM: ~160 bytes (potential savings: 100%)
+
+
+  [Table 71] Indexing Mode (NORMAL=traditional | RESUME=chunked)
+  ===================================================
+    [DEBUG-MODE] Indexing complete, mode: RESUME
+
+  [Table 72] Diff Timing (Tree traversal time per indexing run)
+  ==================================================
+  Note: NORMAL mode has 2 runs - initial index creation + new content indexing
+    Run 1 - RESUME Diff:   94 ms
+    Run 2 - RESUME Diff: 60004 ms
+    Run 3 - RESUME Diff: 59982 ms
+    Run 4 - RESUME Diff: 36444 ms
+
+  [Table 73] Commit Timing (Lucene flush + merge per run)
+  ============================================
+  Note: NORMAL mode has 2 runs - initial index creation + new content indexing
+    Run 1 - RESUME: flush=   1ms | merge=   1ms | TOTAL=   2ms
+    Run 2 - CHUNK: flush= 285ms | merge=   3ms | TOTAL= 365ms
+    Run 3 - CHUNK: flush= 152ms | merge=   1ms | TOTAL= 225ms
+    Run 4 - RESUME: flush=   0ms | merge=  14ms | TOTAL=  14ms
+
+  [Table 74] Resume Path Timing (Time to skip already-indexed nodes)
+  =======================================================
+    Total diff: 59982 ms | To resume:    0 ms | After resume: 59982 ms
+    Total diff: 36444 ms | To resume:    0 ms | After resume: 36444 ms
+
+  [Table 75] Skip Stats (NodeStore read optimization - cumulative counters)
+  ==============================================================
+  Note: Counters are cumulative across test
+        NORMAL mode: Run 1 = initial index, Run 2 = new content
+        RESUME mode: Each run is a chunk (counters grow each chunk)
+    Run  1: skipFull=     0 | skipIndexed=    0 | processed=  302
+    Run  2: skipFull=     0 | skipIndexed=    0 | processed=65839
+    Run  3: skipFull=     0 | skipIndexed=    2 | processed=52334
+    Run  4: skipFull=     0 | skipIndexed=    2 | processed=32139
+
+
+  [Table 76] Skip Summary
+  ============
+    Final run: 0 nodes skipped (0% skip rate)
+
+
+  [Table 77] PathTree Traversal Stats (NEW OPTIMIZATION - Skip SegmentStore reads)
+  =====================================================================
+  ============================================
+    ✓ PathTree-driven traversal ENABLED
+    PathTree: total=21947 | fullyProcessed=21945 | notFullyProcessed=2 | enterOnly=2
+    PathTree: total=39292 | fullyProcessed=39290 | notFullyProcessed=2 | enterOnly=2
+    Chunk  1: PathTree=    0 | SegmentStore=    0 | Savings=0%
+    Chunk  2: PathTree=    0 | SegmentStore=    0 | Savings=0%
+    Chunk  3: PathTree=21945 | SegmentStore=52334 | Savings=29.5%
+    Chunk  4: PathTree=39290 | SegmentStore=32139 | Savings=55.0%
+
+    *** Final Traversal: 39290 from PathTree, 32139 from SegmentStore (55.0% optimization) ***
+
+
+  [Table 78] PathTree Timing Breakdown (Detailed timing for PathTree operations)
+  ===================================================================
+  -------------------------
+segmentStoreReadTime=0.00ms, pathTreeLookupTime=0.00ms, editorCallbackTime=0.00ms
+SegmentStore I/O time: 0ms (this is the expensive part!)
+segmentStoreReadTime=0.00ms, pathTreeLookupTime=0.00ms, editorCallbackTime=0.00ms
+SegmentStore I/O time: 0ms (this is the expensive part!)
+segmentStoreReadTime=20.78ms, pathTreeLookupTime=56.90ms, editorCallbackTime=59817.83ms
+sed: 1: "s/.*SegmentStore I/O ti ...": bad flag in substitute command: '\'
+
+  [Table 79] Per-Chunk Commit Timing (Lucene flush + merge + state save per chunk)
+  =====================================================================
+    Chunk  1: flush= 285ms | merge=   3ms | save=  77ms | TOTAL= 365ms
+    Chunk  2: flush= 152ms | merge=   1ms | save=  72ms | TOTAL= 225ms
+
+
+  [Table 80] Per-Chunk Search Results (Query results grow as indexing progresses)
+  ====================================================================
+  -------------------------
+  Note: Test creates exactly 1000 approved nodes distributed evenly across all nodes.
+        Results cap at 1000 because that's the total number of approved assets.
+
+  Column Definitions:
+    Processed  = Newly indexed nodes (not already in index)
+    Traversed  = Total nodes visited (includes skipped nodes)
+    Skipped    = Nodes skipped by PathTree (already indexed)
+
+    Chunk   | Processed  | Traversed  | Skipped    | Results   | Time(ms)  | Resume Path
+    ----------------------------------------------------------------------------------------------------
+    1       | 65839      | 65839      | 0          | 423       | 77        | /content/dam/asset-32759
+    2       | 52334      | 52334      | 0          | 778       | 21        | /content/dam/asset-24263
+    ----------------------------------------------------------------------------------------------------
+    Aggregated Statistics:
+    Min     | 52334      | 52334      | 0          | 423       | 21        |
+    Max     | 65839      | 65839      | N/A        | 778       | 77        |
+    Average | 59086      | 59086      | 0          | 600       | 49        |
+
+
+  [Table 81] Per-Chunk Detailed Metrics (System resources per chunk)
+  =======================================================
+  ---------------------------
+    Chunk | Nodes | Heap(MB) | NonHeap(MB) | GC Count | GC Time(ms) | CPU(ms) | SegStore(MB)
+    ------|-------|----------|-------------|----------|-------------|---------|-------------
+        1 | 65839 |      262 |          85 |      205 |         278 |   79867 |          64
+        2 | 52334 |      414 |          88 |      430 |         537 |  144209 |          65
+    ------|-------|----------|-------------|----------|-------------|---------|-------------
+      Min |     - |      262 |           - |      205 |         278 |       - |           -
+      Max |     - |      414 |           - |      430 |         537 |       - |           -
+      Avg | 59086 |      338 |          86 |      318 |         408 |  112038 |          64
+
+
+  [Table 82] PathTree Dump Files
+  ===================
+  --------------------
+
+  Output saved to: SEG_50000_PTSLIM_TIME60000.out
+
+================================================================================
+COLLATED RESULTS - KEY METRICS COMPARISON
+================================================================================
+
+Analyzing output files from this test run...
+
+Performance Comparison Across All Scenarios:
+=============================================
+
+Found 6 scenario(s) from this run:
+
+
+  [Table 83] Performance Comparison - All Scenarios
+  ======================================
+┌─────────────────────────────────────────┬──────────┬────────────┬──────┬─────────┬─────────┬──────────┬─────────┬──────────┐
+│ Scenario                                │  Time(s) │ Throughput │ Runs │ Indexed │  GC(ms) │ GC Count │ Mem(MB) │ PT Save% │
+├─────────────────────────────────────────┼──────────┼────────────┼──────┼─────────┼─────────┼──────────┼─────────┼──────────┤
+│ SEG_50000_NORMAL_TIME5000               │    462.0 │     108.22 │    1 │    1000 │     963 │      988 │     871 │      N/A │
+│ SEG_50000_PTSLIM_TIME20000              │    105.4 │     474.10 │    6 │    1000 │     709 │      495 │    1184 │      N/A │
+│ SEG_50000_PTSLIM_TIME40000              │    136.3 │     366.59 │    4 │    1000 │     600 │      538 │     954 │      N/A │
+│ SEG_50000_PTSLIM_TIME45000              │    139.8 │     357.44 │    4 │    1000 │     680 │      561 │     955 │      N/A │
+│ SEG_50000_PTSLIM_TIME50000              │    147.1 │     339.81 │    3 │    1000 │     653 │      567 │     993 │      N/A │
+│ SEG_50000_PTSLIM_TIME60000              │    157.6 │     317.15 │    3 │    1000 │     702 │      619 │    1037 │      N/A │
+└─────────────────────────────────────────┴──────────┴────────────┴──────┴─────────┴─────────┴──────────┴─────────┴──────────┘
+
+================================================================================
+AGGREGATED STATISTICS (All Scenarios)
+================================================================================
+
+Statistic   |  Time(s) | Throughput |  GC(ms) | GC Count | MemDelta(MB) | PeakHeap(MB)
+------------|----------|------------|---------|----------|-----------|-------------
+Min         |    105.4 |        108 |     600 |      495 |       871 |       994
+Max         |    462.0 |        474 |     963 |      988 |      1184 |      1308
+Average     |    191.4 |        327 |     718 |      628 |       999 |      1123
+Median      |    143.4 |        349 |     691 |      564 |       974 |       N/A
+P95         |    157.6 |        367 |     709 |      619 |      1037 |       N/A
+
+================================================================================
+DETAILED GC AND MEMORY ANALYSIS (Per Scenario)
+================================================================================
+
+Scenario                                |  GC(ms) | GC Count |    GC/sec | Mem(MB)
+----------------------------------------|---------|----------|-----------|--------
+SEG_50000_NORMAL_TIME5000               |     963 |      988 |       2.0 |     871
+SEG_50000_PTSLIM_TIME20000              |     709 |      495 |       6.7 |    1184
+SEG_50000_PTSLIM_TIME40000              |     600 |      538 |       4.4 |     954
+SEG_50000_PTSLIM_TIME45000              |     680 |      561 |       4.8 |     955
+SEG_50000_PTSLIM_TIME50000              |     653 |      567 |       4.4 |     993
+SEG_50000_PTSLIM_TIME60000              |     702 |      619 |       4.4 |    1037
+
+================================================================================
+DISK USAGE ANALYSIS (Per Scenario)
+================================================================================
+
+Scenario                                | SegStore(MB) |  Lucene(MB) |   Total(MB)
+----------------------------------------|-------------|-------------|------------
+SEG_50000_NORMAL_TIME5000               |          62 |           0 |          62
+SEG_50000_PTSLIM_TIME20000              |          68 |           0 |          68
+SEG_50000_PTSLIM_TIME40000              |          66 |           0 |          66
+SEG_50000_PTSLIM_TIME45000              |          67 |           0 |          67
+SEG_50000_PTSLIM_TIME50000              |          65 |           0 |          65
+SEG_50000_PTSLIM_TIME60000              |          65 |           0 |          65
+
+================================================================================
+CPU COMPUTE ANALYSIS (Per Scenario)
+================================================================================
+
+Scenario                                |     CPU(s) |    Utiliz(%) | Efficiency(n/s)
+----------------------------------------|------------|--------------|------------------
+SEG_50000_NORMAL_TIME5000               |     472.89 |        102.4 |             106
+SEG_50000_PTSLIM_TIME20000              |     125.33 |        118.8 |             399
+SEG_50000_PTSLIM_TIME40000              |     148.25 |        108.7 |             337
+SEG_50000_PTSLIM_TIME45000              |     150.29 |        107.4 |             333
+SEG_50000_PTSLIM_TIME50000              |     157.96 |        107.4 |             317
+SEG_50000_PTSLIM_TIME60000              |     170.89 |        108.4 |             293
+
+
+🏆 Best Performers:
+===================
+  🚀 Fastest Indexing: SEG_50000_PTSLIM_TIME20000 (105.4 seconds)
+  ⚡ Highest Throughput: SEG_50000_PTSLIM_TIME20000 (474.10 nodes/sec)
+  💾 Best PathTree Optimization: SEG_50000_PTSLIM_TIME60000 (% savings)
+  🧹 Lowest GC Time: SEG_50000_PTSLIM_TIME40000 (600 ms)
+  💾 Lowest Memory Usage: SEG_50000_NORMAL_TIME5000 (871 MB)
+
+📊 Performance Analysis:
+========================
+  SLIM vs NORMAL: 4.38x faster (77.1% improvement)
+  Time saved: 356.6 seconds
+
+✅ Verification Status:
+=======================
+  Note: All counts verified using keyset pagination (bypasses 100K result limits)
+
+  ✓ SEG_50000_NORMAL_TIME5000: 1000 documents indexed
+  ✓ SEG_50000_PTSLIM_TIME20000: 1000 documents indexed
+  ✓ SEG_50000_PTSLIM_TIME40000: 1000 documents indexed
+  ✓ SEG_50000_PTSLIM_TIME45000: 1000 documents indexed
+  ✓ SEG_50000_PTSLIM_TIME50000: 1000 documents indexed
+  ✓ SEG_50000_PTSLIM_TIME60000: 1000 documents indexed
+
+  🎉 All scenarios passed verification!
+
+💡 Key Insights:
+================
+  • Total scenarios tested:        6
+  • Resume mode scenarios: 0
+0
+  • Normal mode scenarios: 1
+  • SLIM format scenarios: 5
+  • Average indexing time: 191.4 seconds
+  • Average throughput: 327.2 nodes/sec
+  • Average GC time: 717.8 ms
+  • Average memory delta: 999 MB
+
+🎯 Recommendation:
+==================
+  ✅ Use RESUME mode with SLIM PathTree format for production
+     - Best performance (fastest indexing)
+     - Minimal storage overhead
+     - Incremental searchability
+     - Resumable on failure
+
+================================================================================
+TEST COMPLETE
+================================================================================
+
+Results saved to:
+  - perf_resume_results.txt (full output)
+  - perf_resume_summary.txt (summary table)
+
+================================================================================
+RUN TEST SUMMARY
+================================================================================
+
+Quick Test Commands:
+  # Run all scenarios (normal + resume modes)
+  ./compare_resume_perf.sh
+
+  # Run with tables disabled
+  ./compare_resume_perf.sh --no-tables
+
+  # Custom: 10K nodes, 2s time chunks, SLIM format
+  ./compare_resume_perf.sh custom SEGMENT 10000 0 2000 true true true
+
+  # Custom: 10K nodes, normal mode (no chunking)
+  ./compare_resume_perf.sh custom SEGMENT 10000 0 0 false false false
+
+Options:
+  --tables      : Enable table display (default)
+  --no-tables   : Disable all table output for cleaner logs
+
+Parameter Guide:
+  STORE         : SEGMENT | DOCUMENT
+  NODES         : Number of test nodes (e.g., 10000, 20000)
+  CHUNK_SIZE    : Nodes per chunk (0=disabled)
+  CHUNK_TIME_MS : Milliseconds per chunk (0=disabled, 1000=1s)
+  RESUME        : true | false (enable resume indexing)
+  PT_TRAVERSAL  : true | false (PathTree traversal optimization)
+  SLIM_FORMAT   : true | false (frontier-based minimal storage)
+
+Key Metrics Explained:
+  Time(s)       : Total indexing time
+  Throughput    : Nodes indexed per second
+  Verified      : Count of successfully indexed documents (uses keyset pagination)
+  Runs          : Number of chunks/cycles
+  PTTrav        : PathTree traversal enabled (Y/N)
+
+Performance Tips:
+  ✓ SLIM format is 3x faster than NORMAL mode for large indexes
+  ✓ Time-based chunking (1000ms) provides optimal balance
+  ✓ PathTree reduces SegmentStore reads by 95-99%
+  ✓ Incremental searchability: content visible after each chunk
+
+Output Files:
+  perf_resume_results.txt     : Complete test output with all metrics
+  perf_resume_summary.txt     : Performance comparison table
+  SEGMENT_*_*.out             : Individual scenario outputs
+
+Common Scenarios:
+  NORMAL mode                 : Traditional one-shot indexing
+  RESUME + Full PathTree      : Resumable with full state (larger storage)
+  RESUME + SLIM PathTree      : Resumable with minimal state (FASTEST!)
+
+================================================================================
+
+mokatari@Mohits-MacBook-Pro-2 oak-lucene % 
+

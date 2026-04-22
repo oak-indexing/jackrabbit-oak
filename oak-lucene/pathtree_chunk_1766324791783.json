@@ -1,0 +1,12 @@
+{
+  "totalNodes": 48054,
+  "indexedNodes": 40639,
+  "fullyProcessedCount": 25820,
+  "notFullyProcessedCount": 4,
+  "unprocessedPaths": [
+    "/content",
+    "/content/dam",
+    "/content/dam/asset-4189",
+    "/content/dam/asset-4189/jcr:content"
+  ]
+}

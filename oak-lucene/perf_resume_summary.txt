@@ -1,0 +1,9 @@
+Store    | Nodes    | Mode     | Chunk    | ChunkMs  | PTTrav |   Time(s) | Throughput |   Verified | Runs 
+---------|----------|----------|----------|----------|--------|-----------|------------|------------|-------
+DOCUMENT | 20000    | NORMAL   | 0        | N      |    113.4s |      176.2 |       1000 | 1    
+DOCUMENT | 20000    | RESUME   | 0        | Y      |     86.0s |      232.4 |       1000 | 9    
+DOCUMENT | 20000    | RESUME   | 0        | Y      |    100.7s |      198.6 |       1000 | 5    
+DOCUMENT | 20000    | RESUME   | 0        | Y      |     97.4s |      205.2 |       1000 | 4    
+DOCUMENT | 20000    | RESUME   | 0        | Y      |     98.8s |      202.4 |       1000 | 3    
+DOCUMENT | 20000    | RESUME   | 0        | Y      |     99.1s |      201.8 |       1000 | 2    
+DOCUMENT | 20000    | RESUME   | 0        | Y      |    101.7s |      196.5 |       1000 | 2    

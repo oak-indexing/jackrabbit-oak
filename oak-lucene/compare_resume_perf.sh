@@ -228,14 +228,23 @@ SCENARIOS=(
 
     # Example active scenarios - uncomment or use shorthand syntax instead
     # Example: ./compare_resume_perf.sh 50000 NORMAL,SLIM
-    "SEGMENT 50000 0 5000 false false false"
+    # "SEGMENT 50000 0 5000 false false false"
     # "SEGMENT 100000 0 25000 true true true"
     # "SEGMENT 100000 0 30000 true true true"
-    "SEGMENT 50000 0 20000 true true true"
+    # "SEGMENT 50000 0 20000 true true true"
     # "SEGMENT 50000 0 40000 true true true"
     # "SEGMENT 50000 0 45000 true true true"
     # "SEGMENT 50000 0 50000 true true true"
     # "SEGMENT 50000 0 60000 true true true"
+
+     "DOCUMENT 20000 0 5000 false false false"
+     "DOCUMENT 20000 0 10000 true true true"
+     "DOCUMENT 20000 0 20000 true true true"
+     "DOCUMENT 20000 0 30000 true true true"
+     "DOCUMENT 20000 0 40000 true true true"
+     "DOCUMENT 20000 0 50000 true true true"
+     "DOCUMENT 20000 0 60000 true true true"
+
     
     # Example: 2000 nodes OR 5000ms chunks
 # ./compare_resume_perf.sh custom SEGMENT 10000 2000 5000 true true

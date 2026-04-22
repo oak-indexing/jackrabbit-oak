@@ -1,0 +1,264 @@
+================================================================================
+RESUMABLE INDEXING PERFORMANCE TEST
+================================================================================
+
+ℹ️  Table display enabled (default) - use --no-tables to show summary only
+
+Cleaning old test output files...
+Old files cleaned.
+
+Compiling oak-core and oak-lucene...
+[ERROR] Plugin org.apache.maven.plugins:maven-enforcer-plugin:3.1.0 or one of its dependencies could not be resolved: Failed to read artifact descriptor for org.apache.maven.plugins:maven-enforcer-plugin:jar:3.1.0: 1 problem was encountered while building the effective model for org.apache.maven.plugins:maven-enforcer-plugin:3.1.0
+[ERROR] [FATAL] Non-readable POM /Users/mokatari/.m2/repository/org/apache/maven/enforcer/enforcer/3.1.0/enforcer-3.1.0.pom: /Users/mokatari/.m2/repository/org/apache/maven/enforcer/enforcer/3.1.0/enforcer-3.1.0.pom (Operation not permitted) @ /Users/mokatari/.m2/repository/org/apache/maven/enforcer/enforcer/3.1.0/enforcer-3.1.0.pom
+[ERROR] -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/PluginResolutionException
+Compilation complete.
+
+Building classpath...
+✓ Maven classpath obtained
+
+
+================================================================================
+RESULTS
+================================================================================
+
+Test Parameter Descriptions:
+----------------------------
+  Store    : NodeStore type - SEGMENT or DOCUMENT
+  Nodes    : Total number of nodes to index
+  Mode     : NORMAL or RESUME - traditional vs chunked with resume capability
+  Chunk    : Node count per chunk - 0 means disabled
+  ChunkMs  : Time limit per chunk in milliseconds - 0 means disabled
+  PTTrav   : PathTree Traversal enabled - Y/N optimizes skip logic
+  Time(s)  : Total indexing time in seconds
+  Throughput: Nodes indexed per second
+  Verified : Number of documents successfully indexed and searchable
+  Runs     : Number of indexing cycles - 1 for NORMAL, multiple for RESUME
+
+Store    | Nodes    | Mode     | Chunk    | ChunkMs  | PTTrav |   Time(s) | Throughput |   Verified | Runs 
+---------|----------|----------|----------|----------|--------|-----------|------------|------------|-------
+--------------------------------------------------------------------------------
+Running: Store=SEGMENT, Nodes=20000, Mode=NORMAL
+         ChunkSize=0 nodes, ChunkTime=0ms
+         Resume=false, PathTreeTraversal=false, SlimFormat=false
+--------------------------------------------------------------------------------
+  ⚠ Test may have encountered errors - check output file
+  ⚠ WARNING: Test may have failed - missing critical metrics
+  Check SEGMENT_20000_NORMAL.out for errors
+SEGMENT  | 20000    | NORMAL   | 0        | N      |      N/As |        N/A |        N/A | N/A  
+  ⚠ Incremental Searchability: NOT WORKING - Index only searchable after final commit
+
+  DETAILED TIMING BREAKDOWN:
+  --------------------------
+  (Shows per-chunk performance metrics and timing breakdowns)
+
+
+
+  [Table 1] PathTree Dump Files
+  ===================
+  --------------------
+
+  Output saved to: SEGMENT_20000_NORMAL.out
+--------------------------------------------------------------------------------
+Running: Store=SEGMENT, Nodes=20000, Mode=RESUME
+         ChunkSize=0 nodes, ChunkTime=1000ms
+         Resume=true, PathTreeTraversal=true, SlimFormat=false
+--------------------------------------------------------------------------------
+  ⚠ Test may have encountered errors - check output file
+  ⚠ WARNING: Test may have failed - missing critical metrics
+  Check SEGMENT_20000_RESUME_PTTRAVERSAL_TIME1000.out for errors
+SEGMENT  | 20000    | RESUME   | 0        | Y      |      N/As |        N/A |        N/A | N/A  
+  ⚠ Incremental Searchability: NOT WORKING - Index only searchable after final commit
+
+  DETAILED TIMING BREAKDOWN:
+  --------------------------
+  (Shows per-chunk performance metrics and timing breakdowns)
+
+
+
+  [Table 2] PathTree Dump Files
+  ===================
+  --------------------
+
+  Output saved to: SEGMENT_20000_RESUME_PTTRAVERSAL_TIME1000.out
+--------------------------------------------------------------------------------
+Running: Store=SEGMENT, Nodes=20000, Mode=RESUME
+         ChunkSize=0 nodes, ChunkTime=1000ms
+         Resume=true, PathTreeTraversal=true, SlimFormat=true
+--------------------------------------------------------------------------------
+  ⚠ Test may have encountered errors - check output file
+  ⚠ WARNING: Test may have failed - missing critical metrics
+  Check SEGMENT_20000_RESUME_PTTRAVERSAL_SLIM_TIME1000.out for errors
+SEGMENT  | 20000    | RESUME   | 0        | Y      |      N/As |        N/A |        N/A | N/A  
+  ⚠ Incremental Searchability: NOT WORKING - Index only searchable after final commit
+
+  DETAILED TIMING BREAKDOWN:
+  --------------------------
+  (Shows per-chunk performance metrics and timing breakdowns)
+
+
+
+  [Table 3] PathTree Dump Files
+  ===================
+  --------------------
+
+  Output saved to: SEGMENT_20000_RESUME_PTTRAVERSAL_SLIM_TIME1000.out
+
+================================================================================
+COLLATED RESULTS - KEY METRICS COMPARISON
+================================================================================
+
+Analyzing output files from this test run...
+
+Performance Comparison Across All Scenarios:
+=============================================
+
+Found 3 scenario(s) from this run:
+
+
+  [Table 4] Performance Comparison - All Scenarios
+  ======================================
+┌─────────────────────────────────────────┬──────────┬────────────┬──────┬─────────┬─────────┬──────────┬─────────┬──────────┐
+│ Scenario                                │  Time(s) │ Throughput │ Runs │ Indexed │  GC(ms) │ GC Count │ Mem(MB) │ PT Save% │
+├─────────────────────────────────────────┼──────────┼────────────┼──────┼─────────┼─────────┼──────────┼─────────┼──────────┤
+│ SEGMENT_20000_NORMAL                    │      N/A │        N/A │  N/A │     N/A │     N/A │      N/A │     N/A │      N/A │
+│ SEGMENT_20000_RESUME_PTTRAVERSAL_SLI... │      N/A │        N/A │  N/A │     N/A │     N/A │      N/A │     N/A │      N/A │
+│ SEGMENT_20000_RESUME_PTTRAVERSAL_TIM... │      N/A │        N/A │  N/A │     N/A │     N/A │      N/A │     N/A │      N/A │
+└─────────────────────────────────────────┴──────────┴────────────┴──────┴─────────┴─────────┴──────────┴─────────┴──────────┘
+
+================================================================================
+AGGREGATED STATISTICS (All Scenarios)
+================================================================================
+
+Statistic   |  Time(s) | Throughput |  GC(ms) | GC Count | MemDelta(MB) | PeakHeap(MB)
+------------|----------|------------|---------|----------|-----------|-------------
+Min         |      N/A |        N/A |     N/A |      N/A |       N/A |       N/A
+Max         |      N/A |        N/A |     N/A |      N/A |       N/A |       N/A
+Average     |      N/A |        N/A |     N/A |      N/A |       N/A |       N/A
+Median      |      N/A |        N/A |     N/A |      N/A |       N/A |       N/A
+P95         |      N/A |        N/A |     N/A |      N/A |       N/A |       N/A
+
+================================================================================
+DETAILED GC AND MEMORY ANALYSIS (Per Scenario)
+================================================================================
+
+Scenario                                |  GC(ms) | GC Count |    GC/sec | Mem(MB)
+----------------------------------------|---------|----------|-----------|--------
+SEGMENT_20000_NORMAL                    |     N/A |      N/A |       N/A |     N/A
+SEGMENT_20000_RESUME_PTTRAVERSAL_SLI... |     N/A |      N/A |       N/A |     N/A
+SEGMENT_20000_RESUME_PTTRAVERSAL_TIM... |     N/A |      N/A |       N/A |     N/A
+
+================================================================================
+DISK USAGE ANALYSIS (Per Scenario)
+================================================================================
+
+Scenario                                | SegStore(MB) |  Lucene(MB) |   Total(MB)
+----------------------------------------|-------------|-------------|------------
+SEGMENT_20000_NORMAL                    |         N/A |         N/A |        ||||
+SEGMENT_20000_RESUME_PTTRAVERSAL_SLI... |         N/A |         N/A |        ||||
+SEGMENT_20000_RESUME_PTTRAVERSAL_TIM... |         N/A |         N/A |        ||||
+
+================================================================================
+CPU COMPUTE ANALYSIS (Per Scenario)
+================================================================================
+
+Scenario                                |     CPU(s) |    Utiliz(%) | Efficiency(n/s)
+----------------------------------------|------------|--------------|------------------
+SEGMENT_20000_NORMAL                    |        N/A |          N/A |             N/A
+SEGMENT_20000_RESUME_PTTRAVERSAL_SLI... |        N/A |          N/A |             N/A
+SEGMENT_20000_RESUME_PTTRAVERSAL_TIM... |        N/A |          N/A |             N/A
+
+
+🏆 Best Performers:
+===================
+
+📊 Performance Analysis:
+========================
+
+✅ Verification Status:
+=======================
+  Note: All counts verified using keyset pagination (bypasses 100K result limits)
+
+  ✗ SEGMENT_20000_NORMAL: Verification data missing
+  ✗ SEGMENT_20000_RESUME_PTTRAVERSAL_SLIM_TIME1000: Verification data missing
+  ✗ SEGMENT_20000_RESUME_PTTRAVERSAL_TIME1000: Verification data missing
+
+💡 Key Insights:
+================
+  • Total scenarios tested:        3
+  • Resume mode scenarios: 2
+  • Normal mode scenarios: 1
+  • SLIM format scenarios: 1
+
+🎯 Recommendation:
+==================
+  Review individual scenario results for best configuration
+
+================================================================================
+TEST COMPLETE
+================================================================================
+
+Results saved to:
+  - perf_resume_results.txt (full output)
+  - perf_resume_summary.txt (summary table)
+
+================================================================================
+RUN TEST SUMMARY
+================================================================================
+
+Quick Test Commands:
+  # Run all scenarios (normal + resume modes)
+  ./compare_resume_perf.sh
+
+  # Run with tables disabled
+  ./compare_resume_perf.sh --no-tables
+
+  # Custom: 10K nodes, 2s time chunks, SLIM format
+  ./compare_resume_perf.sh custom SEGMENT 10000 0 2000 true true true
+
+  # Custom: 10K nodes, normal mode (no chunking)
+  ./compare_resume_perf.sh custom SEGMENT 10000 0 0 false false false
+
+Options:
+  --tables      : Enable table display (default)
+  --no-tables   : Disable all table output for cleaner logs
+
+Parameter Guide:
+  STORE         : SEGMENT | DOCUMENT
+  NODES         : Number of test nodes (e.g., 10000, 20000)
+  CHUNK_SIZE    : Nodes per chunk (0=disabled)
+  CHUNK_TIME_MS : Milliseconds per chunk (0=disabled, 1000=1s)
+  RESUME        : true | false (enable resume indexing)
+  PT_TRAVERSAL  : true | false (PathTree traversal optimization)
+  SLIM_FORMAT   : true | false (frontier-based minimal storage)
+
+Key Metrics Explained:
+  Time(s)       : Total indexing time
+  Throughput    : Nodes indexed per second
+  Verified      : Count of successfully indexed documents (uses keyset pagination)
+  Runs          : Number of chunks/cycles
+  PTTrav        : PathTree traversal enabled (Y/N)
+
+Performance Tips:
+  ✓ SLIM format is 3x faster than NORMAL mode for large indexes
+  ✓ Time-based chunking (1000ms) provides optimal balance
+  ✓ PathTree reduces SegmentStore reads by 95-99%
+  ✓ Incremental searchability: content visible after each chunk
+
+Output Files:
+  perf_resume_results.txt     : Complete test output with all metrics
+  perf_resume_summary.txt     : Performance comparison table
+  SEGMENT_*_*.out             : Individual scenario outputs
+
+Common Scenarios:
+  NORMAL mode                 : Traditional one-shot indexing
+  RESUME + Full PathTree      : Resumable with full state (larger storage)
+  RESUME + SLIM PathTree      : Resumable with minimal state (FASTEST!)
+
+================================================================================
+

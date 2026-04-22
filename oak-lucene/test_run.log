@@ -1,0 +1,40 @@
+================================================================================
+RESUMABLE INDEXING PERFORMANCE TEST
+================================================================================
+
+ℹ️  Table display disabled (use --tables to enable)
+
+Cleaning old test output files...
+Old files cleaned.
+
+Compiling oak-core and oak-lucene...
+Compilation complete.
+
+Building classpath...
+✓ Maven classpath obtained
+
+
+================================================================================
+RESULTS
+================================================================================
+
+Test Parameter Descriptions:
+----------------------------
+  Store    : NodeStore type - SEGMENT or DOCUMENT
+  Nodes    : Total number of nodes to index
+  Mode     : NORMAL or RESUME - traditional vs chunked with resume capability
+  Chunk    : Node count per chunk - 0 means disabled
+  ChunkMs  : Time limit per chunk in milliseconds - 0 means disabled
+  PTTrav   : PathTree Traversal enabled - Y/N optimizes skip logic
+  Time(s)  : Total indexing time in seconds
+  Throughput: Nodes indexed per second
+  Verified : Number of documents successfully indexed and searchable
+  Runs     : Number of indexing cycles - 1 for NORMAL, multiple for RESUME
+
+Store    | Nodes    | Mode     | Chunk    | ChunkMs  | PTTrav |   Time(s) | Throughput |   Verified | Runs 
+---------|----------|----------|----------|----------|--------|-----------|------------|------------|-------
+--------------------------------------------------------------------------------
+Running: Store=SEGMENT, Nodes=100000, Mode=NORMAL
+         ChunkSize=0 nodes, ChunkTime=5000ms
+         Resume=false, PathTreeTraversal=false, SlimFormat=false
+--------------------------------------------------------------------------------

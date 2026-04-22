@@ -1,0 +1,417 @@
+JUnit version 4.13.1
+.
+========================================
+RESUMABLE INDEXING PERFORMANCE TEST
+========================================
+NodeStore:   DOCUMENT
+Node Count:  20000
+Batch Size:  100
+Chunk Size:  0 (nodes per run)
+========================================
+
+
+--- Phase 1: Initial Index Creation ---
+Running async indexer to complete initial index (reindex=true -> false)...
+[DEBUG-MODE] Indexing mode: RESUME, resumeEnabled=true, chunkSize=0, chunkTimeMs=30000, isInitialIndex=true, chunkedMode=false
+[DEBUG-PATHTREE-TRAVERSAL] Using standard EditorDiff mode
+[DEBUG-TIMING] RESUME Diff time: 109ms
+[DEBUG-SKIP] skipFull=0, skipIndexed=0, processed=302
+[DEBUG-PATHTREE-TRAVERSAL] pathTreeTraversals=0, segmentStoreTraversals=0, pathTreeChildLookups=0, segmentStoreChildLookups=0, skippedGetChildCalls=0
+[DEBUG-PATHTREE-TIMING] segmentStoreReadTime=0.00ms, pathTreeLookupTime=0.00ms, editorCallbackTime=0.00ms
+[DEBUG-PATHTREE-TIMING] SegmentStore I/O time: 0ms (this is the expensive part!)
+[DEBUG-MODE] Indexing complete, mode: RESUME
+[DEBUG-TIMING] RESUME Lucene flush time: 1ms
+[DEBUG-TIMING] RESUME NodeStore merge time: 12ms
+[DEBUG-TIMING] RESUME COMMIT SUMMARY: flush=1ms, merge=12ms, TOTAL=13ms
+  Run #1: reindex=false, exists=true, checkpoint=r19b412803db-0-1
+  Initial index complete after 1 run(s)
+  Checkpoint after initial index: r19b412803db-0-1
+
+--- Phase 2: Creating Content ---
+Creating 20000 nodes with 1000 approved nodes (every 20th node for even distribution)
+  Created 1000/20000 assets (50 approved so far)
+  Created 2000/20000 assets (100 approved so far)
+  Created 3000/20000 assets (150 approved so far)
+  Created 4000/20000 assets (200 approved so far)
+  Created 5000/20000 assets (250 approved so far)
+  Created 6000/20000 assets (300 approved so far)
+  Created 7000/20000 assets (350 approved so far)
+  Created 8000/20000 assets (400 approved so far)
+  Created 9000/20000 assets (450 approved so far)
+  Created 10000/20000 assets (500 approved so far)
+  Created 11000/20000 assets (550 approved so far)
+  Created 12000/20000 assets (600 approved so far)
+  Created 13000/20000 assets (650 approved so far)
+  Created 14000/20000 assets (700 approved so far)
+  Created 15000/20000 assets (750 approved so far)
+  Created 16000/20000 assets (800 approved so far)
+  Created 17000/20000 assets (850 approved so far)
+  Created 18000/20000 assets (900 approved so far)
+  Created 19000/20000 assets (950 approved so far)
+  Created 20000/20000 assets (1000 approved so far)
+Created 20000 dam:Asset nodes (1000 with status=approved, spread evenly)
+Content creation: 30015 ms (666.3 nodes/sec)
+
+--- Phase 3: Indexing New Content ---
+oak.async.chunkSize: 0
+
+*** RESUMABLE INDEXING MODE ***
+Each run() processes one chunk, saves progress, and completes
+Next run() resumes from saved position
+Index becomes searchable after each run() completes
+
+[DEBUG-MODE] Indexing mode: RESUME, resumeEnabled=true, chunkSize=0, chunkTimeMs=30000, isInitialIndex=false, chunkedMode=true
+[DEBUG-CHUNK] Chunk mode enabled - updateLimit=0, timeLimit=30000
+[DEBUG-PATHTREE-TRAVERSAL] Using standard EditorDiff mode
+ERROR StatusLogger Log4j2 could not find a logging implementation. Please add log4j-core to the classpath. Using SimpleLogger to log to the console...
+[DEBUG-INDEX] Fully processed 1000 nodes, current path: /content/dam/asset-10295
+[DEBUG-INDEX] Fully processed 2000 nodes, current path: /content/dam/asset-10596/jcr:content/metadata
+[DEBUG-INDEX] Fully processed 3000 nodes, current path: /content/dam/asset-10896/jcr:content
+[DEBUG-INDEX] Fully processed 4000 nodes, current path: /content/dam/asset-11195
+[DEBUG-INDEX] Fully processed 5000 nodes, current path: /content/dam/asset-11496/jcr:content/metadata
+[DEBUG-INDEX] Fully processed 6000 nodes, current path: /content/dam/asset-11796/jcr:content
+[DEBUG-INDEX] Fully processed 7000 nodes, current path: /content/dam/asset-12095
+[DEBUG-INDEX] Fully processed 8000 nodes, current path: /content/dam/asset-12396/jcr:content/metadata
+[DEBUG-INDEX] Fully processed 9000 nodes, current path: /content/dam/asset-12696/jcr:content
+[DEBUG-INDEX] Fully processed 10000 nodes, current path: /content/dam/asset-12996
+[DEBUG-INDEX] Fully processed 11000 nodes, current path: /content/dam/asset-13296/jcr:content/metadata
+[DEBUG-INDEX] Fully processed 12000 nodes, current path: /content/dam/asset-13596/jcr:content
+[DEBUG-INDEX] Fully processed 13000 nodes, current path: /content/dam/asset-13896
+[DEBUG-INDEX] Fully processed 14000 nodes, current path: /content/dam/asset-14196/jcr:content/metadata
+[DEBUG-INDEX] Fully processed 15000 nodes, current path: /content/dam/asset-14496/jcr:content
+[DEBUG-INDEX] Fully processed 16000 nodes, current path: /content/dam/asset-14796
+[DEBUG-INDEX] Fully processed 17000 nodes, current path: /content/dam/asset-15096/jcr:content/metadata
+[DEBUG-INDEX] Fully processed 18000 nodes, current path: /content/dam/asset-15396/jcr:content
+[DEBUG-INDEX] Fully processed 19000 nodes, current path: /content/dam/asset-15696
+[DEBUG-INDEX] Fully processed 20000 nodes, current path: /content/dam/asset-15997/jcr:content/metadata
+[DEBUG-INDEX] Fully processed 21000 nodes, current path: /content/dam/asset-16296/jcr:content
+[DEBUG-INDEX] Fully processed 22000 nodes, current path: /content/dam/asset-16596
+[DEBUG-CHUNK] TIME limit reached: 30000ms at /content/dam/asset-16665
+[DEBUG-TIMING] RESUME Diff time: 30000ms
+[DEBUG-SKIP] skipFull=0, skipIndexed=0, processed=22232
+[DEBUG-PATHTREE-TRAVERSAL] pathTreeTraversals=0, segmentStoreTraversals=0, pathTreeChildLookups=0, segmentStoreChildLookups=0, skippedGetChildCalls=0
+[DEBUG-PATHTREE-TIMING] segmentStoreReadTime=0.00ms, pathTreeLookupTime=0.00ms, editorCallbackTime=0.00ms
+[DEBUG-PATHTREE-TIMING] SegmentStore I/O time: 0ms (this is the expensive part!)
+[DEBUG-TIMING] Lucene flush time: 165ms
+[DEBUG-TIMING] NodeStore merge time: 12ms
+[DEBUG-PATHTREE-FRONTIER] Serialized 7411 paths (frontier=7409, inProgress=2) vs 22230 total nodes (savings: 67%)
+[DEBUG-PATHTREE] Serialize time: 5ms (format: SLIM), total: 22230, fullyProcessed: 22228, unprocessed: 2
+[DEBUG-PATHTREE-SIZE] Full: ~1111500 bytes, SLIM: ~160 bytes (potential savings: 100%)
+[DEBUG-PATHTREE] Saved PathTree to pathtree_chunk_1766324761005.json (total=22230, unprocessed=2)
+[DEBUG-TIMING] Resume state save time: 38ms
+[DEBUG-TIMING] CHUNK COMMIT SUMMARY: flush=165ms, merge=12ms, saveState=38ms, TOTAL=215ms
+  Cycle #1 completed in 30588 ms (traversal: 30006 ms, nodes: 22232)
+    checkpoint=r19b412803db-0-1, hasData=true, dataFiles=5
+    → Resume state detected: /content/dam/asset-16665
+    → Chunk limit reached - run completed and saved progress
+    → Next run will resume from this position
+    → Testing searchability after run completion...
+CHUNK_RESULT: cycle=1, results=373, time=78, nodes=22232, traversed=22232, skipped=0, path=/content/dam/asset-16665
+CHUNK_METRICS: cycle=1, nodes=22232, heap=420MB, nonHeap=93MB, gc=37, gcTime=461ms, cpu=47942ms, segStore=0MB
+[DEBUG-MODE] Indexing mode: RESUME, resumeEnabled=true, chunkSize=0, chunkTimeMs=30000, isInitialIndex=false, chunkedMode=true
+[DEBUG-CHUNK] Chunk mode enabled - updateLimit=0, timeLimit=30000
+[DEBUG-PATHTREE-FRONTIER] Loaded 7411 paths (frontier=7409, inProgress=2)
+[DEBUG-PATHTREE] Load time: 7ms, format: SLIM, nodes: 29641, indexed: 22228, fullyProcessed: 7409, unprocessed: 2, estimated size: 160 bytes
+[DEBUG-RESUME] Starting resume from path: /content/dam/asset-16665, PathTree has 22228 indexed nodes
+[DEBUG-PATHTREE-TRAVERSAL] Using PathTree traversal mode
+[DEBUG-PATHTREE-TRAVERSAL] PathTree stats: TraversalStats{total=7411, fullyProcessed=7409, notFullyProcessed=2, enterOnly=2}
+[DEBUG-INDEX] Fully processed 8000 nodes, current path: /content/dam/asset-16841
+[DEBUG-INDEX] Fully processed 9000 nodes, current path: /content/dam/asset-17141/jcr:content/metadata
+[DEBUG-INDEX] Fully processed 10000 nodes, current path: /content/dam/asset-17441/jcr:content
+[DEBUG-INDEX] Fully processed 11000 nodes, current path: /content/dam/asset-17741
+[DEBUG-INDEX] Fully processed 12000 nodes, current path: /content/dam/asset-18041/jcr:content/metadata
+[DEBUG-INDEX] Fully processed 13000 nodes, current path: /content/dam/asset-18341/jcr:content
+[DEBUG-INDEX] Fully processed 14000 nodes, current path: /content/dam/asset-18641
+[DEBUG-INDEX] Fully processed 15000 nodes, current path: /content/dam/asset-18942/jcr:content/metadata
+[DEBUG-INDEX] Fully processed 16000 nodes, current path: /content/dam/asset-19241/jcr:content
+[DEBUG-INDEX] Fully processed 17000 nodes, current path: /content/dam/asset-19541
+[DEBUG-INDEX] Fully processed 18000 nodes, current path: /content/dam/asset-19842/jcr:content/metadata
+[DEBUG-INDEX] Fully processed 19000 nodes, current path: /content/dam/asset-2141/jcr:content
+[DEBUG-INDEX] Fully processed 20000 nodes, current path: /content/dam/asset-2441
+[DEBUG-INDEX] Fully processed 21000 nodes, current path: /content/dam/asset-2742/jcr:content/metadata
+[DEBUG-INDEX] Fully processed 22000 nodes, current path: /content/dam/asset-3041/jcr:content
+[DEBUG-INDEX] Fully processed 23000 nodes, current path: /content/dam/asset-3341
+[DEBUG-INDEX] Fully processed 24000 nodes, current path: /content/dam/asset-3642/jcr:content/metadata
+[DEBUG-INDEX] Fully processed 25000 nodes, current path: /content/dam/asset-3942/jcr:content
+[DEBUG-CHUNK] TIME limit reached: 30000ms at /content/dam/asset-4189/jcr:content/metadata
+[DEBUG-TIMING] RESUME Diff time: 29990ms
+[DEBUG-SKIP] skipFull=0, skipIndexed=2, processed=18417
+[DEBUG-PATHTREE-TRAVERSAL] pathTreeTraversals=7408, segmentStoreTraversals=18417, pathTreeChildLookups=0, segmentStoreChildLookups=18416, skippedGetChildCalls=14816
+[DEBUG-PATHTREE-TIMING] segmentStoreReadTime=10.99ms, pathTreeLookupTime=48.12ms, editorCallbackTime=19804.86ms
+[DEBUG-PATHTREE-TIMING] SegmentStore I/O time: 10ms (this is the expensive part!)
+[DEBUG-RESUME] Total diff time: 29990ms, time to resume path: 0ms, indexing time after resume: 29990ms
+[DEBUG-TIMING] Lucene flush time: 74ms
+[DEBUG-TIMING] NodeStore merge time: 12ms
+[DEBUG-PATHTREE-FRONTIER] Serialized 13550 paths (frontier=13546, inProgress=4) vs 48054 total nodes (savings: 72%)
+[DEBUG-PATHTREE] Serialize time: 10ms (format: SLIM), total: 48054, fullyProcessed: 25820, unprocessed: 4
+[DEBUG-PATHTREE-SIZE] Full: ~2402700 bytes, SLIM: ~320 bytes (potential savings: 100%)
+[DEBUG-PATHTREE] Saved PathTree to pathtree_chunk_1766324791783.json (total=48054, unprocessed=4)
+[DEBUG-TIMING] Resume state save time: 34ms
+[DEBUG-TIMING] CHUNK COMMIT SUMMARY: flush=74ms, merge=12ms, saveState=34ms, TOTAL=120ms
+  Cycle #2 completed in 30442 ms (traversal: 30003 ms, nodes: 18417)
+    checkpoint=r19b412803db-0-1, hasData=true, dataFiles=8
+    → Resume state detected: /content/dam/asset-4189/jcr:content/metadata
+    → Chunk limit reached - run completed and saved progress
+    → Next run will resume from this position
+    → Testing searchability after run completion...
+CHUNK_RESULT: cycle=2, results=679, time=11, nodes=18417, traversed=18417, skipped=0, path=/content/dam/asset-4189/jcr:content/metadata
+CHUNK_METRICS: cycle=2, nodes=18417, heap=868MB, nonHeap=93MB, gc=67, gcTime=842ms, cpu=71351ms, segStore=0MB
+[DEBUG-MODE] Indexing mode: RESUME, resumeEnabled=true, chunkSize=0, chunkTimeMs=30000, isInitialIndex=false, chunkedMode=true
+[DEBUG-CHUNK] Chunk mode enabled - updateLimit=0, timeLimit=30000
+[DEBUG-PATHTREE-FRONTIER] Loaded 13550 paths (frontier=13546, inProgress=4)
+[DEBUG-PATHTREE] Load time: 6ms, format: SLIM, nodes: 61604, indexed: 40639, fullyProcessed: 13546, unprocessed: 4, estimated size: 320 bytes
+[DEBUG-RESUME] Starting resume from path: /content/dam/asset-4189/jcr:content/metadata, PathTree has 40639 indexed nodes
+[DEBUG-PATHTREE-TRAVERSAL] Using PathTree traversal mode
+[DEBUG-PATHTREE-TRAVERSAL] PathTree stats: TraversalStats{total=13550, fullyProcessed=13546, notFullyProcessed=4, enterOnly=4}
+[DEBUG-INDEX] Fully processed 14000 nodes, current path: /content/dam/asset-4324/jcr:content/metadata
+[DEBUG-INDEX] Fully processed 15000 nodes, current path: /content/dam/asset-4624/jcr:content
+[DEBUG-INDEX] Fully processed 16000 nodes, current path: /content/dam/asset-4924
+[DEBUG-INDEX] Fully processed 17000 nodes, current path: /content/dam/asset-5224/jcr:content/metadata
+[DEBUG-INDEX] Fully processed 18000 nodes, current path: /content/dam/asset-5524/jcr:content
+[DEBUG-INDEX] Fully processed 19000 nodes, current path: /content/dam/asset-5824
+[DEBUG-INDEX] Fully processed 20000 nodes, current path: /content/dam/asset-6124/jcr:content/metadata
+[DEBUG-INDEX] Fully processed 21000 nodes, current path: /content/dam/asset-6424/jcr:content
+[DEBUG-INDEX] Fully processed 22000 nodes, current path: /content/dam/asset-6724
+[DEBUG-INDEX] Fully processed 23000 nodes, current path: /content/dam/asset-7024/jcr:content/metadata
+[DEBUG-INDEX] Fully processed 24000 nodes, current path: /content/dam/asset-7324/jcr:content
+[DEBUG-INDEX] Fully processed 25000 nodes, current path: /content/dam/asset-7624
+[DEBUG-INDEX] Fully processed 26000 nodes, current path: /content/dam/asset-7925/jcr:content/metadata
+[DEBUG-INDEX] Fully processed 27000 nodes, current path: /content/dam/asset-8224/jcr:content
+[DEBUG-INDEX] Fully processed 28000 nodes, current path: /content/dam/asset-8524
+[DEBUG-INDEX] Fully processed 29000 nodes, current path: /content/dam/asset-8825/jcr:content/metadata
+[DEBUG-CHUNK] TIME limit reached: 30003ms at /content/dam/asset-8997
+[DEBUG-TIMING] RESUME Diff time: 29996ms
+[DEBUG-SKIP] skipFull=0, skipIndexed=4, processed=16027
+[DEBUG-PATHTREE-TRAVERSAL] pathTreeTraversals=13545, segmentStoreTraversals=16027, pathTreeChildLookups=0, segmentStoreChildLookups=16026, skippedGetChildCalls=27090
+[DEBUG-PATHTREE-TIMING] segmentStoreReadTime=13.72ms, pathTreeLookupTime=51.56ms, editorCallbackTime=20002.88ms
+[DEBUG-PATHTREE-TIMING] SegmentStore I/O time: 13ms (this is the expensive part!)
+[DEBUG-RESUME] Total diff time: 29996ms, time to resume path: 0ms, indexing time after resume: 29996ms
+[DEBUG-TIMING] Lucene flush time: 60ms
+[DEBUG-TIMING] NodeStore merge time: 10ms
+[DEBUG-PATHTREE-FRONTIER] Serialized 18889 paths (frontier=18887, inProgress=2) vs 77625 total nodes (savings: 76%)
+[DEBUG-PATHTREE] Serialize time: 12ms (format: SLIM), total: 77625, fullyProcessed: 29569, unprocessed: 2
+[DEBUG-PATHTREE-SIZE] Full: ~3881250 bytes, SLIM: ~160 bytes (potential savings: 100%)
+[DEBUG-PATHTREE] Saved PathTree to pathtree_chunk_1766324822462.json (total=77625, unprocessed=2)
+[DEBUG-TIMING] Resume state save time: 35ms
+[DEBUG-TIMING] CHUNK COMMIT SUMMARY: flush=60ms, merge=10ms, saveState=35ms, TOTAL=105ms
+  Cycle #3 completed in 30454 ms (traversal: 30005 ms, nodes: 16027)
+    checkpoint=r19b412803db-0-1, hasData=true, dataFiles=11
+    → Resume state detected: /content/dam/asset-8997
+    → Chunk limit reached - run completed and saved progress
+    → Next run will resume from this position
+    → Testing searchability after run completion...
+CHUNK_RESULT: cycle=3, results=945, time=16, nodes=16027, traversed=16027, skipped=0, path=/content/dam/asset-8997
+CHUNK_METRICS: cycle=3, nodes=16027, heap=393MB, nonHeap=93MB, gc=105, gcTime=1211ms, cpu=94073ms, segStore=0MB
+[DEBUG-MODE] Indexing mode: RESUME, resumeEnabled=true, chunkSize=0, chunkTimeMs=30000, isInitialIndex=false, chunkedMode=true
+[DEBUG-CHUNK] Chunk mode enabled - updateLimit=0, timeLimit=30000
+[DEBUG-PATHTREE-FRONTIER] Loaded 18889 paths (frontier=18887, inProgress=2)
+[DEBUG-PATHTREE] Load time: 10ms, format: SLIM, nodes: 96514, indexed: 56662, fullyProcessed: 18887, unprocessed: 2, estimated size: 160 bytes
+[DEBUG-RESUME] Starting resume from path: /content/dam/asset-8997, PathTree has 56662 indexed nodes
+[DEBUG-PATHTREE-TRAVERSAL] Using PathTree traversal mode
+[DEBUG-PATHTREE-TRAVERSAL] PathTree stats: TraversalStats{total=18889, fullyProcessed=18887, notFullyProcessed=2, enterOnly=2}
+[DEBUG-INDEX] Fully processed 19000 nodes, current path: /content/dam/asset-9029/jcr:content
+[DEBUG-INDEX] Fully processed 20000 nodes, current path: /content/dam/asset-9329
+[DEBUG-INDEX] Fully processed 21000 nodes, current path: /content/dam/asset-963/jcr:content/metadata
+[DEBUG-INDEX] Fully processed 22000 nodes, current path: /content/dam/asset-993/jcr:content
+[DEBUG-TIMING] RESUME Diff time: 4884ms
+[DEBUG-SKIP] skipFull=0, skipIndexed=2, processed=3630
+[DEBUG-PATHTREE-TRAVERSAL] pathTreeTraversals=18887, segmentStoreTraversals=3630, pathTreeChildLookups=0, segmentStoreChildLookups=3630, skippedGetChildCalls=37774
+[DEBUG-PATHTREE-TIMING] segmentStoreReadTime=1.42ms, pathTreeLookupTime=11.98ms, editorCallbackTime=3447.23ms
+[DEBUG-PATHTREE-TIMING] SegmentStore I/O time: 1ms (this is the expensive part!)
+[DEBUG-RESUME] Total diff time: 4884ms, time to resume path: 0ms, indexing time after resume: 4884ms
+[DEBUG-MODE] Indexing complete, mode: RESUME
+[DEBUG-TIMING] RESUME Lucene flush time: 0ms
+[DEBUG-TIMING] RESUME NodeStore merge time: 11ms
+[DEBUG-TIMING] RESUME COMMIT SUMMARY: flush=0ms, merge=11ms, TOTAL=11ms
+  Cycle #4 completed in 5203 ms (traversal: 4896 ms, nodes: 3630)
+    checkpoint=r19b41287bba-0-1, hasData=true, dataFiles=14
+  → No resume state - indexing complete!
+
+
+Indexing complete:
+  Total time: 97463 ms
+  Total cycles: 4
+
+  Per-Cycle Timing Breakdown:
+    Cycle | Total(ms) |  Trav(ms) |    OH(ms) | Resume(ms) | ResOH(ms) | Path                                    
+    ------|-----------|-----------|-----------|-----------|-----------|------------------------------------------
+    1     |     30588 |     30006 |       582 |          - |     30000 | /content/dam/asset-16665                
+    2     |     30442 |     30003 |       439 |          - |     29990 | /content/dam/asset-4189/jcr:content/m...
+    3     |     30454 |     30005 |       449 |          - |     29996 | /content/dam/asset-8997                 
+    4     |      5203 |      4896 |       307 |          - |      4884 | N/A                                     
+    ------|-----------|-----------|-----------|-----------|-----------|------------------------------------------
+    TOTAL |     96687 |     94910 |      1777 |         0 |      1.8% | Overhead %
+
+  Timing Breakdown Explanation:
+    Total(ms)    - Wall clock time for each run
+    Trav(ms)     - Diff traversal time (tree walk + ALL editors including ResumingEditor)
+    OH(ms)       - Overhead beyond traversal (checkpointing, index writes, etc.)
+    Resume(ms)   - Time ResumingEditor took to REACH resume point (0 if not resuming)
+    ResOH(ms)    - ResumingEditor overhead after reaching target (0 if not resuming)
+    Path         - Resume path or progress commit path
+
+  ===========================================
+  DETAILED METRICS ANALYSIS
+  ===========================================
+
+  GC Analysis:
+    Total GC Time: 1160 ms
+    Total GC Count: 108 collections
+    GC Overhead: 1.19% of total time
+    Average GC Pause: 10.7 ms
+
+  Memory Analysis:
+    Memory Delta: 1242 MB (peak - start)
+    Start Heap: 91 MB
+    Peak Heap: 1333 MB
+    End Heap: 846 MB
+    Memory Efficiency: 65119.3 bytes/node
+    Max Heap Available: 1024 MB
+
+  Memory Pools:
+    G1 Eden Space       :   358 MB /     0 MB
+    G1 Old Gen          :   481 MB /  1024 MB
+    G1 Survivor Space   :     5 MB /     0 MB
+
+  CPU Analysis:
+    Total CPU Time: 75.98 s
+    CPU Utilization: 78.0% of wall time
+    CPU Efficiency: 263 nodes/cpu-second
+    Peak Threads: 19
+
+  Disk Analysis:
+    SegmentStore Size: 0 MB
+    Lucene Index Size: 0 MB
+    Total Disk Usage: 0 MB
+
+  Per-Chunk Metrics Summary:
+    Heap Growth: 420 MB → 393 MB
+    SegmentStore Growth: 0 MB → 0 MB
+    Average GC per chunk: 69.7 collections
+
+  DEBUG Index State:
+    Exists: true
+    Has :data: true
+    async: async
+    reindex: false
+    reindexCount: 1
+    Content/dam children: 9223372036854775807
+    :async exists: true
+    :async checkpoint: r19b41287bba-0-1
+
+--- Phase 4: Verification ---
+  Index has :data: true
+  Running query verification (with traversal fail)...
+    Actual count from index: 1000
+    Query result count (capped at 1000): 1000
+
+--- Data Completeness Verification ---
+  Using keyset pagination with CONTAINS queries to count indexed nodes...
+  Note: CONTAINS queries use fulltext index and avoid traversal limits
+
+  [1/3] Counting approved nodes...
+  Using keyset pagination (10K page size) to count all nodes...
+  Pagination complete: 1000 total nodes found
+
+  [2/3] Counting draft nodes...
+  Using keyset pagination (10K page size) to count all nodes...
+    Page complete: 10000 nodes so far, continuing from /content/dam/asset-19472...
+  Pagination complete: 19000 total nodes found
+
+  [3/3] Verifying arithmetic...
+
+✅ Data Completeness Verification PASSED:
+  ✓ All 20000 nodes were indexed (verified via approved + draft counts)
+  ✓ Approved nodes: 1000 (expected: 1000)
+  ✓ Draft nodes: 19000 (expected: 19000)
+  ✓ Total indexed: 20000 nodes
+  ✓ Arithmetic check: 1000 + 19000 = 20000
+  ✓ Index is complete and searchable
+  ✓ Used CONTAINS queries to ensure fulltext index usage (avoids traversal limits)
+
+--- Performance Results ---
+Total Time: 97463 ms
+Content Creation: 30015 ms
+Throughput: 205.21 nodes/sec
+Memory Delta: 772546 KB
+Max Heap Used: 1668 MB
+Max Non-Heap Used: 98 MB
+Peak Threads: 19
+Process CPU Time: 75982656000 ms
+Direct Buffer Memory: 8 KB
+Disk Usage: 0 KB
+Main Index Size: 0 KB
+GC Count: 108
+GC Time: 1160 ms
+Run Count: 4
+Diff Time: 4896 ms
+Query Time: 35 ms
+Node Count: 20000
+Query Approved (index): 1000
+
+=== PER-RUN TIMING (machine-parseable) ===
+Run 1 Time: 30588
+Run 1 Traversal: 30006
+Run 1 Resume Path: /content/dam/asset-16665
+Run 2 Time: 30442
+Run 2 Traversal: 30003
+Run 2 Resume Path: /content/dam/asset-4189/jcr:content/metadata
+Run 3 Time: 30454
+Run 3 Traversal: 30005
+Run 3 Resume Path: /content/dam/asset-8997
+Run 4 Time: 5203
+Run 4 Traversal: 4896
+
+=== INCREMENTAL SEARCHABILITY (machine-parseable) ===
+Chunk 1 Query Results: 373
+Chunk 1 Query Time: 78
+Chunk 2 Query Results: 679
+Chunk 2 Query Time: 11
+Chunk 3 Query Results: 945
+Chunk 3 Query Time: 16
+
+
+--- Script Parseable Output ---
+Total Time: 97463 ms
+Throughput: 205.2
+Memory Delta: 772546 KB
+Max Heap Used: 1668 MB
+Max Non-Heap Used: 98 MB
+Peak Threads: 19
+Process CPU Time: 75982656000 ms
+Direct Buffer Memory: 8 KB
+Disk Usage: 0 KB
+GC Count: 108
+GC Time: 1160 ms
+Run Count: 4
+Diff Time: 4896 ms
+Main Index Size: 0 KB
+Query Time: 35 ms
+Query Approved: 1000
+
+--- Per-Run Timing Details ---
+Run 1 Time: 30588 ms
+Run 2 Time: 30442 ms
+Run 3 Time: 30454 ms
+Run 4 Time: 5203 ms
+Run 1 Traversal: 30006 ms
+Run 2 Traversal: 30003 ms
+Run 3 Traversal: 30005 ms
+Run 4 Traversal: 4896 ms
+Run 1 Resume Path: /content/dam/asset-16665
+Run 2 Resume Path: /content/dam/asset-4189/jcr:content/metadata
+Run 3 Resume Path: /content/dam/asset-8997
+
+--- Incremental Searchability Verification ---
+INCREMENTAL_SUMMARY: maxResults=945, totalChunks=3, chunksWithResults=3
+Chunk 1: 373 results (37.3% of total) in 78 ms
+Chunk 2: 679 results (67.9% of total) in 11 ms
+Chunk 3: 945 results (94.5% of total) in 16 ms
+
+Max results seen in incremental queries: 945
+✓ SUCCESS: Index showed incremental searchability!
+
+Time: 133.609
+
+OK (1 test)
+

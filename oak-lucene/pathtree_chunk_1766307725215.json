@@ -1,0 +1,10 @@
+{
+  "totalNodes": 60608,
+  "indexedNodes": 60606,
+  "fullyProcessedCount": 60606,
+  "notFullyProcessedCount": 2,
+  "unprocessedPaths": [
+    "/content",
+    "/content/dam"
+  ]
+}
