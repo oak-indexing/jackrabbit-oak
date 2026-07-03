@@ -49,6 +49,8 @@ import org.apache.jackrabbit.oak.commons.collections.SetUtils;
 import org.apache.jackrabbit.oak.plugins.index.IndexCommitCallback.IndexProgress;
 import org.apache.jackrabbit.oak.plugins.index.NodeTraversalCallback.PathSource;
 import org.apache.jackrabbit.oak.plugins.index.progress.IndexingProgressReporter;
+import org.apache.jackrabbit.oak.plugins.index.resume.PathTree;
+import org.apache.jackrabbit.oak.plugins.index.resume.ResumeContext;
 import org.apache.jackrabbit.oak.plugins.index.progress.NodeCountEstimator;
 import org.apache.jackrabbit.oak.plugins.index.progress.TraversalRateEstimator;
 import org.apache.jackrabbit.oak.plugins.index.upgrade.IndexDisabler;
@@ -130,6 +132,25 @@ public class IndexUpdate implements Editor, PathSource {
      * Editors for indexes that need to be re-indexed.
      */
     private final Map<String, Editor> reindex = new HashMap<>();
+    
+    // ============================================================
+    // Skip Mode Support - enables O(depth) resume instead of O(n)
+    // ============================================================
+    
+    /** 
+     * Skip mode flag - when true, collectIndexEditors() is deferred.
+     * This dramatically speeds up resume by avoiding NodeStore reads.
+     */
+    private boolean skipMode = false;
+    
+    /** Deferred before state for lazy initialization */
+    private NodeState deferredBefore;
+    
+    /** Deferred after state for lazy initialization */
+    private NodeState deferredAfter;
+    
+    /** Whether this editor has been fully initialized */
+    private boolean fullyInitialized = false;
 
     public IndexUpdate(
             IndexEditorProvider provider, String async,
@@ -150,11 +171,38 @@ public class IndexUpdate implements Editor, PathSource {
             NodeState root, NodeBuilder builder,
             IndexUpdateCallback updateCallback, NodeTraversalCallback traversalCallback,
             CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler) {
+        this(provider, async, root, builder, updateCallback, traversalCallback, commitInfo, corruptIndexHandler, null);
+    }
+    
+    /**
+     * Constructor with ResumeContext for resumable indexing.
+     * 
+     * @param provider the index editor provider
+     * @param async async lane name
+     * @param root the root node state
+     * @param builder the node builder
+     * @param updateCallback callback for index updates
+     * @param traversalCallback callback for node traversal
+     * @param commitInfo commit info
+     * @param corruptIndexHandler handler for corrupt indexes
+     * @param resumeContext context for resumable indexing (can be null)
+     */
+    public IndexUpdate(
+            IndexEditorProvider provider, String async,
+            NodeState root, NodeBuilder builder,
+            IndexUpdateCallback updateCallback, NodeTraversalCallback traversalCallback,
+            CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler,
+            @Nullable ResumeContext resumeContext) {
         this.parent = null;
         this.name = null;
         this.path = "/";
-        this.rootState = new IndexUpdateRootState(provider, async, root, builder, updateCallback, traversalCallback, commitInfo, corruptIndexHandler);
+        this.rootState = new IndexUpdateRootState(provider, async, root, builder, updateCallback, traversalCallback, commitInfo, corruptIndexHandler, resumeContext);
         this.builder = requireNonNull(builder);
+        
+        // If we have a resume context and it's in skip mode, start in skip mode
+        if (resumeContext != null && resumeContext.isInSkipMode()) {
+            this.skipMode = true;
+        }
     }
 
     private IndexUpdate(IndexUpdate parent, String name) {
@@ -162,12 +210,114 @@ public class IndexUpdate implements Editor, PathSource {
         this.name = name;
         this.rootState = parent.rootState;
         this.builder = parent.builder.getChildNode(requireNonNull(name));
+        // Inherit skip mode from parent
+        this.skipMode = parent.skipMode;
     }
 
+    // Static counters for tracking skip statistics
+    private static final java.util.concurrent.atomic.AtomicInteger skipFullCount = new java.util.concurrent.atomic.AtomicInteger(0);
+    private static final java.util.concurrent.atomic.AtomicInteger skipIndexedCount = new java.util.concurrent.atomic.AtomicInteger(0);
+    private static final java.util.concurrent.atomic.AtomicInteger processedCount = new java.util.concurrent.atomic.AtomicInteger(0);
+    
+    public static void resetSkipCounters() {
+        skipFullCount.set(0);
+        skipIndexedCount.set(0);
+        processedCount.set(0);
+    }
+    
+    public static String getSkipStats() {
+        return "skipFull=" + skipFullCount.get() + ", skipIndexed=" + skipIndexedCount.get() + 
+               ", processed=" + processedCount.get();
+    }
+    
     @Override
     public void enter(NodeState before, NodeState after)
             throws CommitFailedException {
+        // OPTIMIZATION: Check if this node is FULLY PROCESSED (both enter and leave completed)
+        // If so, we can skip the expensive nodeRead() call entirely, avoiding NodeStore access
+        ResumeContext ctx = rootState.getResumeContext();
+        if (ctx != null) {
+            String currentPath = getPath();
+            
+            // IMPORTANT: Only skip nodes that are FULLY PROCESSED (leaveCompleted=true)
+            // This ensures:
+            // 1. Properties were processed (they happen after enter, before leave)
+            // 2. All child nodes were traversed
+            // 3. The Lucene document was actually created
+            //
+            // We do NOT skip on just isIndexed() anymore because:
+            // - enterCompleted alone doesn't guarantee properties were processed
+            // - Nodes interrupted mid-processing need to be re-processed
+            
+            if (ctx.getPathTree().isFullyProcessed(currentPath)) {
+                // Node fully processed in previous run - skip completely
+                skipFullCount.incrementAndGet();
+                log.trace("[SKIP-FULL] Path {} fully processed (enter+leave), skipping entirely", currentPath);
+                this.skipMode = true;
+                return;
+            }
+            
+            // Check if only enterCompleted (enter done but leave never called - interrupted?)
+            // These nodes need to be re-processed because their properties may not have been indexed
+            if (ctx.getPathTree().isEnterCompleted(currentPath)) {
+                // Enter was called but leave wasn't - this node was interrupted mid-processing
+                // We still need to process it, but log for debugging
+                skipIndexedCount.incrementAndGet();
+                log.trace("[RE-PROCESS] Path {} has enterCompleted but not leaveCompleted, re-processing", currentPath);
+                // DON'T set skipMode - let this node be fully processed
+            }
+        }
+        
+        // Node is NOT processed - call nodeRead() for counting/traversal tracking
+        processedCount.incrementAndGet();
         rootState.nodeRead(this);
+        
+        // Node is NOT indexed - reset skipMode (might have been inherited from parent)
+        // This is critical: even if parent was skipped, this node needs to be processed
+        this.skipMode = false;
+        
+        // Full initialization - needed for editors to be set up
+        performFullInitialization(before, after);
+        
+        // Mark enter completed in PathTree
+        // NOTE: We do NOT mark as indexed here anymore because:
+        // 1. "indexed" should mean properties have been processed
+        // 2. Properties are processed AFTER enter() by EditorDiff
+        // 3. Marking as indexed here caused nodes to be skipped before their properties were indexed
+        // 4. The node will be marked as indexed in leave() via markLeaveCompleted()
+        if (ctx != null) {
+            PathTree pathTree = ctx.getPathTree();
+            pathTree.markEnterCompleted(getPath());
+        }
+    }
+    
+    /**
+     * Get the ResumeContext from the root state.
+     * 
+     * @return the resume context, or null if not set
+     */
+    @Nullable
+    public ResumeContext getResumeContext() {
+        return rootState.getResumeContext();
+    }
+    
+    /**
+     * Check if this editor is in skip mode.
+     */
+    public boolean isInSkipMode() {
+        return skipMode || rootState.isInSkipMode();
+    }
+    
+    /**
+     * Perform full initialization including collectIndexEditors.
+     * Called either directly from enter() or deferred from activateFromSkipMode().
+     */
+    private void performFullInitialization(NodeState before, NodeState after) 
+            throws CommitFailedException {
+        if (fullyInitialized) {
+            return; // Already initialized
+        }
+        
         collectIndexEditors(builder.getChildNode(INDEX_DEFINITIONS_NAME), before);
 
         if (!reindex.isEmpty()) {
@@ -189,10 +339,72 @@ public class IndexUpdate implements Editor, PathSource {
         for (Editor editor : editors) {
             editor.enter(before, after);
         }
+        
+        fullyInitialized = true;
+    }
+    
+    // ============================================================
+    // Skip Mode Control Methods
+    // ============================================================
+    
+    /**
+     * Enable skip mode for this editor and all children.
+     * When skip mode is enabled, enter() defers expensive initialization.
+     */
+    public void setSkipMode(boolean skipMode) {
+        this.skipMode = skipMode;
+        if (skipMode) {
+            log.debug("[SKIP] Skip mode enabled for path: {}", getPath());
+        }
+    }
+    
+    /**
+     * Check if this editor is in skip mode.
+     */
+    public boolean isSkipMode() {
+        return skipMode;
+    }
+    
+    /**
+     * Exit skip mode and perform deferred initialization.
+     * Call this when the resume point is reached.
+     */
+    public void activateFromSkipMode() throws CommitFailedException {
+        if (!skipMode) {
+            return; // Not in skip mode
+        }
+        
+        skipMode = false;
+        
+        if (!fullyInitialized && deferredBefore != null && deferredAfter != null) {
+            log.info("[SKIP] Activating from skip mode at path: {}", getPath());
+            performFullInitialization(deferredBefore, deferredAfter);
+            // Clear deferred state
+            deferredBefore = null;
+            deferredAfter = null;
+        }
     }
 
     public boolean isReindexingPerformed() {
         return !getReindexStats().isEmpty();
+    }
+    
+    /**
+     * Check if any reindexing is currently in progress.
+     * Used to disable chunk limits during reindex.
+     * Must check from root to find reindex state.
+     */
+    private boolean isReindexing() {
+        // Check at root level - that's where reindex map is populated
+        if (parent == null) {
+            return !reindex.isEmpty();
+        }
+        // Traverse up to root
+        IndexUpdate root = this;
+        while (root.parent != null) {
+            root = root.parent;
+        }
+        return !root.reindex.isEmpty();
     }
 
     public List<String> getReindexStats() {
@@ -279,6 +491,12 @@ public class IndexUpdate implements Editor, PathSource {
     }
 
     private void collectIndexEditors(NodeBuilder definitions, NodeState before) throws CommitFailedException {
+        // OPTIMIZATION: Check if definitions node exists - skip if not
+        // Most nodes (99%+) don't have :oak:index children
+        if (!definitions.exists()) {
+            return;  // No index definitions - nothing to collect
+        }
+
         for (String name : definitions.getChildNodeNames()) {
             NodeBuilder definition = definitions.getChildNode(name);
             if (isIncluded(rootState.async, definition)) {
@@ -449,12 +667,50 @@ public class IndexUpdate implements Editor, PathSource {
         return path;
     }
 
+    /**
+     * Returns the parent IndexUpdate, or null if this is the root.
+     * Used for capturing editor hierarchy for resume state.
+     */
+    public IndexUpdate getParent() {
+        return parent;
+    }
+
     @Override
     public void leave(NodeState before, NodeState after)
             throws CommitFailedException {
-        for (Editor editor : editors) {
-            editor.leave(before, after);
+        // CRITICAL: Always mark node as leave-completed in PathTree for proper resume tracking
+        // This must happen even in skipMode to ensure fullyProcessed state is accurate
+        ResumeContext ctx = rootState.getResumeContext();
+        
+        try {
+            // If this node was already indexed (skipMode), skip actual editor processing
+            if (skipMode) {
+                log.trace("[SKIP-LEAVE] Skipping leave at {} (already indexed/processed)", getPath());
+                return;
+            }
+            
+            for (Editor editor : editors) {
+                editor.leave(before, after);
+            }
+        } finally {
+            // Mark this node as FULLY PROCESSED in PathTree ALWAYS
+            // This must happen:
+            // 1. Even if skipMode=true (to mark already-indexed nodes as leave-completed)
+            // 2. Even if CHUNK_COMPLETE exception is thrown (for proper resume)
+            if (ctx != null) {
+                // Mark leave completed - this also marks as indexed
+                ctx.getPathTree().markLeaveCompleted(getPath());
+                
+                // Debug: log progress periodically
+                int fullyProcessed = ctx.getPathTree().getFullyProcessedCount();
+                if (fullyProcessed % 1000 == 0 && fullyProcessed > 0) {
+                    log.debug("[INDEX] Fully processed {} nodes, current path: {}", fullyProcessed, getPath());
+                }
+            }
         }
+        
+        // NOTE: Chunk limits are handled by AsyncUpdateCallback.traversedNode(), not here
+        // This keeps the IndexUpdate clean and lets AsyncIndexUpdate control chunking
 
         if (parent == null) {
             rootState.progressReporter.logReport();
@@ -465,6 +721,14 @@ public class IndexUpdate implements Editor, PathSource {
     public void propertyAdded(PropertyState after)
             throws CommitFailedException {
         rootState.propertyChanged(after.getName());
+        
+        // OPTIMIZATION: Skip property processing if this node was already indexed
+        // This prevents duplicate Lucene document creation during resume
+        if (skipMode) {
+            log.trace("[SKIP-PROP] Skipping propertyAdded at {} (already indexed)", getPath());
+            return;
+        }
+        
         for (Editor editor : editors) {
             editor.propertyAdded(after);
         }
@@ -474,6 +738,13 @@ public class IndexUpdate implements Editor, PathSource {
     public void propertyChanged(PropertyState before, PropertyState after)
             throws CommitFailedException {
         rootState.propertyChanged(before.getName());
+        
+        // OPTIMIZATION: Skip property processing if this node was already indexed
+        if (skipMode) {
+            log.trace("[SKIP-PROP] Skipping propertyChanged at {} (already indexed)", getPath());
+            return;
+        }
+        
         for (Editor editor : editors) {
             editor.propertyChanged(before, after);
         }
@@ -483,6 +754,13 @@ public class IndexUpdate implements Editor, PathSource {
     public void propertyDeleted(PropertyState before)
             throws CommitFailedException {
         rootState.propertyChanged(before.getName());
+        
+        // OPTIMIZATION: Skip property processing if this node was already indexed
+        if (skipMode) {
+            log.trace("[SKIP-PROP] Skipping propertyDeleted at {} (already indexed)", getPath());
+            return;
+        }
+        
         for (Editor editor : editors) {
             editor.propertyDeleted(before);
         }
@@ -625,11 +903,16 @@ public class IndexUpdate implements Editor, PathSource {
         private int changedNodeCount;
         private int changedPropertyCount;
         private MissingIndexProviderStrategy missingProvider = new MissingIndexProviderStrategy();
+        
+        /** ResumeContext for resumable indexing (can be null) */
+        @Nullable
+        final ResumeContext resumeContext;
 
         private IndexUpdateRootState(IndexEditorProvider provider, String async, NodeState root,
                                      NodeBuilder builder, IndexUpdateCallback updateCallback,
                                      NodeTraversalCallback traversalCallback,
-                                     CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler) {
+                                     CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler,
+                                     @Nullable ResumeContext resumeContext) {
             this.provider = requireNonNull(provider);
             this.async = async;
             this.root = requireNonNull(root);
@@ -637,6 +920,22 @@ public class IndexUpdate implements Editor, PathSource {
             this.corruptIndexHandler = corruptIndexHandler;
             this.indexDisabler = new IndexDisabler(builder);
             this.progressReporter = new IndexingProgressReporter(updateCallback, traversalCallback);
+            this.resumeContext = resumeContext;
+        }
+        
+        /**
+         * Check if we're in skip mode (traversing to resume point).
+         */
+        public boolean isInSkipMode() {
+            return resumeContext != null && resumeContext.isInSkipMode();
+        }
+        
+        /**
+         * Get the resume context.
+         */
+        @Nullable
+        public ResumeContext getResumeContext() {
+            return resumeContext;
         }
 
         public IndexUpdateCallback newCallback(String indexPath, boolean reindex, long estimatedCount) {

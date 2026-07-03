@@ -74,9 +74,15 @@ import org.apache.jackrabbit.oak.spi.commit.CommitHook;
 import org.apache.jackrabbit.oak.spi.commit.CommitInfo;
 import org.apache.jackrabbit.oak.spi.commit.CompositeEditorProvider;
 import org.apache.jackrabbit.oak.spi.commit.CompositeHook;
+import org.apache.jackrabbit.oak.spi.commit.Editor;
 import org.apache.jackrabbit.oak.spi.commit.EditorDiff;
 import org.apache.jackrabbit.oak.spi.commit.EditorHook;
+import org.apache.jackrabbit.oak.plugins.index.resume.PathTree;
+import org.apache.jackrabbit.oak.plugins.index.resume.PathTreeEditorDiff;
+import org.apache.jackrabbit.oak.plugins.index.resume.ResumeContext;
+import org.apache.jackrabbit.oak.plugins.index.resume.ResumableEditorDiff;
 import org.apache.jackrabbit.oak.spi.commit.EditorProvider;
+import org.apache.jackrabbit.oak.spi.commit.EmptyHook;
 import org.apache.jackrabbit.oak.spi.commit.ResetCommitAttributeHook;
 import org.apache.jackrabbit.oak.spi.commit.SimpleCommitContext;
 import org.apache.jackrabbit.oak.spi.commit.ValidatorProvider;
@@ -119,6 +125,13 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
 
     private static final CommitFailedException INTERRUPTED = new CommitFailedException(
             "Async", 1, "Indexing stopped forcefully");
+    
+    /**
+     * Exception thrown when chunk limit is reached during diff traversal.
+     * This is caught in the outer loop to trigger chunk commit and continue.
+     */
+    private static final CommitFailedException CHUNK_COMPLETE = new CommitFailedException(
+            "Async", 2, "Chunk limit reached - commit and continue");
 
     /**
      * Timeout in milliseconds after which an async job would be considered as
@@ -133,6 +146,9 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
     private final NodeStore store;
 
     private final IndexEditorProvider provider;
+    
+    // Chunk size for resumable indexing (nodes per chunk)
+    private final long configuredChunkSize;
 
     /**
      * Property name which stores the timestamp upto which the repository is
@@ -196,6 +212,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
     private final int cleanupIntervalMinutes
             = Integer.getInteger("oak.async.checkpointCleanupIntervalMinutes", 5);
 
+
     /**
      * Setting this to true lead to lane execution (node traversal) even if there
      * is no index assigned to this lane under /oak:index. (Default value is true).
@@ -207,6 +224,38 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
      * The time in minutes since the epoch when the last checkpoint cleanup ran.
      */
     private long lastCheckpointCleanUpTime;
+    
+    /**
+     * Tracks ResumingEditor timing from the last run.
+     * timeToResumePoint = time to reach the target path during resume
+     * totalResumeTime = total time in ResumingEditor including overhead
+     */
+    private long lastResumeTimeToTarget = 0;
+    private long lastResumeTotalTime = 0;
+
+    /**
+     * System-property keys for the resumable / chunked async indexing feature.
+     * Deliberately not renamed — existing deployments and ops scripts rely on
+     * these exact names. Read timing is significant: {@link #PROP_CHUNK_SIZE} is
+     * cached once at construction (see {@link #configuredChunkSize}); the others
+     * are read afresh on each run() because tests and operators may toggle them
+     * between runs, so those reads must stay in updateIndex() rather than move to
+     * field initializers.
+     * <ul>
+     *   <li>{@code oak.async.resume} — master switch for resume/chunk mode</li>
+     *   <li>{@code oak.async.chunkSize} — max NEW nodes indexed per chunk (&gt;0 enables count-based chunking)</li>
+     *   <li>{@code oak.async.chunkTimeMs} — max wall-clock ms per chunk (&gt;0 enables time-based chunking)</li>
+     *   <li>{@code oak.async.usePathTreeTraversal} — drive resume via PathTree instead of a full EditorDiff</li>
+     *   <li>{@code oak.async.pathTreeSlimFormat} — persist the PathTree in SLIM format</li>
+     *   <li>{@code oak.async.pathTreeUltraSlimFormat} — persist the PathTree in ULTRA_SLIM format</li>
+     * </ul>
+     */
+    private static final String PROP_RESUME_ENABLED = "oak.async.resume";
+    private static final String PROP_CHUNK_SIZE = "oak.async.chunkSize";
+    private static final String PROP_CHUNK_TIME_MS = "oak.async.chunkTimeMs";
+    private static final String PROP_USE_PATHTREE_TRAVERSAL = "oak.async.usePathTreeTraversal";
+    private static final String PROP_PATHTREE_SLIM_FORMAT = "oak.async.pathTreeSlimFormat";
+    private static final String PROP_PATHTREE_ULTRA_SLIM_FORMAT = "oak.async.pathTreeUltraSlimFormat";
 
     private List<ValidatorProvider> validatorProviders = Collections.emptyList();
 
@@ -230,6 +279,13 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         this.statisticsProvider = statsProvider;
         this.indexStats = new AsyncIndexStats(name, statsProvider);
         this.corruptIndexHandler.setMeterStats(statsProvider.getMeter(TrackingCorruptIndexHandler.CORRUPT_INDEX_METER_NAME, StatsOptions.METRICS_ONLY));
+        
+        // Cache chunk size configuration at construction time
+        this.configuredChunkSize = Long.getLong(PROP_CHUNK_SIZE, -1);
+        
+        if (configuredChunkSize > 0) {
+            log.info("[{}] Resumable indexing enabled - chunkSize: {}", name, configuredChunkSize);
+        }
     }
 
     public AsyncIndexUpdate(@NotNull String name, @NotNull NodeStore store,
@@ -257,7 +313,10 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
      *
      * @see <a href="https://issues.apache.org/jira/browse/OAK-1292">OAK-1292</a>
      */
-    protected static class AsyncUpdateCallback implements IndexUpdateCallback, NodeTraversalCallback {
+
+
+
+    public static class AsyncUpdateCallback implements IndexUpdateCallback, NodeTraversalCallback {
         /**
          * Interval in terms of number of nodes traversed after which
          * time would be checked for lease expiry
@@ -283,6 +342,23 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
 
         private final AtomicBoolean forcedStop;
 
+        // Disabled by default (-1). Chunk enforcement is engaged solely via
+        // setUpdateLimit(), which updateIndex() calls before any traversal:
+        // it sets the configured chunk size only in chunked mode and -1
+        // otherwise. Reading oak.async.chunkSize here would be misleading —
+        // the value is always overwritten before traversedNode() runs.
+        private int updateLimit = -1;
+        
+        /**
+         * Time limit per chunk in milliseconds. If > 0, commits when time limit is reached.
+         */
+        private long timeLimit = 0;
+        
+        /**
+         * Start time of current chunk (for time-based chunking).
+         */
+        private long chunkStartTime = 0;
+
         private List<ValidatorProvider> validatorProviders = Collections.emptyList();
 
         /**
@@ -292,6 +368,33 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         private Long lease = null;
 
         private boolean hasLease = false;
+        
+        /**
+         * Flag set when chunk limit is reached during traversal.
+         */
+        private volatile boolean chunkLimitReached = false;
+        
+        /**
+         * The path where chunk limit was reached - used as resume point for next run.
+         */
+        private volatile String chunkLastIndexedPath = null;
+        
+        /**
+         * Flag to indicate we're in skip mode (skipping to resume point).
+         * When true, don't count nodes toward chunk limit.
+         */
+        private volatile boolean inSkipMode = false;
+        
+        /**
+         * Resume path - when set, we skip indexing until we reach this path.
+         */
+        private volatile String resumePath = null;
+        
+        /**
+         * PathTree reference for checking if a path is already indexed.
+         * Used to skip counting indexed nodes toward chunk limit.
+         */
+        private volatile PathTree pathTree = null;
 
         public AsyncUpdateCallback(NodeStore store, String name,
                                    long leaseTimeOut, String checkpoint,
@@ -304,6 +407,60 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             this.tempCpName = getTempCpName(name);
             this.indexStats = indexStats;
             this.leaseName = leasify(name);
+        }
+
+        /**
+         * Get the path where chunk limit was reached.
+         * @return the last indexed path, or null if no chunk limit was reached
+         */
+        public String getChunkLastIndexedPath() {
+            return chunkLastIndexedPath;
+        }
+        
+        /**
+         * Set skip mode - when true, nodes are being skipped
+         * and should not count toward chunk limit.
+         */
+        public void setSkipMode(boolean skipMode) {
+            this.inSkipMode = skipMode;
+        }
+        
+        /**
+         * Check if we're in skip mode (skipping to resume point).
+         */
+        public boolean isInSkipMode() {
+            return inSkipMode;
+        }
+        
+        /**
+         * Set the resume path - we'll skip indexing until we reach this path.
+         */
+        public void setResumePath(String path) {
+            this.resumePath = path;
+        }
+        
+        /**
+         * Set the PathTree for checking if paths are already indexed.
+         */
+        public void setPathTree(PathTree pathTree) {
+            this.pathTree = pathTree;
+        }
+        
+        /**
+         * Set the time limit per chunk in milliseconds.
+         */
+        public void setTimeLimit(long timeMs) {
+            this.timeLimit = timeMs;
+            if (timeMs > 0) {
+                this.chunkStartTime = System.currentTimeMillis();
+            }
+        }
+        
+        /**
+         * Reset chunk start time (call at start of each chunk).
+         */
+        public void resetChunkStartTime() {
+            this.chunkStartTime = System.currentTimeMillis();
         }
 
         protected void initLease() throws CommitFailedException {
@@ -351,17 +508,18 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             // reset updates counter
             indexStats.reset();
         }
-
+        
         private void updateTempCheckpoints(NodeBuilder async,
                                            String checkpoint, String afterCheckpoint) {
-
             indexStats.setReferenceCheckpoint(checkpoint);
             indexStats.setProcessedCheckpoint(afterCheckpoint);
 
             // try to drop temp cps, add 'currentCp' to the temp cps list
+            // IMPORTANT: Don't release the afterCheckpoint - we need it for the current/resume diff!
             Set<String> temps = new HashSet<>();
             for (String cp : getStrings(async, tempCpName)) {
-                if (cp.equals(checkpoint)) {
+                if (cp.equals(checkpoint) || cp.equals(afterCheckpoint)) {
+                    // Keep before and after checkpoints
                     temps.add(cp);
                     continue;
                 }
@@ -399,8 +557,58 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         @Override
         public void traversedNode(PathSource pathSource) throws CommitFailedException{
             checkIfStopped();
+            
+            String currentPath = pathSource.getPath();
+            
+            // OPTIMIZATION: Skip counting if this path is FULLY PROCESSED (enter+leave done)
+            // This means:
+            // 1. enter() was called (markEnterCompleted)
+            // 2. All properties were processed (happens between enter and leave)
+            // 3. All children were traversed  
+            // 4. leave() was called (markLeaveCompleted)
+            // 5. The node's content is definitely in Lucene
+            //
+            // We do NOT skip on just isIndexed() anymore because nodes with
+            // enterCompleted but not leaveCompleted need to be re-processed
+            if (pathTree != null && pathTree.isFullyProcessed(currentPath)) {
+                // Path fully processed - skip entirely
+                log.trace("[{}] Skipping fully processed path: {}", name, currentPath);
+                return;
+            }
+            
+            // Count this node as traversed (new node to index)
+            long nodesRead = indexStats.incTraversal();
+            
+            // Check if chunk limit reached (by count)
+            if (updateLimit > 0 && !chunkLimitReached && nodesRead >= updateLimit) {
+                // Set chunk limit flags
+                chunkLimitReached = true;
+                chunkLastIndexedPath = currentPath;
+                
+                log.info("[{}] Chunk limit reached (COUNT) at path: {} (processed {} NEW nodes)", 
+                    name, chunkLastIndexedPath, nodesRead);
+                log.debug("[CHUNK] COUNT limit reached: {} nodes at {}", nodesRead, currentPath);
+                
+                // Throw CHUNK_COMPLETE to stop EditorDiff and trigger commit
+                throw CHUNK_COMPLETE;
+            }
+            
+            // Check if chunk limit reached (by time)
+            if (timeLimit > 0 && !chunkLimitReached && chunkStartTime > 0) {
+                long elapsedMs = System.currentTimeMillis() - chunkStartTime;
+                if (elapsedMs >= timeLimit) {
+                    chunkLimitReached = true;
+                    chunkLastIndexedPath = currentPath;
+                    
+                    log.info("[{}] Chunk limit reached (TIME) at path: {} (elapsed {}ms, processed {} nodes)", 
+                        name, chunkLastIndexedPath, elapsedMs, nodesRead);
+                    log.debug("[CHUNK] TIME limit reached: {}ms at {}", elapsedMs, currentPath);
+                    
+                    throw CHUNK_COMPLETE;
+                }
+            }
 
-            if (indexStats.incTraversal() % LEASE_CHECK_INTERVAL == 0 && isLeaseCheckEnabled(leaseTimeOut)) {
+            if (nodesRead % LEASE_CHECK_INTERVAL == 0 && isLeaseCheckEnabled(leaseTimeOut)) {
                 long now = getTime();
                 if (now + leaseTimeOut > lease) {
                     long newLease = now + 2 * leaseTimeOut;
@@ -422,6 +630,10 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
 
         public void setValidatorProviders(List<ValidatorProvider> validatorProviders) {
             this.validatorProviders = requireNonNull(validatorProviders);
+        }
+        
+        public void setUpdateLimit(int limit) {
+            this.updateLimit = limit;
         }
 
         private void checkIfStopped() throws CommitFailedException {
@@ -564,16 +776,63 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             before = MISSING_NODE;
         }
 
-        // there are some recent changes, so let's create a new checkpoint
+        // Check for resume state from a previous interrupted run
+        // Use a separate child node to avoid conflict with the checkpoint property
+        String resumeNodeName = name + "-resume";
+        String resumeFromPath = null;
+        String resumeCheckpoint = null;
+        NodeState laneNode = async.getChildNode(resumeNodeName);
+        if (laneNode.exists() && laneNode.hasProperty("targetCheckpoint")) {
+            resumeCheckpoint = laneNode.getString("targetCheckpoint");
+            resumeFromPath = laneNode.getString("lastIndexedPath");
+            
+            // Verify the resume checkpoint still exists
+            if (resumeCheckpoint != null && store.retrieve(resumeCheckpoint) != null) {
+                log.info("[{}] Found resume state - checkpoint: {}, path: {}", 
+                    name, resumeCheckpoint, resumeFromPath);
+            } else {
+                log.warn("[{}] Resume checkpoint {} no longer exists, starting fresh", 
+                    name, resumeCheckpoint);
+                resumeFromPath = null;
+                resumeCheckpoint = null;
+            }
+        }
+
+        // there are some recent changes, so let's create a new checkpoint (or use resume checkpoint)
         String afterTime = now();
         String oldThreadName = Thread.currentThread().getName();
         boolean threadNameChanged = false;
-        String afterCheckpoint = store.checkpoint(lifetime, Map.of(
-                "creator", AsyncIndexUpdate.class.getSimpleName(),
-                "created", afterTime,
-                "thread", oldThreadName,
-                "name", name));
-        NodeState after = store.retrieve(afterCheckpoint);
+
+        String afterCheckpoint;
+        NodeState after;
+        
+        if (resumeCheckpoint != null) {
+            // BUG 2 FIXED: Resuming - use the existing checkpoint
+            afterCheckpoint = resumeCheckpoint;
+            after = store.retrieve(afterCheckpoint);
+            if (after == null) {
+                log.warn("[{}] Unable to retrieve resume checkpoint {}, creating new checkpoint", 
+                    name, resumeCheckpoint);
+                // Fall back to creating new checkpoint
+                afterCheckpoint = store.checkpoint(lifetime, Map.of(
+                        "creator", AsyncIndexUpdate.class.getSimpleName(),
+                        "created", afterTime,
+                        "thread", oldThreadName,
+                        "name", name));
+                after = store.retrieve(afterCheckpoint);
+                resumeFromPath = null; // Reset resume path since checkpoint changed
+            } else {
+                log.info("[{}] Using resume checkpoint: {}", name, afterCheckpoint);
+            }
+        } else {
+            // Normal flow - create new checkpoint
+            afterCheckpoint = store.checkpoint(lifetime, Map.of(
+                    "creator", AsyncIndexUpdate.class.getSimpleName(),
+                    "created", afterTime,
+                    "thread", oldThreadName,
+                    "name", name));
+            after = store.retrieve(afterCheckpoint);
+        }
         if (after == null) {
             log.debug(
                     "[{}] Unable to retrieve newly created checkpoint {}, skipping the index update",
@@ -589,21 +848,26 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             log.trace("Switching thread name to {}", newThreadName);
             threadNameChanged = true;
             Thread.currentThread().setName(newThreadName);
+            // BUG 2 FIXED: Pass resumeFromPath to updateIndex
+            // beforeCheckpoint stays as last completed checkpoint (NOT changed to resumeCheckpoint)
             updatePostRunStatus = updateIndex(before, beforeCheckpoint, after,
-                    afterCheckpoint, afterTime, callback, checkpointToReleaseRef);
+                    afterCheckpoint, afterTime, callback, checkpointToReleaseRef, resumeFromPath);
 
-            // the update succeeded, i.e. it no longer fails
-            if (indexStats.didLastIndexingCycleFailed()) {
-                indexStats.fixed();
+            // Update checkpoint state if update completed
+            if (updatePostRunStatus) {
+                // the update succeeded, i.e. it no longer fails
+                if (indexStats.didLastIndexingCycleFailed()) {
+                    indexStats.fixed();
+                }
+
+                // the update succeeded, so we are sure we can release the earlier checkpoint -
+                // otherwise the new checkpoint associated with the failed update
+                // may still get released in the finally block (depending on where the index update failed)
+                checkpointToReleaseRef.set(beforeCheckpoint);
+                indexStats.setReferenceCheckpoint(afterCheckpoint);
+                indexStats.setProcessedCheckpoint("");
+                indexStats.releaseTempCheckpoint(afterCheckpoint);
             }
-
-            // the update succeeded, so we are sure we can release the earlier checkpoint -
-            // otherwise the new checkpoint associated with the failed update
-            // may still get released in the finally block (depending on where the index update failed)
-            checkpointToReleaseRef.set(beforeCheckpoint);
-            indexStats.setReferenceCheckpoint(afterCheckpoint);
-            indexStats.setProcessedCheckpoint("");
-            indexStats.releaseTempCheckpoint(afterCheckpoint);
 
         } catch (Exception e) {
             indexStats.failed(e);
@@ -779,60 +1043,250 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         AsyncUpdateCallback callback = new AsyncUpdateCallback(store, name, leaseTimeOut,
                 beforeCheckpoint, indexStats, stopFlag);
         callback.setValidatorProviders(validatorProviders);
+        
+        // NOTE: Chunk limit is set in updateIndex() after we know if it's an initial index
+        // This allows us to skip chunk limits during initial indexing
+        
         return callback;
     }
 
+
+    /**
+     * Updates the index by comparing the before and after state of the repository.
+     *
+     * @param before the before state
+     * @param beforeCheckpoint the before checkpoint
+     * @param after the after state
+     * @param afterCheckpoint the after checkpoint
+     * @param afterTime the time of the after checkpoint
+     * @param callback the callback
+     * @param checkpointToReleaseRef reference to checkpoint to release
+     * @param resumeFromPath the path to resume from (null or "/" for no resume)
+     * @return true if the index was updated successfully
+     * @throws CommitFailedException if the update failed
+     */
     protected boolean updateIndex(NodeState before, String beforeCheckpoint,
                                   NodeState after, String afterCheckpoint, String afterTime,
                                   AsyncUpdateCallback callback,
-                                  AtomicReference<String> checkpointToReleaseRef) throws CommitFailedException {
+                                  AtomicReference<String> checkpointToReleaseRef,
+                                  String resumeFromPath) throws CommitFailedException {
         Stopwatch watch = Stopwatch.createStarted();
         boolean updatePostRunStatus = true;
         boolean progressLogged = false;
-        // prepare the update callback for tracking index updates
-        // and maintaining the update lease
-        callback.prepare(afterCheckpoint);
-
-        // check for index tasks split requests, if a split happened, make
-        // sure to not delete the reference checkpoint, as the other index
-        // task will take care of it
-        taskSplitter.maybeSplit(beforeCheckpoint, callback.lease);
         IndexUpdate indexUpdate = null;
-        boolean indexingFailed = true;
-        try {
-            NodeBuilder builder = store.getRoot().builder();
 
+        // Prepare callback - resets counters
+        callback.prepare(afterCheckpoint);
+        
+        // Check if resume indexing is enabled via system property
+        boolean resumeEnabled = Boolean.getBoolean(PROP_RESUME_ENABLED);
+        long chunkTimeMs = Long.getLong(PROP_CHUNK_TIME_MS, 0); // Time-based chunking
+        
+        // Chunk-based resumable indexing using PathTree
+        boolean isInitialIndex = before == MISSING_NODE;
+        boolean chunkedMode = resumeEnabled && (configuredChunkSize > 0 || chunkTimeMs > 0) && !isInitialIndex;
+        
+        // Log indexing mode
+        String indexingMode = resumeEnabled ? "RESUME" : "NORMAL";
+        log.debug("[MODE] Indexing mode: {}, resumeEnabled={}, chunkSize={}, chunkTimeMs={}, isInitialIndex={}, chunkedMode={}",
+            indexingMode, resumeEnabled, configuredChunkSize, chunkTimeMs, isInitialIndex, chunkedMode);
+        
+        if (chunkedMode) {
+                callback.setUpdateLimit((int) configuredChunkSize);
+            callback.setTimeLimit(chunkTimeMs);
+            log.debug("[CHUNK] Chunk mode enabled - updateLimit={}, timeLimit={}", configuredChunkSize, chunkTimeMs);
+            log.info("[{}] Chunk-based indexing enabled - chunkSize: {}, chunkTimeMs: {}", name, configuredChunkSize, chunkTimeMs);
+        } else if (isInitialIndex) {
+            // Disable chunk limits during initial index - let it complete fully
+            callback.setUpdateLimit(-1);
+            callback.setTimeLimit(0);
+            log.info("[{}] Initial index - chunk limits disabled until complete", name);
+        } else {
+            // Normal mode - no chunking
+            callback.setUpdateLimit(-1);
+            callback.setTimeLimit(0);
+            log.info("[{}] Normal indexing mode - no chunking", name);
+        }
+
+        // Check for index tasks split requests
+        taskSplitter.maybeSplit(beforeCheckpoint, callback.lease);
+        
+        boolean indexingFailed = true;
+        NodeBuilder builder = store.getRoot().builder();
+
+        try {
             markFailingIndexesAsCorrupt(builder);
 
             CommitInfo info = new CommitInfo(CommitInfo.OAK_UNKNOWN, CommitInfo.OAK_UNKNOWN,
                     Map.of(IndexConstants.CHECKPOINT_CREATION_TIME, afterTime));
-            indexUpdate =
-                    new IndexUpdate(provider, name, after, builder, callback, callback, info, corruptIndexHandler)
-                            .withMissingProviderStrategy(missingStrategy);
+            
+            // Load PathTree from persisted resume state, or create a fresh one.
+            PathTree pathTree = loadOrCreatePathTree(resumeFromPath);
+
+            // Create ResumeContext with PathTree
+            int chunkLimit = chunkedMode ? (int) configuredChunkSize : 0;
+            ResumeContext resumeContext;
+            if (resumeFromPath != null && !"/".equals(resumeFromPath)) {
+                resumeContext = ResumeContext.createForResume(resumeFromPath, pathTree, chunkLimit);
+                log.info("[{}] Created resume context from path: {} (PathTree has {} indexed nodes)", 
+                    name, resumeFromPath, pathTree.getIndexedNodes());
+            } else {
+                // For first run or non-resume, still use the PathTree to track what we index
+                resumeContext = new ResumeContext(null, pathTree, chunkLimit);
+                log.debug("[{}] Created first-run resume context with PathTree", name);
+            }
+            
+            // Create IndexUpdate with ResumeContext
+            indexUpdate = new IndexUpdate(provider, name, after, builder, callback, callback, info, corruptIndexHandler, resumeContext)
+                    .withMissingProviderStrategy(missingStrategy);
             configureRateEstimator(indexUpdate);
-            CommitFailedException exception =
-                    EditorDiff.process(VisibleEditor.wrap(indexUpdate), before, after);
-            if (exception != null) {
-                throw exception;
+                            
+            // Pass PathTree to callback for skip counting
+            callback.setPathTree(pathTree);
+            
+            // Set callback state for compatibility (deprecated - use PathTree instead)
+            final long diffStartTime = System.currentTimeMillis();
+            final boolean isResuming = resumeFromPath != null && !"/".equals(resumeFromPath);
+            
+            if (isResuming) {
+                                callback.setSkipMode(true);
+                callback.setResumePath(resumeFromPath);
+                log.info("[{}] Resuming from path: {} with PathTree ({} indexed nodes)", 
+                    name, resumeFromPath, pathTree.getIndexedNodes());
+                log.debug("[RESUME] Starting resume from path: {}, PathTree has {} indexed nodes", resumeFromPath, pathTree.getIndexedNodes());
+                                } else {
+                                            callback.setSkipMode(false);
+                callback.setResumePath(null);
+                log.debug("[{}] Starting from root with fresh PathTree", name);
+            }
+            
+            // Track time to reach resume path
+            final long[] resumePathReachedTime = {0};
+            if (isResuming) {
+                resumeContext.setOnResumePointReached(() -> {
+                    resumePathReachedTime[0] = System.currentTimeMillis() - diffStartTime;
+                    log.debug("[RESUME] Resume path reached in {}ms", resumePathReachedTime[0]);
+                    log.info("[{}] Resume path {} reached in {}ms", name, resumeFromPath, resumePathReachedTime[0]);
+                });
+            }
+            
+            // Create editor
+            Editor editor = VisibleEditor.wrap(indexUpdate);
+            
+            // Reset skip counters before diff
+            IndexUpdate.resetSkipCounters();
+            PathTreeEditorDiff.resetStats();
+                                        
+            // Check if PathTree traversal is enabled
+            boolean usePathTreeTraversal = Boolean.getBoolean(PROP_USE_PATHTREE_TRAVERSAL);
+            
+            CommitFailedException exception;
+            if (usePathTreeTraversal && !pathTree.isEmpty() && isResuming) {
+                // Use PathTree-driven traversal (avoids SegmentStore calls for fully-processed nodes)
+                log.info("[{}] Using PathTree-driven traversal (PathTree has {} nodes, {} fully processed)", 
+                    name, pathTree.getTotalNodes(), pathTree.getFullyProcessedCount());
+                log.debug("[PATHTREE-TRAVERSAL] Using PathTree traversal mode");
+
+                // Get traversal stats before
+                PathTree.TraversalStats statsBefore = pathTree.getTraversalStats();
+                log.debug("[PATHTREE-TRAVERSAL] PathTree stats: {}", statsBefore);
+                
+                exception = PathTreeEditorDiff.process(editor, pathTree, before, after);
+                                    } else {
+                // Use standard EditorDiff
+                log.debug("[{}] Using standard EditorDiff (usePathTreeTraversal={}, pathTreeEmpty={}, isResuming={})", 
+                    name, usePathTreeTraversal, pathTree.isEmpty(), isResuming);
+                log.debug("[PATHTREE-TRAVERSAL] Using standard EditorDiff mode");
+                
+                exception = EditorDiff.process(editor, before, after);
+            }
+            
+            long totalDiffTime = System.currentTimeMillis() - diffStartTime;
+            indexStats.setDiffTimeMs(watch.elapsed(TimeUnit.MILLISECONDS));
+            
+            // Log diff timing
+            log.debug("[TIMING] {} Diff time: {}ms", indexingMode, totalDiffTime);
+
+            // Log skip statistics
+            if (log.isDebugEnabled()) {
+                log.debug("[SKIP] {}", IndexUpdate.getSkipStats());
             }
 
+            // Log PathTree traversal statistics
+            if (usePathTreeTraversal && log.isDebugEnabled()) {
+                log.debug("[PATHTREE-TRAVERSAL] {}", PathTreeEditorDiff.getStats());
+                log.debug("[PATHTREE-TIMING] {}", PathTreeEditorDiff.getTimingStats());
+                log.debug("[PATHTREE-TIMING] SegmentStore I/O time: {}ms (this is the expensive part!)", PathTreeEditorDiff.getSegmentStoreReadTimeMs());
+            }
+
+            // Log resume timing
+            if (isResuming) {
+                log.debug("[RESUME] Total diff time: {}ms, time to resume path: {}ms, indexing time after resume: {}ms",
+                    totalDiffTime, resumePathReachedTime[0], totalDiffTime - resumePathReachedTime[0]);
+            }
+            
+            lastResumeTimeToTarget = resumePathReachedTime[0];
+            lastResumeTotalTime = totalDiffTime;
+            
+            // Handle CHUNK_COMPLETE - commit chunk and save resume state, then exit
+            // Check for:
+            // 1. Static CHUNK_COMPLETE constant from AsyncUpdateCallback.traversedNode()
+            // 2. CHUNK_COMPLETE: prefix from IndexUpdate.leave() or ResumableEditorDiff
+            boolean isChunkComplete = (exception != null && 
+                (exception == CHUNK_COMPLETE ||
+                 ResumableEditorDiff.isChunkCompleteException(exception) || 
+                 (exception.getMessage() != null && exception.getMessage().startsWith("CHUNK_COMPLETE:"))));
+            
+            if (isChunkComplete) {
+                commitChunkAndSaveResumeState(exception, callback, resumeContext, indexUpdate,
+                        builder, beforeCheckpoint, afterCheckpoint);
+
+                // Don't release any checkpoints - we need both beforeCheckpoint and afterCheckpoint
+                // They will be cleaned up when indexing completes
+                checkpointToReleaseRef.set(null);  // Don't release anything yet
+                indexingFailed = false;
+                
+                log.info("[{}] Chunk commit complete - index is incrementally searchable", name);
+                // IMPORTANT: Return false to indicate "chunk complete but not full completion"
+                // This prevents runWhenPermitted() from:
+                // 1. Updating the main checkpoint property (we only want resume state updated)
+                // 2. Setting checkpointToReleaseRef to beforeCheckpoint (which would release it!)
+                // The next run() will resume from the saved position
+                return false;
+                }
+                
+                // Other exceptions should be thrown
+                if (exception != null) {
+                    throw exception;
+                }
+                
+            // EditorDiff completed successfully - full index complete
+            log.info("[{}] Indexing complete (mode: {})", name, indexingMode);
+            log.debug("[MODE] Indexing complete, mode: {}", indexingMode);
+            
+            // For normal mode (non-chunk), log timing for flush and merge
+            long normalFlushStartTime = System.currentTimeMillis();
+            indexUpdate.commitProgress(IndexCommitCallback.IndexProgress.COMMIT_PROGRESS);
+            long normalFlushTime = System.currentTimeMillis() - normalFlushStartTime;
+            log.debug("[TIMING] {} Lucene flush time: {}ms", indexingMode, normalFlushTime);
+            
+            // Update checkpoint state
             builder.child(ASYNC).setProperty(name, afterCheckpoint);
             builder.child(ASYNC).setProperty(PropertyStates.createProperty(lastIndexedTo, afterTime, Type.DATE));
+
             if (callback.isDirty() || before == MISSING_NODE) {
                 if (switchOnSync) {
-                    reindexedDefinitions.addAll(indexUpdate
-                            .getReindexedDefinitions());
+                    reindexedDefinitions.addAll(indexUpdate.getReindexedDefinitions());
                     updatePostRunStatus = false;
                 } else {
                     updatePostRunStatus = true;
                 }
             } else {
                 if (switchOnSync) {
-                    log.debug(
-                            "[{}] No changes detected after diff; will try to switch to synchronous updates on {}",
+                    log.debug("[{}] No changes detected after diff; will try to switch to synchronous updates on {}",
                             name, reindexedDefinitions);
 
-                    // no changes after diff, switch to sync on the async defs
+                    // No changes after diff, switch to sync on the async defs
                     for (String path : reindexedDefinitions) {
                         NodeBuilder c = builder;
                         for (String p : elements(path)) {
@@ -852,24 +1306,32 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 }
                 updatePostRunStatus = true;
             }
-            mergeWithConcurrencyCheck(store, validatorProviders, builder, beforeCheckpoint,
-                    callback.lease, name);
-            // we successfully merged the change that updated the lane to the
-            // afterCheckpoint - so we need to release the beforeCheckpoint now
+
+            // Final merge with all remaining updates
+            long normalMergeStartTime = System.currentTimeMillis();
+            mergeWithConcurrencyCheck(store, validatorProviders, builder, beforeCheckpoint, callback.lease, name);
+            long normalMergeTime = System.currentTimeMillis() - normalMergeStartTime;
+            log.debug("[TIMING] {} NodeStore merge time: {}ms", indexingMode, normalMergeTime);
+            log.debug("[TIMING] {} COMMIT SUMMARY: flush={}ms, merge={}ms, TOTAL={}ms", indexingMode, normalFlushTime, normalMergeTime, normalFlushTime + normalMergeTime);
+            
+            // Successfully merged - mark beforeCheckpoint for release
             checkpointToReleaseRef.set(beforeCheckpoint);
             indexingFailed = false;
+            
+            // Clear resume state after successful completion (always check, not just when resumeFromPath is set)
+            clearResumeStateAfterCompletion();
 
             if (indexUpdate.isReindexingPerformed()) {
                 log.info("[{}] Reindexing completed for indexes: {} in {} ({} ms)",
-                        name, indexUpdate.getReindexStats(),
-                        watch, watch.elapsed(TimeUnit.MILLISECONDS));
+                        name, indexUpdate.getReindexStats(), watch, watch.elapsed(TimeUnit.MILLISECONDS));
                 progressLogged = true;
             }
 
             corruptIndexHandler.markWorkingIndexes(indexUpdate.getUpdatedIndexPaths());
+
         } finally {
             if (indexUpdate != null) {
-                if ( !indexingFailed ) {
+                if (!indexingFailed) {
                     indexUpdate.commitProgress(IndexCommitCallback.IndexProgress.COMMIT_SUCCEDED);
                 } else {
                     indexUpdate.commitProgress(IndexCommitCallback.IndexProgress.COMMIT_FAILED);
@@ -878,17 +1340,220 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             callback.close();
         }
 
-        if (!progressLogged) {
+        if (!progressLogged && indexingFailed == false) {
             String msg = "[{}] AsyncIndex update run completed in {}. Indexed {} nodes, {}";
-            //Log at info level if time taken is more than 5 min
             if (watch.elapsed(TimeUnit.MINUTES) >= 5) {
-                log.info(msg, name, watch, indexStats.getUpdates(), indexUpdate.getIndexingStats());
+                log.info(msg, name, watch, indexStats.getUpdates(), indexStats.getNodesReadCount());
             } else {
-                log.debug(msg, name, watch, indexStats.getUpdates(), indexUpdate.getIndexingStats());
+                log.debug(msg, name, watch, indexStats.getUpdates(), indexStats.getNodesReadCount());
             }
         }
 
         return updatePostRunStatus;
+    }
+    
+    /**
+     * Backward-compatible overload for tests that don't specify resumeFromPath.
+     * Defaults to "/" (no resume).
+     */
+    protected boolean updateIndex(NodeState before, String beforeCheckpoint,
+                                  NodeState after, String afterCheckpoint, String afterTime,
+                                  AsyncUpdateCallback callback,
+                                  AtomicReference<String> checkpointToReleaseRef) throws CommitFailedException {
+        return updateIndex(before, beforeCheckpoint, after, afterCheckpoint, afterTime,
+                          callback, checkpointToReleaseRef, "/");
+    }
+
+    /**
+     * Loads the PathTree persisted under :async/{name}-resume when resuming from
+     * a non-root path, or creates a fresh one otherwise. Extracted from
+     * updateIndex() to keep the traversal path readable; behaviour is unchanged.
+     */
+    private PathTree loadOrCreatePathTree(String resumeFromPath) {
+        String resumeNodeName = name + "-resume";
+        NodeState asyncState = store.getRoot().getChildNode(ASYNC);
+        NodeState resumeState = asyncState.getChildNode(resumeNodeName);
+
+        // Track PathTree loading time
+        long pathTreeLoadStartTime = System.currentTimeMillis();
+        long pathTreeSerializedSize = 0;
+
+        PathTree pathTree;
+        if (resumeFromPath != null && !"/".equals(resumeFromPath) && resumeState.exists()) {
+            // Load PathTree from persisted state
+            NodeState pathTreeState = resumeState.getChildNode("pathTree");
+            if (pathTreeState.exists()) {
+                // Use auto-detect to handle both slim and full formats
+                boolean isSlimFormat = PathTree.isSlimFormat(pathTreeState);
+                pathTree = PathTree.deserializeAuto(pathTreeState);
+                long pathTreeLoadTime = System.currentTimeMillis() - pathTreeLoadStartTime;
+
+                // Calculate sizes
+                int fullyProcessedCount = pathTree.getFullyProcessedCount();
+                int notFullyProcessedCount = pathTree.getNotFullyProcessedCount();
+                pathTreeSerializedSize = isSlimFormat ?
+                    pathTree.getEstimatedSerializedSize(true) :
+                    pathTree.getEstimatedSerializedSize(false);
+
+                log.info("[{}] Loaded PathTree from resume state (format={}): {} (load time: {}ms, size: ~{} bytes)",
+                    name, isSlimFormat ? "SLIM" : "FULL", pathTree, pathTreeLoadTime, pathTreeSerializedSize);
+                log.debug("[PATHTREE] Load time: {}ms, format: {}, nodes: {}, indexed: {}, fullyProcessed: {}, unprocessed: {}, estimated size: {} bytes",
+                    pathTreeLoadTime, isSlimFormat ? "SLIM" : "FULL", pathTree.getTotalNodes(), pathTree.getIndexedNodes(),
+                    fullyProcessedCount, notFullyProcessedCount, pathTreeSerializedSize);
+            } else {
+                pathTree = new PathTree();
+                log.info("[{}] No PathTree found in resume state, creating new", name);
+            }
+        } else {
+            pathTree = new PathTree();
+            log.debug("[{}] Starting fresh run with new PathTree", name);
+        }
+        return pathTree;
+    }
+
+    /**
+     * Commits a completed chunk and persists resume state so the next run() can
+     * continue where this one stopped. The sequence is:
+     *   1. close/flush the Lucene writers (CHUNK_COMMIT — awaits copy-to-remote),
+     *   2. merge the builder to the NodeStore (makes the chunk queryable),
+     *   3. serialize the PathTree + lastIndexedPath under :async/{name}-resume.
+     * Extracted from updateIndex(); behaviour is unchanged. Propagates any merge
+     * failure so the caller leaves indexingFailed=true and the finally block in
+     * updateIndex() records COMMIT_FAILED.
+     */
+    private void commitChunkAndSaveResumeState(CommitFailedException exception,
+                                               AsyncUpdateCallback callback,
+                                               ResumeContext resumeContext,
+                                               IndexUpdate indexUpdate,
+                                               NodeBuilder builder,
+                                               String beforeCheckpoint,
+                                               String afterCheckpoint) throws CommitFailedException {
+        // Get chunk path from various sources:
+        // 1. From callback (used by static CHUNK_COMPLETE)
+        // 2. From ResumableEditorDiff exception
+        // 3. From ResumeContext
+        String chunkPath = callback.getChunkLastIndexedPath();
+        if (chunkPath == null) {
+            chunkPath = ResumableEditorDiff.getChunkCompletePath(exception);
+        }
+        if (chunkPath == null && resumeContext != null) {
+            chunkPath = resumeContext.getLastIndexedPath();
+        }
+        log.info("[{}] Chunk limit reached at path: {} - committing and saving resume state", name, chunkPath);
+
+        // CRITICAL SEQUENCE FOR INCREMENTAL SEARCHABILITY:
+
+        // 1. Close (finalize) Lucene writers for this chunk. The diff was
+        //    aborted by CHUNK_COMPLETE before the root editor's leave() ran,
+        //    so the writer was never closed. A bare flush (writer.commit())
+        //    is NOT enough: under a CopyOnWrite directory it schedules the
+        //    copy-to-remote asynchronously without waiting, so the subsequent
+        //    merge would persist a :data node that lacks the flushed segments
+        //    (0 queryable docs). CHUNK_COMMIT closes the writer, which awaits
+        //    the copy-to-remote and records the OAK-2029 status, making the
+        //    chunk's documents durable and queryable.
+        long flushStartTime = System.currentTimeMillis();
+        log.info("[{}] Closing Lucene index writers for chunk commit", name);
+        indexUpdate.commitProgress(IndexCommitCallback.IndexProgress.CHUNK_COMMIT);
+        long flushTime = System.currentTimeMillis() - flushStartTime;
+        log.debug("[TIMING] Lucene flush time: {}ms", flushTime);
+
+        // 2. Merge builder to NodeStore - this makes the flushed index data visible
+        //    The builder now contains updated :data nodes from the flush above
+        long mergeStartTime = System.currentTimeMillis();
+        log.info("[{}] Merging index updates to NodeStore", name);
+        mergeWithConcurrencyCheck(store, validatorProviders, builder, beforeCheckpoint, callback.lease, name);
+        long mergeTime = System.currentTimeMillis() - mergeStartTime;
+        log.debug("[TIMING] NodeStore merge time: {}ms", mergeTime);
+
+        // 3. IMPORTANT: The index is now searchable because:
+        //    - Lucene writers were flushed (documents written to :data)
+        //    - Builder with updated :data was merged to NodeStore
+        //    - Queries will see the new data when they refresh the index tracker
+        log.info("[{}] Index committed and incrementally searchable up to: {}", name, chunkPath);
+
+        // 4. Save resume state (including PathTree) under :async/{lane-name}-resume
+        long saveStateStartTime = System.currentTimeMillis();
+        NodeBuilder resumeBuilder = store.getRoot().builder();
+        String saveResumeNodeName = name + "-resume";
+        NodeBuilder laneBuilder = resumeBuilder.child(ASYNC).child(saveResumeNodeName);
+        laneBuilder.setProperty("lastIndexedPath", chunkPath);
+        laneBuilder.setProperty("targetCheckpoint", afterCheckpoint);
+        laneBuilder.setProperty("nodesProcessed", resumeContext.getNodesProcessed());
+
+        // Serialize PathTree for efficient resume
+        PathTree currentPathTree = resumeContext.getPathTree();
+
+        int fullyProcessedCount = currentPathTree.getFullyProcessedCount();
+        int notFullyProcessedCount = currentPathTree.getNotFullyProcessedCount();
+        int totalNodes = currentPathTree.getTotalNodes();
+
+        // Calculate estimated sizes for comparison
+        int fullSizeEstimate = currentPathTree.getEstimatedSerializedSize(false);
+        int slimSizeEstimate = currentPathTree.getEstimatedSerializedSize(true);
+
+        // Serialization format options:
+        // ULTRA_SLIM: Just last processed path + in-progress chain (~100 bytes) - uses DFS order comparison
+        // SLIM: Frontier nodes + in-progress chain (~200-500 bytes) - uses ancestor checking
+        // FULL: All nodes (~1.5MB) - uses exact path lookup
+        boolean useSlimFormat = Boolean.getBoolean(PROP_PATHTREE_SLIM_FORMAT);
+        boolean useUltraSlimFormat = Boolean.getBoolean(PROP_PATHTREE_ULTRA_SLIM_FORMAT);
+
+        long serializeStartTime = System.currentTimeMillis();
+        String formatUsed;
+        if (useUltraSlimFormat) {
+            currentPathTree.serializeUltraSlimTo(laneBuilder.child("pathTree"));
+            formatUsed = "ULTRA_SLIM";
+        } else if (useSlimFormat) {
+            currentPathTree.serializeSlimTo(laneBuilder.child("pathTree"));
+            formatUsed = "SLIM";
+        } else {
+            currentPathTree.serializeTo(laneBuilder.child("pathTree"));
+            formatUsed = "FULL";
+        }
+        long serializeTime = System.currentTimeMillis() - serializeStartTime;
+
+        log.info("[{}] Saving PathTree ({}): {} total nodes, {} fullyProcessed, {} unprocessed (serialize time: {}ms)",
+            name, formatUsed, totalNodes, fullyProcessedCount, notFullyProcessedCount, serializeTime);
+        log.debug("[PATHTREE] Serialize time: {}ms (format: {}), total: {}, fullyProcessed: {}, unprocessed: {}{}",
+            serializeTime, formatUsed, totalNodes, fullyProcessedCount, notFullyProcessedCount,
+            useUltraSlimFormat ? ", lastPath: " + currentPathTree.getLastFullyProcessedPath() : "");
+        log.debug("[PATHTREE-SIZE] Full: ~{} bytes, SLIM: ~{} bytes (potential savings: {}%)",
+            fullSizeEstimate, slimSizeEstimate, fullSizeEstimate > 0 ? (100 - slimSizeEstimate * 100 / fullSizeEstimate) : 0);
+
+        store.merge(resumeBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+        long saveStateTime = System.currentTimeMillis() - saveStateStartTime;
+        log.debug("[TIMING] Resume state save time: {}ms", saveStateTime);
+
+        log.info("[{}] Saved resume state to :async/{}: path={}, checkpoint={}, tree={}",
+            name, saveResumeNodeName, chunkPath, afterCheckpoint, currentPathTree);
+
+        // Print comprehensive timing summary
+        long totalChunkTime = flushTime + mergeTime + saveStateTime;
+        log.debug("[TIMING] CHUNK COMMIT SUMMARY: flush={}ms, merge={}ms, saveState={}ms, TOTAL={}ms",
+            flushTime, mergeTime, saveStateTime, totalChunkTime);
+    }
+
+    /**
+     * Best-effort removal of the persisted resume state under
+     * :async/{name}-resume once a full (non-chunked) indexing run completes.
+     * A failure here is non-critical and is only logged. Extracted from
+     * updateIndex(); behaviour is unchanged.
+     */
+    private void clearResumeStateAfterCompletion() {
+        try {
+            NodeBuilder cleanupBuilder = store.getRoot().builder();
+            String cleanupResumeNodeName = name + "-resume";
+            NodeBuilder asyncBuilder = cleanupBuilder.child(ASYNC);
+            if (asyncBuilder.hasChildNode(cleanupResumeNodeName)) {
+                asyncBuilder.getChildNode(cleanupResumeNodeName).remove();
+                store.merge(cleanupBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+                log.info("[{}] Cleared resume state after successful completion", name);
+            }
+        } catch (CommitFailedException ex) {
+            // Not critical if cleanup fails
+            log.warn("[{}] Failed to clear resume state: {}", name, ex.getMessage());
+        }
     }
 
     private void configureRateEstimator(IndexUpdate indexUpdate) {
@@ -986,7 +1651,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
     public void setCorruptIndexHandler(TrackingCorruptIndexHandler corruptIndexHandler) {
         this.corruptIndexHandler = requireNonNull(corruptIndexHandler);
     }
-
+    
     TrackingCorruptIndexHandler getCorruptIndexHandler() {
         return corruptIndexHandler;
     }
@@ -1015,6 +1680,39 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         return indexStats;
     }
 
+    public long getLastDiffTimeMs() {
+        return indexStats.getDiffTimeMs();
+    }
+    
+    /**
+     * Gets the number of nodes processed (traversed) in the last run.
+     * This count excludes nodes that were fully processed and skipped via PathTree optimization.
+     * 
+     * @return number of nodes processed, 0 if no run has completed
+     */
+    public long getLastNodesProcessed() {
+        return indexStats.getNodesRead();
+    }
+    
+    /**
+     * Gets the time taken by ResumingEditor to reach the resume point (target path).
+     * This measures only the traversal time up to the resume point, not the total time.
+     * 
+     * @return time in milliseconds to reach resume point, 0 if not resuming or not yet reached
+     */
+    public long getLastResumeTimeToTargetMs() {
+        return lastResumeTimeToTarget;
+    }
+    
+    /**
+     * Gets the total time spent in ResumingEditor including overhead after reaching target.
+     * 
+     * @return total time in milliseconds spent in ResumingEditor, 0 if not resuming
+     */
+    public long getLastResumeTotalTimeMs() {
+        return lastResumeTotalTime;
+    }
+
     public boolean isFinished() {
         return indexStats.getStatus() == STATUS_DONE;
     }
@@ -1037,6 +1735,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         private volatile boolean forcedLeaseRelease;
         private volatile long updates;
         private volatile long nodesRead;
+        private volatile long diffTimeMs;
         private final Stopwatch watch = Stopwatch.createUnstarted();
         private final ExecutionStats execStats;
 
@@ -1229,6 +1928,22 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         @Override
         public long getNodesReadCount(){
             return nodesRead;
+        }
+        
+        /**
+         * Alias for getNodesReadCount() - returns the number of nodes traversed.
+         * @return number of nodes read/traversed
+         */
+        public long getNodesRead() {
+            return nodesRead;
+        }
+
+        void setDiffTimeMs(long diffTimeMs) {
+            this.diffTimeMs = diffTimeMs;
+        }
+
+        public long getDiffTimeMs() {
+            return diffTimeMs;
         }
 
         void setReferenceCheckpoint(String checkpoint) {
@@ -1541,6 +2256,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         return indexStats.isFailing();
     }
 
+
     class IndexTaskSpliter {
 
         private Set<String> paths = null;
@@ -1654,4 +2370,5 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
     private static CommitFailedException newConcurrentUpdateException() {
         return new CommitFailedException("Async", 1, "Concurrent update detected");
     }
+
 }

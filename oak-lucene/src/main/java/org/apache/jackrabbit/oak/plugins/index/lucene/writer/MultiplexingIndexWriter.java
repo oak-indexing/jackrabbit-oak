@@ -77,6 +77,13 @@ class MultiplexingIndexWriter implements LuceneIndexWriter {
     }
 
     @Override
+    public void flush() throws IOException {
+        for (LuceneIndexWriter w : writers.values()) {
+            w.flush();
+        }
+    }
+
+    @Override
     public boolean close(long timestamp) throws IOException {
         // explicitly get writers for mounts which haven't got writers even at close.
         // This essentially ensures we respect DefaultIndexWriters#close's intent to
