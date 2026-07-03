@@ -19,14 +19,19 @@ package org.apache.jackrabbit.oak.spi.commit;
 import static java.util.Objects.requireNonNull;
 import static org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState.MISSING_NODE;
 
+
 import org.apache.jackrabbit.oak.api.CommitFailedException;
 import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.spi.state.NodeStateDiff;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class EditorDiff implements NodeStateDiff {
+    
+    private static final Logger LOG = LoggerFactory.getLogger(EditorDiff.class);
 
     /**
      * Validates and possibly edits the given subtree by diffing
@@ -58,6 +63,39 @@ public class EditorDiff implements NodeStateDiff {
             }
         }
         return null;
+    }
+    
+    /**
+     * Process diff starting from a specific path, skipping already-indexed nodes.
+     * This delegates to the normal process() method since the editor should already
+     * be wrapped with appropriate resuming logic by the caller.
+     * 
+     * <p>Note: This method exists for API compatibility. The caller (e.g., AsyncIndexUpdate)
+     * should wrap the editor with ResumingEditor before calling this method.
+     * 
+     * @param editor editor for the root of the subtree (should be wrapped with ResumingEditor if resuming)
+     * @param rootBefore state of the original tree root
+     * @param rootAfter state of the modified tree root
+     * @param resumePath path to resume from (logged for debugging)
+     * @param onResumePointReached callback when resume point is reached (not used - should be in ResumingEditor)
+     * @return exception if the processing failed, {@code null} otherwise
+     */
+    @Nullable
+    public static CommitFailedException processFromPath(
+            @Nullable Editor editor,
+            @NotNull NodeState rootBefore, 
+            @NotNull NodeState rootAfter,
+            @Nullable String resumePath,
+            @Nullable Runnable onResumePointReached) {
+        requireNonNull(rootBefore);
+        requireNonNull(rootAfter);
+        
+        if (resumePath != null && !"/".equals(resumePath)) {
+            LOG.info("Processing diff with resume target: {}", resumePath);
+        }
+        
+        // Delegate to normal processing - caller should have wrapped editor with ResumingEditor
+        return process(editor, rootBefore, rootAfter);
     }
 
     private final Editor editor;

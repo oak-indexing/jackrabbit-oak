@@ -62,4 +62,17 @@ public interface FulltextIndexWriter<D> {
      * @return true if index was updated or any write happened.
      */
     boolean close(long timestamp) throws IOException;
+    
+    /**
+     * Flushes buffered documents to the index without closing the writer.
+     * This is used for incremental commits during resumable indexing to
+     * persist progress without exiting the diff traversal.
+     * 
+     * Default implementation does nothing (for backward compatibility).
+     * 
+     * @throws IOException if flush fails
+     */
+    default void flush() throws IOException {
+        // Default no-op for backward compatibility
+    }
 }

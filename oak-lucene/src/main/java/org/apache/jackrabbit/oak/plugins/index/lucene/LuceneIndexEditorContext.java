@@ -18,6 +18,7 @@ package org.apache.jackrabbit.oak.plugins.index.lucene;
 
 import java.io.IOException;
 
+import org.apache.jackrabbit.oak.plugins.index.IndexCommitCallback;
 import org.apache.jackrabbit.oak.plugins.index.IndexUpdateCallback;
 import org.apache.jackrabbit.oak.plugins.index.IndexingContext;
 import org.apache.jackrabbit.oak.plugins.index.lucene.util.FacetHelper;
@@ -32,8 +33,13 @@ import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.stats.Clock;
 import org.apache.lucene.facet.FacetsConfig;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class LuceneIndexEditorContext extends FulltextIndexEditorContext implements FacetsConfigProvider {
+    
+    private static final Logger LOG = LoggerFactory.getLogger(LuceneIndexEditorContext.class);
+    
     private FacetsConfig facetsConfig;
 
     private final IndexAugmentorFactory augmentorFactory;
@@ -48,6 +54,40 @@ public class LuceneIndexEditorContext extends FulltextIndexEditorContext impleme
         super(root, definition, indexDefinition, updateCallback, indexWriterFactory, extractedTextCache,
             indexingContext, asyncIndexing);
         this.augmentorFactory = augmentorFactory;
+        
+        // Register COMMIT_PROGRESS handler for resumable indexing
+        registerCommitProgressCallback(indexingContext);
+    }
+    
+    /**
+     * Register a callback that finalizes the Lucene writer at resumable-indexing
+     * chunk boundaries. {@code CHUNK_COMMIT} closes the writer so the documents
+     * indexed in the chunk are actually persisted to the (possibly CopyOnWrite)
+     * directory and become queryable; a bare {@code COMMIT_PROGRESS} flush is not
+     * sufficient because it does not await the copy-to-remote nor record the
+     * OAK-2029 status.
+     */
+    private void registerCommitProgressCallback(IndexingContext indexingContext) {
+        indexingContext.registerIndexCommitCallback(new IndexCommitCallback() {
+            @Override
+            public void commitProgress(IndexCommitCallback.IndexProgress indexProgress) {
+                try {
+                    if (indexProgress == IndexCommitCallback.IndexProgress.CHUNK_COMMIT) {
+                        LOG.info("[CHUNK_COMMIT] Closing Lucene writer for index: {}",
+                                 getDefinition().getIndexPath());
+                        closeWriterIfPresent();
+                        LOG.info("[CHUNK_COMMIT] Successfully closed Lucene writer");
+                    } else if (indexProgress == IndexCommitCallback.IndexProgress.COMMIT_PROGRESS) {
+                        LOG.info("[COMMIT_PROGRESS] Flushing Lucene writer for index: {}",
+                                 getDefinition().getIndexPath());
+                        flushWriter();
+                        LOG.info("[COMMIT_PROGRESS] Successfully flushed Lucene writer");
+                    }
+                } catch (IOException e) {
+                    LOG.error("[{}] Failed to finalize Lucene writer", indexProgress, e);
+                }
+            }
+        });
     }
 
     @Override

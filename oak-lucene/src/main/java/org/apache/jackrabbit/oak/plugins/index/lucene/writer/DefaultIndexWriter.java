@@ -120,6 +120,18 @@ class DefaultIndexWriter implements LuceneIndexWriter {
     }
 
     @Override
+    public void flush() throws IOException {
+        if (writer != null) {
+            // Lucene commit() flushes all buffered documents to the index
+            // without closing the writer, allowing continued writes
+            final long start = PERF_LOGGER.start();
+            writer.commit();
+            PERF_LOGGER.end(start, -1, "Flushed writer for directory {}", definition);
+            log.debug("[{}] Flushed index writer", definition.getIndexPath());
+        }
+    }
+
+    @Override
     public boolean close(long timestamp) throws IOException {
         //If reindex or fresh index and write is null on close
         //it indicates that the index is empty. In such a case trigger

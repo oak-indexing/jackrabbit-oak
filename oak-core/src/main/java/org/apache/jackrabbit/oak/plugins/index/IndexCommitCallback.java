@@ -32,6 +32,8 @@ public interface IndexCommitCallback {
     enum IndexProgress {
         COMMIT_SUCCEDED,
         COMMIT_FAILED,
-        ABORT_REQUESTED
+        ABORT_REQUESTED,
+        COMMIT_PROGRESS, // For flushing during chunked commits
+        CHUNK_COMMIT     // Finalize (close) writers at a resumable-indexing chunk boundary
     }
 }

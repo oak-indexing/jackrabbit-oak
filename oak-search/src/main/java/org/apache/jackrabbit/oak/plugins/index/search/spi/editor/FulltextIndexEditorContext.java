@@ -156,6 +156,35 @@ public abstract class FulltextIndexEditorContext<D> {
     }
 
     /**
+     * Flushes the writer without closing it.
+     * Used for incremental commits during resumable indexing.
+     */
+    public void flushWriter() throws IOException {
+        if (writer != null) {
+            final long start = PERF_LOGGER.start();
+            writer.flush();
+            PERF_LOGGER.end(start, -1, "Flushed writer for directory {}", definition);
+        }
+    }
+
+    /**
+     * Closes the writer only if one was actually opened during this run.
+     * <p>
+     * Used at resumable-indexing chunk boundaries where the diff is aborted before
+     * the root editor's {@code leave()} runs, so {@link #closeWriter()} is never
+     * invoked through the normal path. Unlike {@link #flushWriter()} (a bare
+     * {@code writer.commit()}), closing finalizes the index to its persistent
+     * directory - under a CopyOnWrite directory this awaits the copy-to-remote so
+     * the flushed documents become durable and queryable, and it records the
+     * OAK-2029 status that lets {@code IndexTracker} pick up the change.
+     */
+    public void closeWriterIfPresent() throws IOException {
+        if (writer != null) {
+            closeWriter();
+        }
+    }
+
+    /**
      * close writer if it's not null
      */
     public void closeWriter() throws IOException {
