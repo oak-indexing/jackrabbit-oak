@@ -28,6 +28,7 @@ import org.apache.jackrabbit.oak.plugins.index.resume.ResumeContext;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
+import org.apache.jackrabbit.oak.spi.toggle.Feature;
 import org.apache.jackrabbit.oak.stats.StatisticsProvider;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
@@ -112,10 +113,32 @@ public class ResumableAsyncIndexUpdate extends AsyncIndexUpdate {
         return true;
     }
 
+    /** Feature toggle gating resumable reindex; wired at registration (Task 8). Null => OFF. */
+    private Feature resumableReindexFeature;
+    /** Test-only override of the toggle state. */
+    private Boolean resumableReindexEnabledOverride;
+
+    void setResumableReindexEnabledForTest(boolean enabled) {
+        this.resumableReindexEnabledOverride = enabled;
+    }
+
+    boolean isResumableReindexEnabled() {
+        if (resumableReindexEnabledOverride != null) {
+            return resumableReindexEnabledOverride;
+        }
+        return resumableReindexFeature != null && resumableReindexFeature.isEnabled();
+    }
+
     @Override
     protected boolean isChunkedRun(NodeState before) {
-        long chunkTimeMs = Long.getLong(PROP_CHUNK_TIME_MS, 0);
-        return (configuredChunkSize > 0 || chunkTimeMs > 0) && before != MISSING_NODE;
+        boolean chunkConfigured = configuredChunkSize > 0 || Long.getLong(PROP_CHUNK_TIME_MS, 0) > 0;
+        if (!chunkConfigured) {
+            return false;
+        }
+        if (before != MISSING_NODE) {
+            return true;                        // incremental always chunks
+        }
+        return isResumableReindexEnabled();     // initial/reindex chunks only when toggle ON
     }
 
     @Override
@@ -208,6 +231,9 @@ public class ResumableAsyncIndexUpdate extends AsyncIndexUpdate {
 
     @Override
     protected void afterRun(NodeBuilder builder, IndexUpdate indexUpdate, boolean fullyCompleted) {
+        if (fullyCompleted && indexUpdate != null) {
+            indexUpdate.finalizeChunkedReindex();   // no-op unless a chunked reindex just completed
+        }
         cleanupRevertedIndexes(builder);
     }
 }

@@ -163,4 +163,30 @@ public class ResumableAsyncIndexUpdateTest {
         // a resume-mode def still remains -> resume state is NOT deleted
         assertTrue(root.getChildNode(":async").hasChildNode("resume_async-resume"));
     }
+
+    @Test
+    public void chunkedRunCoversReindexOnlyWhenToggleOn() {
+        String prev = System.getProperty("oak.async.chunkSize");
+        System.setProperty("oak.async.chunkSize", "100");
+        try {
+            ResumableAsyncIndexUpdate r = new ResumableAsyncIndexUpdate(
+                    ResumableAsyncIndexUpdate.resumeLaneName("async"), new MemoryNodeStore(),
+                    new PropertyIndexEditorProvider(), StatisticsProvider.NOOP, false);
+            NodeState missing = org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState.MISSING_NODE;
+            NodeState present = new MemoryNodeStore().getRoot(); // any non-MISSING state
+
+            // incremental (before != MISSING_NODE) is always chunked when chunk size is set
+            assertTrue(r.isChunkedRun(present));
+
+            // initial/reindex (before == MISSING_NODE) chunks ONLY when the toggle is on
+            r.setResumableReindexEnabledForTest(false);
+            assertFalse("reindex not chunked when toggle off", r.isChunkedRun(missing));
+
+            r.setResumableReindexEnabledForTest(true);
+            assertTrue("reindex chunked when toggle on", r.isChunkedRun(missing));
+        } finally {
+            if (prev == null) System.clearProperty("oak.async.chunkSize");
+            else System.setProperty("oak.async.chunkSize", prev);
+        }
+    }
 }
