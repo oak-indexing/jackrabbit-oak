@@ -22,6 +22,7 @@ import static org.junit.Assert.assertTrue;
 
 import org.apache.jackrabbit.oak.api.CommitFailedException;
 import org.apache.jackrabbit.oak.plugins.index.property.PropertyIndexEditorProvider;
+import org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
 import org.apache.jackrabbit.oak.spi.commit.CommitInfo;
 import org.apache.jackrabbit.oak.spi.commit.EmptyHook;
@@ -188,5 +189,62 @@ public class ResumableAsyncIndexUpdateTest {
             if (prev == null) System.clearProperty("oak.async.chunkSize");
             else System.setProperty("oak.async.chunkSize", prev);
         }
+    }
+
+    @Test
+    public void normalLaneReindexesResumeDefWhenToggleOff() {
+        NodeBuilder resumeReindexing = EmptyNodeState.EMPTY_NODE.builder();
+        resumeReindexing.setProperty("async", "async");
+        resumeReindexing.setProperty(IndexConstants.MODE_PROPERTY_NAME, IndexConstants.MODE_RESUME);
+        resumeReindexing.setProperty(IndexConstants.REINDEX_PROPERTY_NAME, true);
+
+        // toggle OFF: normal lane (resumeLane=false) MUST pick it up to run the native reindex
+        assertTrue(IndexUpdate.isIncluded("async", resumeReindexing, false, /*resumableReindexEnabled*/ false));
+        // toggle ON: normal lane still skips it (resume lane handles the reindex)
+        assertFalse(IndexUpdate.isIncluded("async", resumeReindexing, false, /*resumableReindexEnabled*/ true));
+        // resume lane (resumeLane=true) always processes its own resume-mode defs
+        assertTrue(IndexUpdate.isIncluded("async", resumeReindexing, true, /*resumableReindexEnabled*/ false));
+    }
+
+    @Test
+    public void resumeLanePausesDuringNativeReindexThenResets() throws Exception {
+        MemoryNodeStore store = new MemoryNodeStore();
+        NodeBuilder b = store.getRoot().builder();
+        b.child(":async").setProperty("resume_async", "cp-pause");        // C_pause checkpoint
+        b.child(":async").child("resume_async-resume").setProperty("lastIndexedPath", "/content/y");
+        NodeBuilder def = b.child("oak:index").child("idx");
+        def.setProperty("type", "property");
+        def.setProperty("async", "async");
+        def.setProperty(IndexConstants.MODE_PROPERTY_NAME, IndexConstants.MODE_RESUME);
+        def.setProperty(IndexConstants.REINDEX_PROPERTY_NAME, true);       // native reindex in flight
+        store.merge(b, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+
+        ResumableAsyncIndexUpdate r = new ResumableAsyncIndexUpdate(
+                ResumableAsyncIndexUpdate.resumeLaneName("async"), store,
+                new PropertyIndexEditorProvider(), StatisticsProvider.NOOP, false);
+        r.setResumableReindexEnabledForTest(false);   // toggle OFF
+
+        // reindex in flight -> pause
+        assertTrue(r.shouldPauseForNativeReindex(store.getRoot()));
+
+        // native reindex completes: clear the reindex flag
+        NodeBuilder b2 = store.getRoot().builder();
+        b2.child("oak:index").child("idx").setProperty(IndexConstants.REINDEX_PROPERTY_NAME, false);
+        store.merge(b2, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+
+        assertFalse(r.shouldPauseForNativeReindex(store.getRoot()));
+
+        // reset: cursor node dropped, C_pause checkpoint retained
+        NodeBuilder root = store.getRoot().builder();
+        r.resetAfterNativeReindex(root);
+        assertFalse(root.getChildNode(":async").hasChildNode("resume_async-resume"));
+        assertEquals("cp-pause", root.getChildNode(":async").getString("resume_async"));
+
+        // when the toggle is ON, the resume lane never pauses (it owns the reindex)
+        r.setResumableReindexEnabledForTest(true);
+        NodeBuilder b3 = store.getRoot().builder();
+        b3.child("oak:index").child("idx").setProperty(IndexConstants.REINDEX_PROPERTY_NAME, true);
+        store.merge(b3, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+        assertFalse(r.shouldPauseForNativeReindex(store.getRoot()));
     }
 }

@@ -218,7 +218,7 @@ public class IndexUpdate implements Editor, PathSource {
             CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler,
             @Nullable ResumeContext resumeContext, @Nullable NodeStore store) {
         this(provider, async, root, builder, updateCallback, traversalCallback,
-                commitInfo, corruptIndexHandler, resumeContext, store, false, false);
+                commitInfo, corruptIndexHandler, resumeContext, store, false, false, true);
     }
 
     /**
@@ -238,6 +238,9 @@ public class IndexUpdate implements Editor, PathSource {
      *                   processing only {@code mode=resume} index definitions
      * @param chunked {@code true} if this run is a chunked resumable reindex, so reindex
      *                completion state is deferred until the build fully completes
+     * @param resumableReindexEnabled {@code true} if the resumable-reindex feature toggle is
+     *                enabled; controls whether the normal lane adopts a resume-mode def that
+     *                needs a native reindex (fallback C)
      */
     public IndexUpdate(
             IndexEditorProvider provider, String async,
@@ -245,12 +248,12 @@ public class IndexUpdate implements Editor, PathSource {
             IndexUpdateCallback updateCallback, NodeTraversalCallback traversalCallback,
             CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler,
             @Nullable ResumeContext resumeContext, @Nullable NodeStore store,
-            boolean resumeLane, boolean chunked) {
+            boolean resumeLane, boolean chunked, boolean resumableReindexEnabled) {
         this.store = store;
         this.parent = null;
         this.name = null;
         this.path = "/";
-        this.rootState = new IndexUpdateRootState(provider, async, root, builder, updateCallback, traversalCallback, commitInfo, corruptIndexHandler, resumeContext, resumeLane, chunked);
+        this.rootState = new IndexUpdateRootState(provider, async, root, builder, updateCallback, traversalCallback, commitInfo, corruptIndexHandler, resumeContext, resumeLane, chunked, resumableReindexEnabled);
         this.builder = requireNonNull(builder);
 
         // If we have a resume context and it's in skip mode, start in skip mode
@@ -559,7 +562,7 @@ public class IndexUpdate implements Editor, PathSource {
         }
         for (String name : definitions.getChildNodeNames()) {
             NodeBuilder definition = definitions.getChildNode(name);
-            if (isIncluded(rootState.async, definition, rootState.resumeLane)) {
+            if (isIncluded(rootState.async, definition, rootState.resumeLane, rootState.resumableReindexEnabled)) {
                 String type = definition.getString(TYPE_PROPERTY_NAME);
                 String primaryType = definition.getName(JcrConstants.JCR_PRIMARYTYPE);
                 if (type == null) {
@@ -695,10 +698,22 @@ public class IndexUpdate implements Editor, PathSource {
     }
 
     static boolean isIncluded(String asyncRef, NodeBuilder definition, boolean resumeLane) {
+        return isIncluded(asyncRef, definition, resumeLane, true);
+    }
+
+    static boolean isIncluded(String asyncRef, NodeBuilder definition,
+                              boolean resumeLane, boolean resumableReindexEnabled) {
         boolean resumeDef = MODE_RESUME.equals(definition.getString(MODE_PROPERTY_NAME));
         // A resume lane only processes resume-mode defs; a normal lane only non-resume defs.
         if (resumeDef != resumeLane) {
-            return false;
+            // Fallback C: with resumable reindex disabled, the NORMAL lane adopts a
+            // resume-mode def that needs a (re)index so it is rebuilt natively.
+            boolean normalLaneAdoptsReindex = !resumeLane && resumeDef
+                    && !resumableReindexEnabled
+                    && definition.getBoolean(REINDEX_PROPERTY_NAME);
+            if (!normalLaneAdoptsReindex) {
+                return false;
+            }
         }
         if (definition.hasProperty(ASYNC_PROPERTY_NAME)) {
             PropertyState p = definition.getProperty(ASYNC_PROPERTY_NAME);
@@ -1014,12 +1029,15 @@ public class IndexUpdate implements Editor, PathSource {
         /** {@code true} if this run is a chunked resumable reindex (defers reindex completion). */
         final boolean chunked;
 
+        /** {@code true} if the resumable-reindex feature toggle is enabled. */
+        final boolean resumableReindexEnabled;
+
         private IndexUpdateRootState(IndexEditorProvider provider, String async, NodeState root,
                                      NodeBuilder builder, IndexUpdateCallback updateCallback,
                                      NodeTraversalCallback traversalCallback,
                                      CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler,
                                      @Nullable ResumeContext resumeContext, boolean resumeLane,
-                                     boolean chunked) {
+                                     boolean chunked, boolean resumableReindexEnabled) {
             this.provider = requireNonNull(provider);
             this.async = async;
             this.root = requireNonNull(root);
@@ -1030,6 +1048,7 @@ public class IndexUpdate implements Editor, PathSource {
             this.resumeContext = resumeContext;
             this.resumeLane = resumeLane;
             this.chunked = chunked;
+            this.resumableReindexEnabled = resumableReindexEnabled;
         }
         
         /**

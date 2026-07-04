@@ -28,7 +28,6 @@ import org.apache.jackrabbit.oak.plugins.index.resume.ResumeContext;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
-import org.apache.jackrabbit.oak.spi.toggle.Feature;
 import org.apache.jackrabbit.oak.stats.StatisticsProvider;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
@@ -111,22 +110,6 @@ public class ResumableAsyncIndexUpdate extends AsyncIndexUpdate {
     @Override
     protected boolean isResumeLane() {
         return true;
-    }
-
-    /** Feature toggle gating resumable reindex; wired at registration (Task 8). Null => OFF. */
-    private Feature resumableReindexFeature;
-    /** Test-only override of the toggle state. */
-    private Boolean resumableReindexEnabledOverride;
-
-    void setResumableReindexEnabledForTest(boolean enabled) {
-        this.resumableReindexEnabledOverride = enabled;
-    }
-
-    boolean isResumableReindexEnabled() {
-        if (resumableReindexEnabledOverride != null) {
-            return resumableReindexEnabledOverride;
-        }
-        return resumableReindexFeature != null && resumableReindexFeature.isEnabled();
     }
 
     @Override
@@ -226,6 +209,50 @@ public class ResumableAsyncIndexUpdate extends AsyncIndexUpdate {
             }
             // The resume-lane checkpoint property is managed by the base full-completion
             // path; only the PathTree resume-state node needs removal here.
+        }
+    }
+
+    /** Property marking that this resume lane is paused pending a native reindex. */
+    private static final String REINDEX_PAUSED_MARKER = "reindexPaused";
+
+    @Override
+    protected boolean shouldPauseForNativeReindex(NodeState root) {
+        if (isResumableReindexEnabled()) {
+            return false;   // toggle ON: the resume lane owns the reindex, no pause
+        }
+        String base = baseLaneName(getName());
+        NodeState defs = root.getChildNode(IndexConstants.INDEX_DEFINITIONS_NAME);
+        for (String n : defs.getChildNodeNames()) {
+            NodeState def = defs.getChildNode(n);
+            if (IndexConstants.MODE_RESUME.equals(def.getString(IndexConstants.MODE_PROPERTY_NAME))
+                    && def.getBoolean(IndexConstants.REINDEX_PROPERTY_NAME)
+                    && def.hasProperty(IndexConstants.ASYNC_PROPERTY_NAME)
+                    && IterableUtils.contains(
+                            def.getProperty(IndexConstants.ASYNC_PROPERTY_NAME).getValue(Type.STRINGS), base)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    protected void markReindexPaused(NodeBuilder root) {
+        root.child(ASYNC).child(getName() + "-resume").setProperty(REINDEX_PAUSED_MARKER, true);
+    }
+
+    @Override
+    protected boolean isReindexPaused(NodeState root) {
+        return root.getChildNode(ASYNC).getChildNode(getName() + "-resume").getBoolean(REINDEX_PAUSED_MARKER);
+    }
+
+    @Override
+    protected void resetAfterNativeReindex(NodeBuilder root) {
+        NodeBuilder async = root.getChildNode(ASYNC);
+        String resumeNode = getName() + "-resume";
+        if (async.hasChildNode(resumeNode)) {
+            // drop the cursor + pause marker; keep :async/<lane> checkpoint (C_pause) so all
+            // resume-mode defs restart cleanly from there.
+            async.getChildNode(resumeNode).remove();
         }
     }
 

@@ -92,6 +92,7 @@ import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.spi.state.NodeStateDiff;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
+import org.apache.jackrabbit.oak.spi.toggle.Feature;
 import org.apache.jackrabbit.oak.stats.CounterStats;
 import org.apache.jackrabbit.oak.stats.Counting;
 import org.apache.jackrabbit.oak.stats.HistogramStats;
@@ -738,6 +739,31 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             }
         }
 
+        // Fallback C: pause this lane while a native reindex runs; reset once it completes.
+        if (shouldPauseForNativeReindex(root)) {
+            NodeBuilder pauseBuilder = store.getRoot().builder();
+            markReindexPaused(pauseBuilder);
+            try {
+                store.merge(pauseBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+            } catch (CommitFailedException e) {
+                log.warn("[{}] Failed to persist reindex-pause marker", name, e);
+            }
+            log.info("[{}] Pausing lane while a native reindex is in flight", name);
+            return;
+        }
+        if (isReindexPaused(root)) {
+            NodeBuilder resetBuilder = store.getRoot().builder();
+            resetAfterNativeReindex(resetBuilder);
+            try {
+                store.merge(resetBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+            } catch (CommitFailedException e) {
+                log.warn("[{}] Failed to reset resume state after native reindex", name, e);
+            }
+            root = store.getRoot();          // re-read after reset so the run proceeds from clean state
+            async = root.getChildNode(ASYNC);
+            log.info("[{}] Native reindex complete; lane reset to base checkpoint", name);
+        }
+
         // start collecting runtime statistics
         preAsyncRunStatsStats(indexStats);
 
@@ -1079,6 +1105,28 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         return false;
     }
 
+    /** Feature toggle gating resumable reindex; wired at registration (Task 8). Null => OFF. */
+    private Feature resumableReindexFeature;
+    /** Test-only override of the toggle state. */
+    private Boolean resumableReindexEnabledOverride;
+
+    /** Wires the resumable-reindex feature toggle (called at registration in Task 8). */
+    public void setResumableReindexFeature(Feature feature) {
+        this.resumableReindexFeature = feature;
+    }
+
+    void setResumableReindexEnabledForTest(boolean enabled) {
+        this.resumableReindexEnabledOverride = enabled;
+    }
+
+    /** Whether resumable reindex is enabled. Base default is OFF (null feature => false). */
+    protected boolean isResumableReindexEnabled() {
+        if (resumableReindexEnabledOverride != null) {
+            return resumableReindexEnabledOverride;
+        }
+        return resumableReindexFeature != null && resumableReindexFeature.isEnabled();
+    }
+
     /**
      * Whether the current run should operate in chunk-based (resumable)
      * mode. Base implementation always returns {@code false}: plain
@@ -1121,6 +1169,29 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
      * is updated. Base implementation is a no-op.
      */
     protected void afterRun(NodeBuilder builder, IndexUpdate indexUpdate, boolean fullyCompleted) {
+        // no-op in the base implementation
+    }
+
+    /**
+     * Whether this run must be skipped because a native reindex of one of this
+     * lane's resume-mode defs is in flight (fallback C). Base default: false.
+     */
+    protected boolean shouldPauseForNativeReindex(NodeState root) {
+        return false;
+    }
+
+    /** Records that this lane is paused for a native reindex. Base default: no-op. */
+    protected void markReindexPaused(NodeBuilder builder) {
+        // no-op in the base implementation
+    }
+
+    /** Whether this lane is currently marked paused for a native reindex. Base default: false. */
+    protected boolean isReindexPaused(NodeState root) {
+        return false;
+    }
+
+    /** Resets this lane's resume state after a native reindex completes. Base default: no-op. */
+    protected void resetAfterNativeReindex(NodeBuilder builder) {
         // no-op in the base implementation
     }
 
@@ -1203,7 +1274,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
 
             // Create IndexUpdate with ResumeContext
             indexUpdate = new IndexUpdate(provider, indexMatchLaneName(), after, builder, callback, callback,
-                    info, corruptIndexHandler, resumeContext, null, isResumeLane(), chunkedMode)
+                    info, corruptIndexHandler, resumeContext, null, isResumeLane(), chunkedMode, isResumableReindexEnabled())
                     .withMissingProviderStrategy(missingStrategy);
             configureRateEstimator(indexUpdate);
                             
