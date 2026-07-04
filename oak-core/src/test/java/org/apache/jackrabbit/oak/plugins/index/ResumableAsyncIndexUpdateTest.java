@@ -306,6 +306,75 @@ public class ResumableAsyncIndexUpdateTest {
                         .getBoolean(REINDEX_PROPERTY_NAME));
     }
 
+    @Test
+    public void pauseMarkerMergedOnlyOnTransitionIntoPaused() throws Exception {
+        MemoryNodeStore delegate = new MemoryNodeStore();
+        MergeCountingNodeStore store = new MergeCountingNodeStore(delegate);
+
+        NodeBuilder b = store.getRoot().builder();
+        b.child(":async").setProperty("resume_async", "cp-pause");
+        NodeBuilder def = b.child("oak:index").child("idx");
+        def.setProperty("type", "property");
+        def.setProperty("async", "async");
+        def.setProperty(IndexConstants.MODE_PROPERTY_NAME, IndexConstants.MODE_RESUME);
+        def.setProperty(IndexConstants.REINDEX_PROPERTY_NAME, true);   // native reindex in flight
+        store.merge(b, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+
+        ResumableAsyncIndexUpdate r = new ResumableAsyncIndexUpdate(
+                ResumableAsyncIndexUpdate.resumeLaneName("async"), store,
+                new PropertyIndexEditorProvider(), StatisticsProvider.NOOP, false);
+        r.setResumableReindexEnabledForTest(false);   // toggle OFF -> lane pauses
+
+        assertFalse("precondition: not yet paused", r.isReindexPaused(store.getRoot()));
+
+        // First run: transitions into paused -> marker merged exactly once.
+        store.resetMergeCount();
+        r.run();
+        assertTrue("marker written on transition into paused", r.isReindexPaused(store.getRoot()));
+        assertEquals("exactly one merge (the pause marker) on the pausing transition",
+                1, store.getMergeCount());
+
+        // Second run: already paused -> no re-merge, no additional churn.
+        assertTrue("entering second run already paused", r.isReindexPaused(store.getRoot()));
+        store.resetMergeCount();
+        r.run();
+        assertEquals("no merge while already paused for native reindex",
+                0, store.getMergeCount());
+        assertTrue("still paused after the inert second run", r.isReindexPaused(store.getRoot()));
+    }
+
+    /** Wraps a NodeStore to count merge() invocations for churn assertions. */
+    private static final class MergeCountingNodeStore
+            extends org.apache.jackrabbit.oak.spi.state.ProxyNodeStore {
+        private final NodeStore delegate;
+        private int mergeCount;
+
+        MergeCountingNodeStore(NodeStore delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        protected NodeStore getNodeStore() {
+            return delegate;
+        }
+
+        @Override
+        public NodeState merge(NodeBuilder builder,
+                               org.apache.jackrabbit.oak.spi.commit.CommitHook commitHook,
+                               CommitInfo info) throws CommitFailedException {
+            mergeCount++;
+            return delegate.merge(builder, commitHook, info);
+        }
+
+        int getMergeCount() {
+            return mergeCount;
+        }
+
+        void resetMergeCount() {
+            mergeCount = 0;
+        }
+    }
+
     private static Set<String> find(PropertyIndexLookup lookup, String name, String value) {
         return SetUtils.toSet(lookup.query(FilterImpl.newTestInstance(), name,
                 PropertyValues.newString(value)));

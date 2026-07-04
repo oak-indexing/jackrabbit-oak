@@ -740,15 +740,22 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         }
 
         // Fallback C: pause this lane while a native reindex runs; reset once it completes.
+        // Only merge the pause marker + log INFO on the TRANSITION into paused; while already
+        // paused (a native reindex can run for hours) just return so we don't re-merge the
+        // marker and log an INFO on every scheduler cycle.
         if (shouldPauseForNativeReindex(root)) {
-            NodeBuilder pauseBuilder = store.getRoot().builder();
-            markReindexPaused(pauseBuilder);
-            try {
-                store.merge(pauseBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
-            } catch (CommitFailedException e) {
-                log.warn("[{}] Failed to persist reindex-pause marker", name, e);
+            if (!isReindexPaused(root)) {
+                NodeBuilder pauseBuilder = store.getRoot().builder();
+                markReindexPaused(pauseBuilder);
+                try {
+                    store.merge(pauseBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+                } catch (CommitFailedException e) {
+                    log.warn("[{}] Failed to persist reindex-pause marker", name, e);
+                }
+                log.info("[{}] Pausing lane while a native reindex is in flight", name);
+            } else {
+                log.debug("[{}] Lane already paused for native reindex; skipping run", name);
             }
-            log.info("[{}] Pausing lane while a native reindex is in flight", name);
             return;
         }
         if (isReindexPaused(root)) {
