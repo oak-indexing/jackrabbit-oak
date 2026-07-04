@@ -771,6 +771,13 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             log.info("[{}] Native reindex complete; lane reset to base checkpoint", name);
         }
 
+        // A resume lane with no mode=resume work and no residual resume state must stay inert
+        // rather than run an empty diff and churn a checkpoint every cycle (base lane never skips).
+        if (skipInertResumeRun(root)) {
+            log.debug("[{}] No resume-mode work and no residual resume state; run is inert", name);
+            return;
+        }
+
         // start collecting runtime statistics
         preAsyncRunStatsStats(indexStats);
 
@@ -1213,6 +1220,16 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
     /** Resets this lane's resume state after a native reindex completes. Base default: no-op. */
     protected void resetAfterNativeReindex(NodeBuilder builder) {
         // no-op in the base implementation
+    }
+
+    /**
+     * Whether this run has nothing to do and must not touch {@code :async}. Lets a resume
+     * lane short-circuit when there is no {@code mode=resume} work and no residual resume
+     * state, so pristine deployments (zero resume defs) never churn a checkpoint per cycle.
+     * Base implementation always returns {@code false}: the normal async lane never skips.
+     */
+    protected boolean skipInertResumeRun(NodeState root) {
+        return false;
     }
 
     /**

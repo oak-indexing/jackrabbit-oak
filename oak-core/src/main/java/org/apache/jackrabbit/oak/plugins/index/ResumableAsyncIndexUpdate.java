@@ -216,6 +216,30 @@ public class ResumableAsyncIndexUpdate extends AsyncIndexUpdate {
     private static final String REINDEX_PAUSED_MARKER = "reindexPaused";
 
     @Override
+    protected boolean skipInertResumeRun(NodeState root) {
+        String base = baseLaneName(getName());
+        NodeState defs = root.getChildNode(IndexConstants.INDEX_DEFINITIONS_NAME);
+        for (String n : defs.getChildNodeNames()) {
+            NodeState def = defs.getChildNode(n);
+            if (!def.hasProperty(IndexConstants.ASYNC_PROPERTY_NAME)) {
+                continue;
+            }
+            if (!IterableUtils.contains(
+                    def.getProperty(IndexConstants.ASYNC_PROPERTY_NAME).getValue(Type.STRINGS), base)) {
+                continue;
+            }
+            boolean isResume = IndexConstants.MODE_RESUME.equals(
+                    def.getString(IndexConstants.MODE_PROPERTY_NAME));
+            boolean wasManaged = def.getBoolean(RESUME_MANAGED_MARKER);   // ":resumeManaged"
+            if (isResume || wasManaged) {
+                return false;   // real resume work or a pending self-heal (reverted def)
+            }
+        }
+        // no managed/candidate def: skip only if there is no residual resume-state node
+        return !root.getChildNode(ASYNC).getChildNode(getName() + "-resume").exists();
+    }
+
+    @Override
     protected boolean shouldPauseForNativeReindex(NodeState root) {
         if (isResumableReindexEnabled()) {
             return false;   // toggle ON: the resume lane owns the reindex, no pause
