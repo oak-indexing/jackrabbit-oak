@@ -147,8 +147,11 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
 
     private final IndexEditorProvider provider;
     
-    // Chunk size for resumable indexing (nodes per chunk)
-    private final long configuredChunkSize;
+    // Chunk size for resumable indexing (nodes per chunk).
+    // Cached at construction; consumed by the chunk path in updateIndex() (only
+    // reached when a resume subclass enables chunking) and by
+    // ResumableAsyncIndexUpdate.isChunkedRun().
+    protected final long configuredChunkSize;
 
     /**
      * Property name which stores the timestamp upto which the repository is
@@ -241,8 +244,12 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
      * are read afresh on each run() because tests and operators may toggle them
      * between runs, so those reads must stay in updateIndex() rather than move to
      * field initializers.
+     *
+     * <p>There is no longer a global {@code oak.async.resume} master switch:
+     * chunked/resumable indexing engages only when running
+     * {@link ResumableAsyncIndexUpdate}, whose seam overrides consult the chunk
+     * configuration below. Plain {@code AsyncIndexUpdate} never chunks.
      * <ul>
-     *   <li>{@code oak.async.resume} — master switch for resume/chunk mode</li>
      *   <li>{@code oak.async.chunkSize} — max NEW nodes indexed per chunk (&gt;0 enables count-based chunking)</li>
      *   <li>{@code oak.async.chunkTimeMs} — max wall-clock ms per chunk (&gt;0 enables time-based chunking)</li>
      *   <li>{@code oak.async.usePathTreeTraversal} — drive resume via PathTree instead of a full EditorDiff</li>
@@ -250,9 +257,8 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
      *   <li>{@code oak.async.pathTreeUltraSlimFormat} — persist the PathTree in ULTRA_SLIM format</li>
      * </ul>
      */
-    private static final String PROP_RESUME_ENABLED = "oak.async.resume";
     private static final String PROP_CHUNK_SIZE = "oak.async.chunkSize";
-    private static final String PROP_CHUNK_TIME_MS = "oak.async.chunkTimeMs";
+    protected static final String PROP_CHUNK_TIME_MS = "oak.async.chunkTimeMs";
     private static final String PROP_USE_PATHTREE_TRAVERSAL = "oak.async.usePathTreeTraversal";
     private static final String PROP_PATHTREE_SLIM_FORMAT = "oak.async.pathTreeSlimFormat";
     private static final String PROP_PATHTREE_ULTRA_SLIM_FORMAT = "oak.async.pathTreeUltraSlimFormat";
@@ -1070,23 +1076,19 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
 
     /**
      * Whether the current run should operate in chunk-based (resumable)
-     * mode. Base implementation reproduces today's gate: chunking requires
-     * the {@code oak.async.resume} system property, a configured chunk size
-     * or chunk time limit, and a non-initial index.
+     * mode. Base implementation always returns {@code false}: plain
+     * {@code AsyncIndexUpdate} never chunks, regardless of system properties.
+     * Chunking is re-enabled only by {@link ResumableAsyncIndexUpdate}.
      */
     protected boolean isChunkedRun(NodeState before) {
-        boolean resumeEnabled = Boolean.getBoolean(PROP_RESUME_ENABLED);
-        long chunkTimeMs = Long.getLong(PROP_CHUNK_TIME_MS, 0);
-        boolean isInitialIndex = before == MISSING_NODE;
-        return resumeEnabled && (configuredChunkSize > 0 || chunkTimeMs > 0) && !isInitialIndex;
+        return false;
     }
 
     /**
      * Handles a chunk boundary: commits the chunk and persists resume state.
-     * Base implementation reproduces the current chunk-commit behaviour and
-     * always returns {@code true}, meaning the caller must treat the run as
-     * "chunk complete but not full completion" and return {@code false}
-     * from {@link #updateIndex}.
+     * Base implementation returns {@code false}: the base indexer never
+     * reaches a chunk boundary. {@link ResumableAsyncIndexUpdate} overrides
+     * this to perform the real chunk-commit.
      */
     protected boolean onChunkComplete(CommitFailedException exception,
                                        AsyncUpdateCallback callback,
@@ -1096,15 +1098,17 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                                        String beforeCheckpoint,
                                        String afterCheckpoint,
                                        AtomicReference<String> checkpointToReleaseRef) throws CommitFailedException {
-        commitChunkAndSaveResumeState(exception, callback, resumeContext, indexUpdate,
-                builder, beforeCheckpoint, afterCheckpoint);
+        return false;
+    }
 
-        // Don't release any checkpoints - we need both beforeCheckpoint and afterCheckpoint
-        // They will be cleaned up when indexing completes
-        checkpointToReleaseRef.set(null);  // Don't release anything yet
-
-        log.info("[{}] Chunk commit complete - index is incrementally searchable", name);
-        return true;
+    /**
+     * Builds the {@link ResumeContext} threaded into the {@link IndexUpdate}.
+     * Base implementation produces a plain non-resume context (no resume path),
+     * exactly as the non-chunked path always has. {@link ResumableAsyncIndexUpdate}
+     * overrides this to wire up the PathTree-backed resume context.
+     */
+    protected ResumeContext buildResumeContext(String resumeFromPath, PathTree pathTree, long chunkLimit) {
+        return new ResumeContext(null, pathTree, (int) chunkLimit);
     }
 
     /**
@@ -1142,18 +1146,17 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         // Prepare callback - resets counters
         callback.prepare(afterCheckpoint);
         
-        // Check if resume indexing is enabled via system property
-        boolean resumeEnabled = Boolean.getBoolean(PROP_RESUME_ENABLED);
         long chunkTimeMs = Long.getLong(PROP_CHUNK_TIME_MS, 0); // Time-based chunking
 
-        // Chunk-based resumable indexing using PathTree
+        // Chunk-based resumable indexing using PathTree. isChunkedRun() is false
+        // in the base indexer and true only for ResumableAsyncIndexUpdate.
         boolean isInitialIndex = before == MISSING_NODE;
         boolean chunkedMode = isChunkedRun(before);
 
         // Log indexing mode
-        String indexingMode = resumeEnabled ? "RESUME" : "NORMAL";
-        log.debug("[MODE] Indexing mode: {}, resumeEnabled={}, chunkSize={}, chunkTimeMs={}, isInitialIndex={}, chunkedMode={}",
-            indexingMode, resumeEnabled, configuredChunkSize, chunkTimeMs, isInitialIndex, chunkedMode);
+        String indexingMode = chunkedMode ? "RESUME" : "NORMAL";
+        log.debug("[MODE] Indexing mode: {}, chunkSize={}, chunkTimeMs={}, isInitialIndex={}, chunkedMode={}",
+            indexingMode, configuredChunkSize, chunkTimeMs, isInitialIndex, chunkedMode);
         
         if (chunkedMode) {
                 callback.setUpdateLimit((int) configuredChunkSize);
@@ -1187,19 +1190,12 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             // Load PathTree from persisted resume state, or create a fresh one.
             PathTree pathTree = loadOrCreatePathTree(resumeFromPath);
 
-            // Create ResumeContext with PathTree
+            // Build the ResumeContext. Resume wiring is subclass-specific: the base
+            // produces a plain non-resume context, ResumableAsyncIndexUpdate wires
+            // up the PathTree-backed resume context.
             int chunkLimit = chunkedMode ? (int) configuredChunkSize : 0;
-            ResumeContext resumeContext;
-            if (resumeFromPath != null && !"/".equals(resumeFromPath)) {
-                resumeContext = ResumeContext.createForResume(resumeFromPath, pathTree, chunkLimit);
-                log.info("[{}] Created resume context from path: {} (PathTree has {} indexed nodes)", 
-                    name, resumeFromPath, pathTree.getIndexedNodes());
-            } else {
-                // For first run or non-resume, still use the PathTree to track what we index
-                resumeContext = new ResumeContext(null, pathTree, chunkLimit);
-                log.debug("[{}] Created first-run resume context with PathTree", name);
-            }
-            
+            ResumeContext resumeContext = buildResumeContext(resumeFromPath, pathTree, chunkLimit);
+
             // Create IndexUpdate with ResumeContext
             indexUpdate = new IndexUpdate(provider, indexMatchLaneName(), after, builder, callback, callback,
                     info, corruptIndexHandler, resumeContext, null, isResumeLane())
@@ -1430,7 +1426,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
      * a non-root path, or creates a fresh one otherwise. Extracted from
      * updateIndex() to keep the traversal path readable; behaviour is unchanged.
      */
-    private PathTree loadOrCreatePathTree(String resumeFromPath) {
+    protected PathTree loadOrCreatePathTree(String resumeFromPath) {
         String resumeNodeName = name + "-resume";
         NodeState asyncState = store.getRoot().getChildNode(ASYNC);
         NodeState resumeState = asyncState.getChildNode(resumeNodeName);
@@ -1482,7 +1478,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
      * failure so the caller leaves indexingFailed=true and the finally block in
      * updateIndex() records COMMIT_FAILED.
      */
-    private void commitChunkAndSaveResumeState(CommitFailedException exception,
+    protected void commitChunkAndSaveResumeState(CommitFailedException exception,
                                                AsyncUpdateCallback callback,
                                                ResumeContext resumeContext,
                                                IndexUpdate indexUpdate,
@@ -1601,7 +1597,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
      * A failure here is non-critical and is only logged. Extracted from
      * updateIndex(); behaviour is unchanged.
      */
-    private void clearResumeStateAfterCompletion() {
+    protected void clearResumeStateAfterCompletion() {
         try {
             NodeBuilder cleanupBuilder = store.getRoot().builder();
             String cleanupResumeNodeName = name + "-resume";

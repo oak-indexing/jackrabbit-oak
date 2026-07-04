@@ -31,6 +31,7 @@ import org.apache.jackrabbit.oak.plugins.document.MongoConnectionFactory;
 import org.apache.jackrabbit.oak.plugins.document.MongoUtils;
 import org.apache.jackrabbit.oak.plugins.document.util.MongoConnection;
 import org.apache.jackrabbit.oak.plugins.index.AsyncIndexUpdate;
+import org.apache.jackrabbit.oak.plugins.index.ResumableAsyncIndexUpdate;
 import org.apache.jackrabbit.oak.plugins.index.lucene.IndexCopier;
 import org.apache.jackrabbit.oak.plugins.index.lucene.IndexTracker;
 import org.apache.jackrabbit.oak.plugins.index.lucene.LuceneIndexEditorProvider;
@@ -224,7 +225,7 @@ public class ResumeIndexingPerfTest {
                 if (initialRuns <= 5 || initialRuns % 100 == 0) {
                     System.out.println("  Run #" + initialRuns + ": reindex=" + reindex + 
                         ", exists=" + idxState.exists() + 
-                        ", checkpoint=" + rootAfterRun.getChildNode(":async").getString("async"));
+                        ", checkpoint=" + rootAfterRun.getChildNode(":async").getString("resume_async"));
                 }
                 
                 if (!reindex) {
@@ -237,7 +238,7 @@ public class ResumeIndexingPerfTest {
             }
             
             // Verify checkpoint was created
-            String initialCheckpoint = ctx.nodeStore.getRoot().getChildNode(":async").getString("async");
+            String initialCheckpoint = ctx.nodeStore.getRoot().getChildNode(":async").getString("resume_async");
             System.out.println("  Checkpoint after initial index: " + initialCheckpoint);
 
             // === PHASE 2: Create content AFTER initial index is built ===
@@ -347,7 +348,7 @@ public class ResumeIndexingPerfTest {
                 org.apache.jackrabbit.oak.spi.state.NodeState asyncNode = rootState.getChildNode(":async");
                 
                 // Check checkpoint state
-                String currentCheckpoint = asyncNode.getString("async");
+                String currentCheckpoint = asyncNode.getString("resume_async");
                 org.apache.jackrabbit.oak.spi.state.NodeState idxAfterRun = 
                     rootState.getChildNode("oak:index").getChildNode("damAssetLucene");
                 boolean hasData = idxAfterRun.hasChildNode(":data");
@@ -360,7 +361,7 @@ public class ResumeIndexingPerfTest {
                 }
 
                 // Check if there's a resume state (indicates chunk limit was reached)
-                org.apache.jackrabbit.oak.spi.state.NodeState laneNode = asyncNode.getChildNode("async-resume");
+                org.apache.jackrabbit.oak.spi.state.NodeState laneNode = asyncNode.getChildNode("resume_async-resume");
                 boolean hasResumeState = laneNode.exists() && laneNode.hasProperty("lastIndexedPath");
                 String currentResumeState = hasResumeState ? laneNode.getString("lastIndexedPath") : null;
                 
@@ -655,7 +656,7 @@ public class ResumeIndexingPerfTest {
             org.apache.jackrabbit.oak.spi.state.NodeState asyncState = debugRoot.getChildNode(":async");
             System.out.println("    :async exists: " + asyncState.exists());
             if (asyncState.exists()) {
-                System.out.println("    :async checkpoint: " + asyncState.getString("async"));
+                System.out.println("    :async checkpoint: " + asyncState.getString("resume_async"));
             }
 
             // 4. Verification
@@ -956,8 +957,10 @@ public class ResumeIndexingPerfTest {
             System.out.println("  [TEST] Resumable indexing enabled - chunkSize: " + CHUNK_SIZE);
         }
 
-        // AsyncIndexUpdate
-        ctx.asyncIndexUpdate = new AsyncIndexUpdate("async", ctx.nodeStore,
+        // AsyncIndexUpdate: resume/chunk behaviour lives only in the segregated
+        // subclass running on the resume_ lane; the base class never chunks.
+        ctx.asyncIndexUpdate = new ResumableAsyncIndexUpdate(
+            ResumableAsyncIndexUpdate.resumeLaneName("async"), ctx.nodeStore,
             org.apache.jackrabbit.oak.plugins.index.CompositeIndexEditorProvider.compose(
                 Arrays.asList(
                     ctx.editorProvider,
@@ -974,6 +977,7 @@ public class ResumeIndexingPerfTest {
         index.setProperty("jcr:primaryType", "oak:QueryIndexDefinition", Type.NAME);
         index.setProperty("type", "lucene");
         index.setProperty("async", "async");
+        index.setProperty("mode", "resume");
         index.setProperty("compatVersion", 2);
         index.setProperty("reindex", true);
         index.setProperty("evaluatePathRestrictions", true);

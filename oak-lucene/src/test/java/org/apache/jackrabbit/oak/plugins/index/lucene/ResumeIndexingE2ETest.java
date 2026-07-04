@@ -32,6 +32,7 @@ import org.apache.jackrabbit.oak.plugins.document.MongoConnectionFactory;
 import org.apache.jackrabbit.oak.plugins.document.MongoUtils;
 import org.apache.jackrabbit.oak.plugins.document.util.MongoConnection;
 import org.apache.jackrabbit.oak.plugins.index.AsyncIndexUpdate;
+import org.apache.jackrabbit.oak.plugins.index.ResumableAsyncIndexUpdate;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
 import org.apache.jackrabbit.oak.segment.SegmentNodeStoreBuilders;
 import org.apache.jackrabbit.oak.segment.file.FileStore;
@@ -252,6 +253,34 @@ public class ResumeIndexingE2ETest {
         }
     }
 
+    /**
+     * Name of the hidden resume-state node persisted by the resume lane
+     * (lane {@code resume_async} → {@code :async/resume_async-resume}).
+     */
+    private static final String RESUME_STATE_NODE =
+            ResumableAsyncIndexUpdate.resumeLaneName("async") + "-resume";
+
+    /**
+     * Closes the current indexer and switches it for the segregated resume-lane
+     * variant. Used by the resume tests; resume/chunk behaviour now comes solely
+     * from running {@link ResumableAsyncIndexUpdate} (no oak.async.resume gate).
+     */
+    private void switchToResumeIndexer() throws Exception {
+        if (asyncIndexUpdate != null) {
+            asyncIndexUpdate.close();
+        }
+        asyncIndexUpdate = new ResumableAsyncIndexUpdate(
+            ResumableAsyncIndexUpdate.resumeLaneName("async"), nodeStore,
+            org.apache.jackrabbit.oak.plugins.index.CompositeIndexEditorProvider.compose(
+                Arrays.asList(
+                    editorProvider,
+                    new org.apache.jackrabbit.oak.plugins.index.property.PropertyIndexEditorProvider(),
+                    new org.apache.jackrabbit.oak.plugins.index.counter.NodeCounterEditorProvider()
+                )
+            )
+        );
+    }
+
     private void runIndexer() {
             asyncIndexUpdate.run();
 
@@ -440,6 +469,7 @@ public class ResumeIndexingE2ETest {
         try {
             // Set very small chunk size to force suspension
             System.setProperty(propertyName, "2");
+            switchToResumeIndexer();
 
             // 1. Create Lucene Index Definition
             Tree oakIndex = root.getTree("/oak:index");
@@ -447,6 +477,7 @@ public class ResumeIndexingE2ETest {
             testIndex.setProperty("jcr:primaryType", "oak:QueryIndexDefinition", Type.NAME);
             testIndex.setProperty("type", "lucene");
             testIndex.setProperty("async", "async");
+            testIndex.setProperty("mode", "resume");
             testIndex.setProperty("compatVersion", 2);
             testIndex.setProperty("reindex", true);
 
@@ -486,7 +517,7 @@ public class ResumeIndexingE2ETest {
                 // Check resume state after each run
                 NodeState rootState = nodeStore.getRoot();
                 NodeState asyncNode = rootState.getChildNode(":async");
-                NodeState laneNode = asyncNode.getChildNode("async");
+                NodeState laneNode = asyncNode.getChildNode(RESUME_STATE_NODE);
 
                 if (laneNode.exists() && laneNode.hasProperty("targetCheckpoint")) {
                     String targetCheckpoint = laneNode.getString("targetCheckpoint");
@@ -532,6 +563,7 @@ public class ResumeIndexingE2ETest {
 
         try {
             System.setProperty(propertyName, "2");
+            switchToResumeIndexer();
 
             // 1. Create index
             Tree oakIndex = root.getTree("/oak:index");
@@ -539,6 +571,7 @@ public class ResumeIndexingE2ETest {
             resumeIndex.setProperty("jcr:primaryType", "oak:QueryIndexDefinition", Type.NAME);
             resumeIndex.setProperty("type", "lucene");
             resumeIndex.setProperty("async", "async");
+            resumeIndex.setProperty("mode", "resume");
             resumeIndex.setProperty("compatVersion", 2);
             resumeIndex.setProperty("reindex", true);
 
@@ -574,7 +607,7 @@ public class ResumeIndexingE2ETest {
 
                 NodeState rootState = nodeStore.getRoot();
                 NodeState asyncNode = rootState.getChildNode(":async");
-                NodeState laneNode = asyncNode.getChildNode("async");
+                NodeState laneNode = asyncNode.getChildNode(RESUME_STATE_NODE);
 
                 if (laneNode.exists() && laneNode.hasProperty("targetCheckpoint")) {
                     savedPath = laneNode.getString("lastIndexedPath");
@@ -588,17 +621,8 @@ public class ResumeIndexingE2ETest {
                 }
             }
 
-            // 4. Simulate restart - create new indexer instance
-            asyncIndexUpdate.close();
-            asyncIndexUpdate = new AsyncIndexUpdate("async", nodeStore,
-                org.apache.jackrabbit.oak.plugins.index.CompositeIndexEditorProvider.compose(
-                    Arrays.asList(
-                        editorProvider,
-                        new org.apache.jackrabbit.oak.plugins.index.property.PropertyIndexEditorProvider(),
-                        new org.apache.jackrabbit.oak.plugins.index.counter.NodeCounterEditorProvider()
-                    )
-                )
-            );
+            // 4. Simulate restart - create new indexer instance (still the resume lane)
+            switchToResumeIndexer();
 
             // 5. Continue indexing with new instance
             for (int i = 0; i < 20; i++) {
@@ -606,7 +630,7 @@ public class ResumeIndexingE2ETest {
 
                 NodeState rootState = nodeStore.getRoot();
                 NodeState asyncNode = rootState.getChildNode(":async");
-                NodeState laneNode = asyncNode.getChildNode("async");
+                NodeState laneNode = asyncNode.getChildNode(RESUME_STATE_NODE);
 
                 if (!laneNode.exists() || !laneNode.hasProperty("targetCheckpoint")) {
                     System.out.println("✓ Indexing completed after restart");
@@ -646,6 +670,7 @@ public class ResumeIndexingE2ETest {
 
         try {
             System.setProperty(propertyName, "2");
+            switchToResumeIndexer();
 
             // 1. Create index
             Tree oakIndex = root.getTree("/oak:index");
@@ -653,6 +678,7 @@ public class ResumeIndexingE2ETest {
             orderIndex.setProperty("jcr:primaryType", "oak:QueryIndexDefinition", Type.NAME);
             orderIndex.setProperty("type", "lucene");
             orderIndex.setProperty("async", "async");
+            orderIndex.setProperty("mode", "resume");
             orderIndex.setProperty("compatVersion", 2);
             orderIndex.setProperty("reindex", true);
 
@@ -687,7 +713,7 @@ public class ResumeIndexingE2ETest {
 
                 NodeState rootState = nodeStore.getRoot();
                 NodeState asyncNode = rootState.getChildNode(":async");
-                NodeState laneNode = asyncNode.getChildNode("async");
+                NodeState laneNode = asyncNode.getChildNode(RESUME_STATE_NODE);
 
                 if (laneNode.exists() && laneNode.hasProperty("lastIndexedPath")) {
                     String path = laneNode.getString("lastIndexedPath");

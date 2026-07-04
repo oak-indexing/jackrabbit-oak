@@ -19,6 +19,8 @@ package org.apache.jackrabbit.oak.plugins.index;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.ASYNC_PROPERTY_NAME;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_CONTENT_NODE_NAME;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NAME;
+import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.MODE_PROPERTY_NAME;
+import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.MODE_RESUME;
 import static org.apache.jackrabbit.oak.plugins.index.IndexUtils.createIndexDefinition;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -76,10 +78,21 @@ public class AsyncIndexUpdateResumptionTest {
         NodeBuilder builder = store.getRoot().builder();
         createIndexDefinition(builder.child(INDEX_DEFINITIONS_NAME),
                 "rootIndex", true, false, Set.of("foo"), null)
-                .setProperty(ASYNC_PROPERTY_NAME, "async");
+                .setProperty(ASYNC_PROPERTY_NAME, "async")
+                .setProperty(MODE_PROPERTY_NAME, MODE_RESUME);
+        store.merge(builder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
 
-        // Create 100 nodes. Chunk size is 10.
-        // We expect roughly 10 chunks + initial setup commits.
+        // Resume/chunk mode now comes solely from running the segregated subclass on
+        // the resume_ lane; there is no oak.async.resume gate any more.
+        String resumeLane = ResumableAsyncIndexUpdate.resumeLaneName("async");
+        AsyncIndexUpdate async = new ResumableAsyncIndexUpdate(resumeLane, store, provider);
+
+        // Chunking is deliberately disabled during the initial index, so run once to
+        // establish the first checkpoint before adding the content that must be chunked.
+        async.run();
+
+        // Create 100 nodes. Chunk size is 10. We expect roughly 10 chunks.
+        builder = store.getRoot().builder();
         for (int i = 0; i < 100; i++) {
             builder.child("testRoot" + i).setProperty("foo", "abc");
         }
@@ -87,8 +100,16 @@ public class AsyncIndexUpdateResumptionTest {
 
         int initialMerges = mergeCount.get();
 
-        AsyncIndexUpdate async = new AsyncIndexUpdate("async", store, provider);
-        async.run();
+        // Drive the indexer incrementally: each run() processes one chunk and persists
+        // a resume cursor; the next run() resumes, until the resume state is cleared.
+        String resumeNode = resumeLane + "-resume";
+        for (int i = 0; i < 30; i++) {
+            async.run();
+            NodeState asyncNode = store.getRoot().getChildNode(":async");
+            if (!asyncNode.getChildNode(resumeNode).hasProperty("targetCheckpoint")) {
+                break;
+            }
+        }
 
         // Verify that indexing completed successfully
         NodeState root = store.getRoot();
@@ -97,18 +118,15 @@ public class AsyncIndexUpdateResumptionTest {
         PropertyIndexLookup lookup = new PropertyIndexLookup(root);
         assertEquals(100, find(lookup, "foo", "abc").size());
 
-        // Verify that we had multiple commits during async.run()
-        // 100 nodes / 10 chunk size = 10 commits.
-        // Plus checkpoint creation/release commits.
+        // Verify that we had multiple commits during the incremental chunked runs.
+        // 100 nodes / 10 chunk size = 10 chunks, each committing the chunk plus resume state.
         int asyncMerges = mergeCount.get() - initialMerges;
-        
-        // We expect significantly more than 1 (which would be the case for a single pass)
-        // Exact count might vary slightly due to implementation details (checkpoints etc),
-        // but it should be close to 10 + overhead.
+
+        // We expect significantly more than 1 (which would be the case for a single pass).
         assertTrue("Expected multiple commits for resumable indexing, got: " + asyncMerges, asyncMerges > 5);
-        
+
         // Verify resume node is cleaned up
-        assertTrue(!root.getChildNode(":async").getChildNode("async").hasProperty("targetCheckpoint"));
+        assertTrue(!root.getChildNode(":async").getChildNode(resumeNode).hasProperty("targetCheckpoint"));
     }
 
     @Test
@@ -132,19 +150,21 @@ public class AsyncIndexUpdateResumptionTest {
         NodeBuilder builder = store.getRoot().builder();
         createIndexDefinition(builder.child(INDEX_DEFINITIONS_NAME),
                 "rootIndex", true, false, Set.of("foo"), null)
-                .setProperty(ASYNC_PROPERTY_NAME, "async");
+                .setProperty(ASYNC_PROPERTY_NAME, "async")
+                .setProperty(MODE_PROPERTY_NAME, MODE_RESUME);
 
         // Create 500 nodes. Time limit is 1s.
         // 500 * 10ms = 5s. Should definitely hit limit.
         // Disable chunk limit for this test
         System.setProperty("oak.async.chunkSize", "-1");
-        
+
         for (int i = 0; i < 200; i++) {
             builder.child("testRoot" + i).setProperty("foo", "abc");
         }
         store.merge(builder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
 
-        AsyncIndexUpdate async = new AsyncIndexUpdate("async", store, provider);
+        AsyncIndexUpdate async = new ResumableAsyncIndexUpdate(
+                ResumableAsyncIndexUpdate.resumeLaneName("async"), store, provider);
         
         // Ensure the time limit is picked up (it's read in constructor of AsyncIndexUpdate or set via setter?)
         // In my implementation: private final int asyncTimeLimit = Integer.getInteger("oak.async.timeLimit", -1);
