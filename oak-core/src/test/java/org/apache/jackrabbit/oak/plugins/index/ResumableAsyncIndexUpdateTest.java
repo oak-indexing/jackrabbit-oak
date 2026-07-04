@@ -64,15 +64,14 @@ public class ResumableAsyncIndexUpdateTest {
     }
 
     @Test
-    public void revertDeletesResumeStateAndFlagsReindex() throws Exception {
+    public void revertedManagedDefIsReindexedAndStateDeleted() throws Exception {
         MemoryNodeStore store = new MemoryNodeStore();
         NodeBuilder b = store.getRoot().builder();
-        // resume state exists for the lane
         b.child(":async").child("resume_async-resume").setProperty("lastIndexedPath", "/content/x");
-        // an index def that was mode=resume but is now reverted (mode removed)
         NodeBuilder def = b.child("oak:index").child("myIndex");
         def.setProperty("type", "property");
-        def.setProperty("async", "async");            // still async
+        def.setProperty("async", "async");
+        def.setProperty(":resumeManaged", true);   // was managed by the resume lane
         // no "mode" property -> reverted
         store.merge(b, EmptyHook.INSTANCE, CommitInfo.EMPTY);
 
@@ -83,7 +82,85 @@ public class ResumableAsyncIndexUpdateTest {
         NodeBuilder root = store.getRoot().builder();
         r.cleanupRevertedIndexes(root);
 
-        assertTrue(root.getChildNode("oak:index").getChildNode("myIndex").getBoolean("reindex"));
+        NodeBuilder healed = root.getChildNode("oak:index").getChildNode("myIndex");
+        assertTrue(healed.getBoolean("reindex"));
+        assertFalse(healed.hasProperty(":resumeManaged"));   // marker cleared
         assertFalse(root.getChildNode(":async").hasChildNode("resume_async-resume"));
+    }
+
+    @Test
+    public void ordinaryNeverManagedDefIsUntouched() throws Exception {
+        MemoryNodeStore store = new MemoryNodeStore();
+        NodeBuilder b = store.getRoot().builder();
+        NodeBuilder def = b.child("oak:index").child("plainIndex");
+        def.setProperty("type", "property");
+        def.setProperty("async", "async");
+        // no mode, no :resumeManaged marker -> ordinary index, never in resume mode
+        store.merge(b, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+
+        ResumableAsyncIndexUpdate r = new ResumableAsyncIndexUpdate(
+                ResumableAsyncIndexUpdate.resumeLaneName("async"), store,
+                new PropertyIndexEditorProvider(), StatisticsProvider.NOOP, false);
+
+        NodeBuilder root = store.getRoot().builder();
+        r.cleanupRevertedIndexes(root);
+
+        NodeBuilder untouched = root.getChildNode("oak:index").getChildNode("plainIndex");
+        assertFalse(untouched.getBoolean("reindex"));         // NOT flagged (no reindex storm)
+        assertFalse(untouched.hasProperty(":resumeManaged"));
+    }
+
+    @Test
+    public void resumeModeDefIsMarkedAndStateRetained() throws Exception {
+        MemoryNodeStore store = new MemoryNodeStore();
+        NodeBuilder b = store.getRoot().builder();
+        b.child(":async").child("resume_async-resume").setProperty("lastIndexedPath", "/content/x");
+        NodeBuilder def = b.child("oak:index").child("liveIndex");
+        def.setProperty("type", "property");
+        def.setProperty("async", "async");
+        def.setProperty("mode", "resume");
+        store.merge(b, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+
+        ResumableAsyncIndexUpdate r = new ResumableAsyncIndexUpdate(
+                ResumableAsyncIndexUpdate.resumeLaneName("async"), store,
+                new PropertyIndexEditorProvider(), StatisticsProvider.NOOP, false);
+
+        NodeBuilder root = store.getRoot().builder();
+        r.cleanupRevertedIndexes(root);
+
+        NodeBuilder live = root.getChildNode("oak:index").getChildNode("liveIndex");
+        assertFalse(live.getBoolean("reindex"));              // active resume def not reindexed
+        assertTrue(live.getBoolean(":resumeManaged"));        // stamped as managed
+        assertTrue(root.getChildNode(":async").hasChildNode("resume_async-resume")); // state retained
+    }
+
+    @Test
+    public void mixedLiveAndRevertedDefsHandledIndependently() throws Exception {
+        MemoryNodeStore store = new MemoryNodeStore();
+        NodeBuilder b = store.getRoot().builder();
+        b.child(":async").child("resume_async-resume").setProperty("lastIndexedPath", "/content/x");
+        NodeBuilder live = b.child("oak:index").child("liveIndex");
+        live.setProperty("type", "property");
+        live.setProperty("async", "async");
+        live.setProperty("mode", "resume");
+        NodeBuilder reverted = b.child("oak:index").child("revertedIndex");
+        reverted.setProperty("type", "property");
+        reverted.setProperty("async", "async");
+        reverted.setProperty(":resumeManaged", true);   // was managed, mode now removed
+        store.merge(b, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+
+        ResumableAsyncIndexUpdate r = new ResumableAsyncIndexUpdate(
+                ResumableAsyncIndexUpdate.resumeLaneName("async"), store,
+                new PropertyIndexEditorProvider(), StatisticsProvider.NOOP, false);
+
+        NodeBuilder root = store.getRoot().builder();
+        r.cleanupRevertedIndexes(root);
+
+        NodeBuilder oakIndex = root.getChildNode("oak:index");
+        assertFalse(oakIndex.getChildNode("liveIndex").getBoolean("reindex"));
+        assertTrue(oakIndex.getChildNode("revertedIndex").getBoolean("reindex"));
+        assertFalse(oakIndex.getChildNode("revertedIndex").hasProperty(":resumeManaged"));
+        // a resume-mode def still remains -> resume state is NOT deleted
+        assertTrue(root.getChildNode(":async").hasChildNode("resume_async-resume"));
     }
 }

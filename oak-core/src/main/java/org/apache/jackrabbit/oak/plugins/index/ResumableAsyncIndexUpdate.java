@@ -74,6 +74,9 @@ public class ResumableAsyncIndexUpdate extends AsyncIndexUpdate {
         return laneName != null && laneName.startsWith(RESUME_LANE_PREFIX);
     }
 
+    /** Hidden marker set on a def while it is managed by this resume lane; used to detect reverts. */
+    private static final String RESUME_MANAGED_MARKER = ":resumeManaged";
+
     public ResumableAsyncIndexUpdate(@NotNull String resumeLaneName, @NotNull NodeStore store,
                                      @NotNull IndexEditorProvider provider, boolean switchOnSync) {
         super(resumeLaneName, store, provider, switchOnSync);
@@ -150,15 +153,20 @@ public class ResumableAsyncIndexUpdate extends AsyncIndexUpdate {
     /**
      * Self-heals when an index definition that used to opt into this resume lane
      * ({@code mode=resume}) has been reverted (the {@code mode} property removed or
-     * changed). For each such reverted def on this lane, flags {@code reindex=true}
-     * so the normal lane rebuilds it cleanly. Once no {@code mode=resume} defs remain
-     * on this lane, the lane's own resume-state node ({@code :async/<resumeLane>-resume})
-     * is deleted.
+     * changed). Detection is marker-based: while a def is observed with
+     * {@code mode=resume} it is stamped with the hidden {@link #RESUME_MANAGED_MARKER}
+     * property; a def that carries the marker but no longer has {@code mode=resume}
+     * has reverted, so it is flagged {@code reindex=true} (so the normal lane rebuilds
+     * it cleanly) and the marker is removed. Defs that were never managed by this lane
+     * (no marker, no {@code mode=resume}) are left untouched, so ordinary async indexes
+     * are never force-reindexed just because {@code mode} is unset. Once no
+     * {@code mode=resume} defs remain on this lane, the lane's own resume-state node
+     * ({@code :async/<resumeLane>-resume}) is deleted.
      */
     void cleanupRevertedIndexes(NodeBuilder root) {
         String base = baseLaneName(getName());
         boolean anyResumeDefRemains = false;
-        NodeBuilder defs = root.getChildNode("oak:index");
+        NodeBuilder defs = root.getChildNode(IndexConstants.INDEX_DEFINITIONS_NAME);
         if (defs.exists()) {
             for (String n : defs.getChildNodeNames()) {
                 NodeBuilder def = defs.getChildNode(n);
@@ -170,12 +178,21 @@ public class ResumableAsyncIndexUpdate extends AsyncIndexUpdate {
                 if (!matchesBase) {
                     continue;
                 }
-                if (IndexConstants.MODE_RESUME.equals(def.getString(IndexConstants.MODE_PROPERTY_NAME))) {
+                boolean isResume = IndexConstants.MODE_RESUME.equals(
+                        def.getString(IndexConstants.MODE_PROPERTY_NAME));
+                boolean wasManaged = def.getBoolean(RESUME_MANAGED_MARKER);
+                if (isResume) {
+                    if (!wasManaged) {
+                        def.setProperty(RESUME_MANAGED_MARKER, true);   // claim it (hidden marker)
+                    }
                     anyResumeDefRemains = true;
-                } else {
-                    // reverted: rebuild cleanly on the normal lane
+                } else if (wasManaged) {
+                    // this def WAS managed by the resume lane and has now reverted:
+                    // rebuild cleanly on the normal lane and drop the marker
                     def.setProperty(IndexConstants.REINDEX_PROPERTY_NAME, true);
+                    def.removeProperty(RESUME_MANAGED_MARKER);
                 }
+                // ordinary never-managed def (no mode, no marker): untouched
             }
         }
         if (!anyResumeDefRemains) {
