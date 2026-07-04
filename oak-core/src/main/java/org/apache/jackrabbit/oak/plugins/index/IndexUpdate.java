@@ -24,6 +24,8 @@ import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.ASYNC_REIND
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEXING_MODE_NRT;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEXING_MODE_SYNC;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NAME;
+import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.MODE_PROPERTY_NAME;
+import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.MODE_RESUME;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.REINDEX_ASYNC_PROPERTY_NAME;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.REINDEX_COUNT;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.REINDEX_PROPERTY_NAME;
@@ -209,13 +211,40 @@ public class IndexUpdate implements Editor, PathSource {
             IndexUpdateCallback updateCallback, NodeTraversalCallback traversalCallback,
             CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler,
             @Nullable ResumeContext resumeContext, @Nullable NodeStore store) {
+        this(provider, async, root, builder, updateCallback, traversalCallback,
+                commitInfo, corruptIndexHandler, resumeContext, store, false);
+    }
+
+    /**
+     * Constructor with ResumeContext for resumable indexing and an explicit resume-lane flag.
+     *
+     * @param provider the index editor provider
+     * @param async async lane name
+     * @param root the root node state
+     * @param builder the node builder
+     * @param updateCallback callback for index updates
+     * @param traversalCallback callback for node traversal
+     * @param commitInfo commit info
+     * @param corruptIndexHandler handler for corrupt indexes
+     * @param resumeContext context for resumable indexing (can be null)
+     * @param store node store used by the diff-index optimization (can be null)
+     * @param resumeLane {@code true} if this IndexUpdate run is the segregated resume lane,
+     *                   processing only {@code mode=resume} index definitions
+     */
+    public IndexUpdate(
+            IndexEditorProvider provider, String async,
+            NodeState root, NodeBuilder builder,
+            IndexUpdateCallback updateCallback, NodeTraversalCallback traversalCallback,
+            CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler,
+            @Nullable ResumeContext resumeContext, @Nullable NodeStore store,
+            boolean resumeLane) {
         this.store = store;
         this.parent = null;
         this.name = null;
         this.path = "/";
-        this.rootState = new IndexUpdateRootState(provider, async, root, builder, updateCallback, traversalCallback, commitInfo, corruptIndexHandler, resumeContext);
+        this.rootState = new IndexUpdateRootState(provider, async, root, builder, updateCallback, traversalCallback, commitInfo, corruptIndexHandler, resumeContext, resumeLane);
         this.builder = requireNonNull(builder);
-        
+
         // If we have a resume context and it's in skip mode, start in skip mode
         if (resumeContext != null && resumeContext.isInSkipMode()) {
             this.skipMode = true;
@@ -522,7 +551,7 @@ public class IndexUpdate implements Editor, PathSource {
         }
         for (String name : definitions.getChildNodeNames()) {
             NodeBuilder definition = definitions.getChildNode(name);
-            if (isIncluded(rootState.async, definition)) {
+            if (isIncluded(rootState.async, definition, rootState.resumeLane)) {
                 String type = definition.getString(TYPE_PROPERTY_NAME);
                 String primaryType = definition.getName(JcrConstants.JCR_PRIMARYTYPE);
                 if (type == null) {
@@ -643,6 +672,15 @@ public class IndexUpdate implements Editor, PathSource {
     }
 
     static boolean isIncluded(String asyncRef, NodeBuilder definition) {
+        return isIncluded(asyncRef, definition, false);
+    }
+
+    static boolean isIncluded(String asyncRef, NodeBuilder definition, boolean resumeLane) {
+        boolean resumeDef = MODE_RESUME.equals(definition.getString(MODE_PROPERTY_NAME));
+        // A resume lane only processes resume-mode defs; a normal lane only non-resume defs.
+        if (resumeDef != resumeLane) {
+            return false;
+        }
         if (definition.hasProperty(ASYNC_PROPERTY_NAME)) {
             PropertyState p = definition.getProperty(ASYNC_PROPERTY_NAME);
             Iterable<String> opt = p.getValue(Type.STRINGS);
@@ -938,11 +976,14 @@ public class IndexUpdate implements Editor, PathSource {
         @Nullable
         final ResumeContext resumeContext;
 
+        /** {@code true} if this IndexUpdate run is the segregated resume lane. */
+        final boolean resumeLane;
+
         private IndexUpdateRootState(IndexEditorProvider provider, String async, NodeState root,
                                      NodeBuilder builder, IndexUpdateCallback updateCallback,
                                      NodeTraversalCallback traversalCallback,
                                      CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler,
-                                     @Nullable ResumeContext resumeContext) {
+                                     @Nullable ResumeContext resumeContext, boolean resumeLane) {
             this.provider = requireNonNull(provider);
             this.async = async;
             this.root = requireNonNull(root);
@@ -951,6 +992,7 @@ public class IndexUpdate implements Editor, PathSource {
             this.indexDisabler = new IndexDisabler(builder);
             this.progressReporter = new IndexingProgressReporter(updateCallback, traversalCallback);
             this.resumeContext = resumeContext;
+            this.resumeLane = resumeLane;
         }
         
         /**

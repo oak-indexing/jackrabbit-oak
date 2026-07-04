@@ -51,6 +51,16 @@ public interface IndexConstants {
 
     String ASYNC_PROPERTY_NAME = "async";
 
+    /**
+     * Optional index-definition property selecting a processing mode.
+     * When set to {@link #MODE_RESUME} the index is processed by the
+     * segregated resumable async indexer instead of the normal lane.
+     */
+    String MODE_PROPERTY_NAME = "mode";
+
+    /** Value of {@link #MODE_PROPERTY_NAME} that opts an index into resumable indexing. */
+    String MODE_RESUME = "resume";
+
     String ASYNC_REINDEX_VALUE = "async-reindex";
 
     String ENTRY_COUNT_PROPERTY_NAME = "entryCount";
