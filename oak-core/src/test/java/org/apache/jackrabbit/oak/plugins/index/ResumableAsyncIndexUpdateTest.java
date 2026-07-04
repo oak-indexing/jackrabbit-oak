@@ -307,6 +307,53 @@ public class ResumableAsyncIndexUpdateTest {
     }
 
     @Test
+    public void resumeLaneIsInertWithNoResumeWork() throws Exception {
+        NodeStore store = new MemoryNodeStore();
+        IndexEditorProvider provider = new PropertyIndexEditorProvider();
+
+        // Only a plain async def (NO mode=resume) exists, indexed by the base lane.
+        NodeBuilder builder = store.getRoot().builder();
+        createIndexDefinition(builder.child(INDEX_DEFINITIONS_NAME),
+                "plainIndex", true, false, Set.of("foo"), null)
+                .setProperty(ASYNC_PROPERTY_NAME, "async");
+        builder.child("a").setProperty("foo", "x");
+        store.merge(builder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+        new AsyncIndexUpdate("async", store, provider).run();
+
+        // The resume lane must stay inert: no resume work, no residual resume state.
+        ResumableAsyncIndexUpdate resume = new ResumableAsyncIndexUpdate(
+                ResumableAsyncIndexUpdate.resumeLaneName("async"), store, provider);
+        assertTrue("run must be inert when there is no resume-mode work",
+                resume.skipInertResumeRun(store.getRoot()));
+        resume.run();
+
+        NodeState async = store.getRoot().getChildNode(":async");
+        assertFalse("inert resume run must not persist a resume_async checkpoint",
+                async.hasProperty("resume_async"));
+        assertFalse("inert resume run must not create a resume-state node",
+                async.hasChildNode("resume_async-resume"));
+    }
+
+    @Test
+    public void revertedManagedDefIsNotSkippedSoSelfHealRuns() throws Exception {
+        MemoryNodeStore store = new MemoryNodeStore();
+        NodeBuilder b = store.getRoot().builder();
+        NodeBuilder def = b.child("oak:index").child("myIndex");
+        def.setProperty("type", "property");
+        def.setProperty("async", "async");
+        def.setProperty(":resumeManaged", true);   // was managed by the resume lane
+        // no "mode" property -> reverted; self-heal must still run
+        store.merge(b, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+
+        ResumableAsyncIndexUpdate r = new ResumableAsyncIndexUpdate(
+                ResumableAsyncIndexUpdate.resumeLaneName("async"), store,
+                new PropertyIndexEditorProvider(), StatisticsProvider.NOOP, false);
+
+        assertFalse("a reverted :resumeManaged def must NOT be skipped (self-heal pending)",
+                r.skipInertResumeRun(store.getRoot()));
+    }
+
+    @Test
     public void pauseMarkerMergedOnlyOnTransitionIntoPaused() throws Exception {
         MemoryNodeStore delegate = new MemoryNodeStore();
         MergeCountingNodeStore store = new MergeCountingNodeStore(delegate);
