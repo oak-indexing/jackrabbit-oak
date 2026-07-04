@@ -34,6 +34,7 @@ import org.apache.jackrabbit.oak.plugins.observation.ChangeCollectorProvider;
 import org.apache.jackrabbit.oak.spi.commit.ValidatorProvider;
 import org.apache.jackrabbit.oak.spi.state.Clusterable;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
+import org.apache.jackrabbit.oak.spi.toggle.Feature;
 import org.apache.jackrabbit.oak.spi.whiteboard.CompositeRegistration;
 import org.apache.jackrabbit.oak.spi.whiteboard.Registration;
 import org.apache.jackrabbit.oak.spi.whiteboard.Whiteboard;
@@ -127,11 +128,15 @@ public class AsyncIndexerService {
 
         TrackingCorruptIndexHandler corruptIndexHandler = createCorruptIndexHandler(config);
 
+        Feature resumableReindex = Feature.newFeature("FT_RESUMABLE_REINDEXING_OAK-0", whiteboard);
+        closer.register(resumableReindex);
+
         for (AsyncConfig c : asyncIndexerConfig) {
             AsyncIndexUpdate task = new AsyncIndexUpdate(c.name, nodeStore, indexEditorProvider,
                     statisticsProvider, false);
             task.setCorruptIndexHandler(corruptIndexHandler);
             task.setValidatorProviders(Collections.singletonList(validatorProvider));
+            task.setResumableReindexFeature(resumableReindex);
 
             long leaseTimeOutMin = config.leaseTimeOutMinutes();
 
@@ -150,6 +155,16 @@ public class AsyncIndexerService {
             task.setLeaseTimeOut(TimeUnit.MINUTES.toMillis(leaseTimeOutMin));
             indexRegistration.registerAsyncIndexer(task, c.timeIntervalInSecs);
             closer.register(task);
+
+            ResumableAsyncIndexUpdate resumeTask = new ResumableAsyncIndexUpdate(
+                    ResumableAsyncIndexUpdate.resumeLaneName(c.name), nodeStore, indexEditorProvider,
+                    statisticsProvider, false);
+            resumeTask.setCorruptIndexHandler(corruptIndexHandler);
+            resumeTask.setValidatorProviders(Collections.singletonList(validatorProvider));
+            resumeTask.setResumableReindexFeature(resumableReindex);
+            resumeTask.setLeaseTimeOut(TimeUnit.MINUTES.toMillis(leaseTimeOutMin));
+            indexRegistration.registerAsyncIndexer(resumeTask, c.timeIntervalInSecs);
+            closer.register(resumeTask);
         }
         registerAsyncReindexSupport(whiteboard);
         log.info("Configured async indexers {} ", asyncIndexerConfig);
