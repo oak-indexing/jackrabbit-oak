@@ -97,6 +97,10 @@ public class IndexUpdate implements Editor, PathSource {
     // jcr:primaryType=nt:unstructured, so their presence is reported once at INFO.
     private static final Set<String> diffIndexesDetected = ConcurrentHashMap.newKeySet();
 
+    // Paths of nested (non top-level) mode=resume defs for which the "mode ignored" warning
+    // has already been logged in this JVM; used to keep the WARN from repeating every traversal.
+    private static final Set<String> nestedResumeWarned = ConcurrentHashMap.newKeySet();
+
     static void resetDiffIndexesDetectedForTest() {
         diffIndexesDetected.clear();
     }
@@ -560,9 +564,19 @@ public class IndexUpdate implements Editor, PathSource {
                 && rootState.async == null) {
             DiffIndex.applyDiffIndexChanges(store, definitions);
         }
+        // mode=resume is only supported on top-level /oak:index defs (see I-3). A nested
+        // mode=resume def is treated as an ordinary async def so that the top-level pause/
+        // cleanup scans stay correct by construction.
+        boolean isTopLevel = "/".equals(getPath());
         for (String name : definitions.getChildNodeNames()) {
             NodeBuilder definition = definitions.getChildNode(name);
-            if (isIncluded(rootState.async, definition, rootState.resumeLane, rootState.resumableReindexEnabled)) {
+            if (!isTopLevel && MODE_RESUME.equals(definition.getString(MODE_PROPERTY_NAME))
+                    && nestedResumeWarned.add(concat(getPath(), INDEX_DEFINITIONS_NAME, name))) {
+                log.warn("[{}] mode=resume is only supported on top-level /oak:index definitions;"
+                        + " ignoring mode on nested def {} and indexing it as ordinary async",
+                        rootState.async, concat(getPath(), INDEX_DEFINITIONS_NAME, name));
+            }
+            if (isIncluded(isTopLevel, rootState.async, definition, rootState.resumeLane, rootState.resumableReindexEnabled)) {
                 String type = definition.getString(TYPE_PROPERTY_NAME);
                 String primaryType = definition.getName(JcrConstants.JCR_PRIMARYTYPE);
                 if (type == null) {
@@ -694,16 +708,27 @@ public class IndexUpdate implements Editor, PathSource {
     }
 
     static boolean isIncluded(String asyncRef, NodeBuilder definition) {
-        return isIncluded(asyncRef, definition, false);
+        return isIncluded(true, asyncRef, definition, false, true);
     }
 
     static boolean isIncluded(String asyncRef, NodeBuilder definition, boolean resumeLane) {
-        return isIncluded(asyncRef, definition, resumeLane, true);
+        return isIncluded(true, asyncRef, definition, resumeLane, true);
     }
 
     static boolean isIncluded(String asyncRef, NodeBuilder definition,
                               boolean resumeLane, boolean resumableReindexEnabled) {
-        boolean resumeDef = MODE_RESUME.equals(definition.getString(MODE_PROPERTY_NAME));
+        return isIncluded(true, asyncRef, definition, resumeLane, resumableReindexEnabled);
+    }
+
+    /**
+     * @param isTopLevel {@code true} if {@code definition} lives directly under the top-level
+     *        {@code /oak:index}. {@code mode=resume} is only honoured for top-level defs; a
+     *        nested {@code mode=resume} def is treated as an ordinary async def (see I-3), so
+     *        it is picked up by the normal lane and never by the resume lane.
+     */
+    static boolean isIncluded(boolean isTopLevel, String asyncRef, NodeBuilder definition,
+                              boolean resumeLane, boolean resumableReindexEnabled) {
+        boolean resumeDef = isTopLevel && MODE_RESUME.equals(definition.getString(MODE_PROPERTY_NAME));
         // A resume lane only processes resume-mode defs; a normal lane only non-resume defs.
         if (resumeDef != resumeLane) {
             // Fallback C: with resumable reindex disabled, the NORMAL lane adopts a

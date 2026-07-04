@@ -781,6 +781,24 @@ public class IndexUpdateTest {
     }
 
     @Test
+    public void nestedResumeDefTreatedAsOrdinaryAsync() {
+        NodeBuilder resume = EmptyNodeState.EMPTY_NODE.builder();
+        resume.setProperty("async", "async");
+        resume.setProperty(IndexConstants.MODE_PROPERTY_NAME, IndexConstants.MODE_RESUME);
+
+        // isTopLevel=false: a nested mode=resume def is treated as an ordinary async def:
+        //  - the resume lane must NOT pick it up
+        assertFalse(IndexUpdate.isIncluded(false, "async", resume, true, false));
+        //  - the normal lane MUST index it as plain async (mode ignored), regardless of toggle
+        assertTrue(IndexUpdate.isIncluded(false, "async", resume, false, false));
+        assertTrue(IndexUpdate.isIncluded(false, "async", resume, false, true));
+
+        // isTopLevel=true: mode=resume is honoured -> routed to the resume lane only
+        assertTrue(IndexUpdate.isIncluded(true, "async", resume, true, false));
+        assertFalse(IndexUpdate.isIncluded(true, "async", resume, false, false));
+    }
+
+    @Test
     public void corruptIndexSkipped() throws Exception{
         NodeState before = builder.getNodeState();
         createIndexDefinition(builder.child(INDEX_DEFINITIONS_NAME),
