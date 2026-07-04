@@ -1050,6 +1050,70 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         return callback;
     }
 
+    /**
+     * Lane name used to match index definitions (their {@code async} value)
+     * when constructing {@link IndexUpdate}. Base implementation returns the
+     * lane this {@code AsyncIndexUpdate} was created for.
+     */
+    protected String indexMatchLaneName() {
+        return name;
+    }
+
+    /**
+     * Whether this process serves {@code mode=resume} definitions. Base
+     * implementation is {@code false}: plain {@code AsyncIndexUpdate} does
+     * not run a dedicated resume lane.
+     */
+    protected boolean isResumeLane() {
+        return false;
+    }
+
+    /**
+     * Whether the current run should operate in chunk-based (resumable)
+     * mode. Base implementation reproduces today's gate: chunking requires
+     * the {@code oak.async.resume} system property, a configured chunk size
+     * or chunk time limit, and a non-initial index.
+     */
+    protected boolean isChunkedRun(NodeState before) {
+        boolean resumeEnabled = Boolean.getBoolean(PROP_RESUME_ENABLED);
+        long chunkTimeMs = Long.getLong(PROP_CHUNK_TIME_MS, 0);
+        boolean isInitialIndex = before == MISSING_NODE;
+        return resumeEnabled && (configuredChunkSize > 0 || chunkTimeMs > 0) && !isInitialIndex;
+    }
+
+    /**
+     * Handles a chunk boundary: commits the chunk and persists resume state.
+     * Base implementation reproduces the current chunk-commit behaviour and
+     * always returns {@code true}, meaning the caller must treat the run as
+     * "chunk complete but not full completion" and return {@code false}
+     * from {@link #updateIndex}.
+     */
+    protected boolean onChunkComplete(CommitFailedException exception,
+                                       AsyncUpdateCallback callback,
+                                       ResumeContext resumeContext,
+                                       IndexUpdate indexUpdate,
+                                       NodeBuilder builder,
+                                       String beforeCheckpoint,
+                                       String afterCheckpoint,
+                                       AtomicReference<String> checkpointToReleaseRef) throws CommitFailedException {
+        commitChunkAndSaveResumeState(exception, callback, resumeContext, indexUpdate,
+                builder, beforeCheckpoint, afterCheckpoint);
+
+        // Don't release any checkpoints - we need both beforeCheckpoint and afterCheckpoint
+        // They will be cleaned up when indexing completes
+        checkpointToReleaseRef.set(null);  // Don't release anything yet
+
+        log.info("[{}] Chunk commit complete - index is incrementally searchable", name);
+        return true;
+    }
+
+    /**
+     * Hook invoked after a run finishes, right before the checkpoint state
+     * is updated. Base implementation is a no-op.
+     */
+    protected void afterRun(NodeBuilder builder, IndexUpdate indexUpdate, boolean fullyCompleted) {
+        // no-op in the base implementation
+    }
 
     /**
      * Updates the index by comparing the before and after state of the repository.
@@ -1081,11 +1145,11 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         // Check if resume indexing is enabled via system property
         boolean resumeEnabled = Boolean.getBoolean(PROP_RESUME_ENABLED);
         long chunkTimeMs = Long.getLong(PROP_CHUNK_TIME_MS, 0); // Time-based chunking
-        
+
         // Chunk-based resumable indexing using PathTree
         boolean isInitialIndex = before == MISSING_NODE;
-        boolean chunkedMode = resumeEnabled && (configuredChunkSize > 0 || chunkTimeMs > 0) && !isInitialIndex;
-        
+        boolean chunkedMode = isChunkedRun(before);
+
         // Log indexing mode
         String indexingMode = resumeEnabled ? "RESUME" : "NORMAL";
         log.debug("[MODE] Indexing mode: {}, resumeEnabled={}, chunkSize={}, chunkTimeMs={}, isInitialIndex={}, chunkedMode={}",
@@ -1137,7 +1201,8 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             }
             
             // Create IndexUpdate with ResumeContext
-            indexUpdate = new IndexUpdate(provider, name, after, builder, callback, callback, info, corruptIndexHandler, resumeContext, null)
+            indexUpdate = new IndexUpdate(provider, indexMatchLaneName(), after, builder, callback, callback,
+                    info, corruptIndexHandler, resumeContext, null, isResumeLane())
                     .withMissingProviderStrategy(missingStrategy);
             configureRateEstimator(indexUpdate);
                             
@@ -1237,16 +1302,10 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                  ResumableEditorDiff.isChunkCompleteException(exception) || 
                  (exception.getMessage() != null && exception.getMessage().startsWith("CHUNK_COMPLETE:"))));
             
-            if (isChunkComplete) {
-                commitChunkAndSaveResumeState(exception, callback, resumeContext, indexUpdate,
-                        builder, beforeCheckpoint, afterCheckpoint);
-
-                // Don't release any checkpoints - we need both beforeCheckpoint and afterCheckpoint
-                // They will be cleaned up when indexing completes
-                checkpointToReleaseRef.set(null);  // Don't release anything yet
+            if (isChunkComplete && onChunkComplete(exception, callback, resumeContext, indexUpdate,
+                    builder, beforeCheckpoint, afterCheckpoint, checkpointToReleaseRef)) {
                 indexingFailed = false;
-                
-                log.info("[{}] Chunk commit complete - index is incrementally searchable", name);
+
                 // IMPORTANT: Return false to indicate "chunk complete but not full completion"
                 // This prevents runWhenPermitted() from:
                 // 1. Updating the main checkpoint property (we only want resume state updated)
@@ -1269,7 +1328,9 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             indexUpdate.commitProgress(IndexCommitCallback.IndexProgress.COMMIT_PROGRESS);
             long normalFlushTime = System.currentTimeMillis() - normalFlushStartTime;
             log.debug("[TIMING] {} Lucene flush time: {}ms", indexingMode, normalFlushTime);
-            
+
+            afterRun(builder, indexUpdate, true);
+
             // Update checkpoint state
             builder.child(ASYNC).setProperty(name, afterCheckpoint);
             builder.child(ASYNC).setProperty(PropertyStates.createProperty(lastIndexedTo, afterTime, Type.DATE));
