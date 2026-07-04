@@ -79,6 +79,27 @@ public class AsyncIndexerServiceTest {
     }
 
     @Test
+    public void resumeLaneRegisteredPerAsyncLane() {
+        injectDefaultServices();
+        Map<String,Object> config = Map.of(
+                "asyncConfigs", new String[] {"async:5:13"},
+                "leaseTimeOutMinutes", "20"
+        );
+        MockOsgi.activate(service, context.bundleContext(), config);
+
+        // a resume_ lane is registered alongside the normal async lane
+        AsyncIndexUpdate resume = getIndexUpdate("resume_async");
+        assertNotNull(resume);
+        assertTrue("resume lane must be a ResumableAsyncIndexUpdate",
+                resume instanceof ResumableAsyncIndexUpdate);
+        // it shares the base lane's per-lane lease (13 min from "async:5:13")
+        assertEquals(TimeUnit.MINUTES.toMillis(13), resume.getLeaseTimeOut());
+
+        // the normal async lane is still registered and unaffected
+        assertNotNull(getIndexUpdate("async"));
+    }
+
+    @Test
     public void leaseTimeout() {
         injectDefaultServices();
         Map<String,Object> config = Map.of(
