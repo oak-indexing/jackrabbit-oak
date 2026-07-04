@@ -62,4 +62,28 @@ public class ResumableAsyncIndexUpdateTest {
         // resume lane has no :async/resume_async yet -> must seed from base "cp-base"
         assertEquals("cp-base", r.resolveBeforeCheckpoint(async));
     }
+
+    @Test
+    public void revertDeletesResumeStateAndFlagsReindex() throws Exception {
+        MemoryNodeStore store = new MemoryNodeStore();
+        NodeBuilder b = store.getRoot().builder();
+        // resume state exists for the lane
+        b.child(":async").child("resume_async-resume").setProperty("lastIndexedPath", "/content/x");
+        // an index def that was mode=resume but is now reverted (mode removed)
+        NodeBuilder def = b.child("oak:index").child("myIndex");
+        def.setProperty("type", "property");
+        def.setProperty("async", "async");            // still async
+        // no "mode" property -> reverted
+        store.merge(b, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+
+        ResumableAsyncIndexUpdate r = new ResumableAsyncIndexUpdate(
+                ResumableAsyncIndexUpdate.resumeLaneName("async"), store,
+                new PropertyIndexEditorProvider(), StatisticsProvider.NOOP, false);
+
+        NodeBuilder root = store.getRoot().builder();
+        r.cleanupRevertedIndexes(root);
+
+        assertTrue(root.getChildNode("oak:index").getChildNode("myIndex").getBoolean("reindex"));
+        assertFalse(root.getChildNode(":async").hasChildNode("resume_async-resume"));
+    }
 }

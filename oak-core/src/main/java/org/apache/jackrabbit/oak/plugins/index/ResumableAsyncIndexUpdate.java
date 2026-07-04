@@ -21,6 +21,8 @@ import static org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState.MISSING_NO
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.jackrabbit.oak.api.CommitFailedException;
+import org.apache.jackrabbit.oak.api.Type;
+import org.apache.jackrabbit.oak.commons.collections.IterableUtils;
 import org.apache.jackrabbit.oak.plugins.index.resume.PathTree;
 import org.apache.jackrabbit.oak.plugins.index.resume.ResumeContext;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
@@ -143,5 +145,52 @@ public class ResumableAsyncIndexUpdate extends AsyncIndexUpdate {
 
         log.info("[{}] Chunk commit complete - index is incrementally searchable", getName());
         return true;
+    }
+
+    /**
+     * Self-heals when an index definition that used to opt into this resume lane
+     * ({@code mode=resume}) has been reverted (the {@code mode} property removed or
+     * changed). For each such reverted def on this lane, flags {@code reindex=true}
+     * so the normal lane rebuilds it cleanly. Once no {@code mode=resume} defs remain
+     * on this lane, the lane's own resume-state node ({@code :async/<resumeLane>-resume})
+     * is deleted.
+     */
+    void cleanupRevertedIndexes(NodeBuilder root) {
+        String base = baseLaneName(getName());
+        boolean anyResumeDefRemains = false;
+        NodeBuilder defs = root.getChildNode("oak:index");
+        if (defs.exists()) {
+            for (String n : defs.getChildNodeNames()) {
+                NodeBuilder def = defs.getChildNode(n);
+                if (!def.hasProperty(IndexConstants.ASYNC_PROPERTY_NAME)) {
+                    continue;
+                }
+                boolean matchesBase = IterableUtils.contains(
+                        def.getProperty(IndexConstants.ASYNC_PROPERTY_NAME).getValue(Type.STRINGS), base);
+                if (!matchesBase) {
+                    continue;
+                }
+                if (IndexConstants.MODE_RESUME.equals(def.getString(IndexConstants.MODE_PROPERTY_NAME))) {
+                    anyResumeDefRemains = true;
+                } else {
+                    // reverted: rebuild cleanly on the normal lane
+                    def.setProperty(IndexConstants.REINDEX_PROPERTY_NAME, true);
+                }
+            }
+        }
+        if (!anyResumeDefRemains) {
+            NodeBuilder async = root.getChildNode(ASYNC);
+            String resumeNode = getName() + "-resume";
+            if (async.hasChildNode(resumeNode)) {
+                async.getChildNode(resumeNode).remove();
+            }
+            // The resume-lane checkpoint property is managed by the base full-completion
+            // path; only the PathTree resume-state node needs removal here.
+        }
+    }
+
+    @Override
+    protected void afterRun(NodeBuilder builder, IndexUpdate indexUpdate, boolean fullyCompleted) {
+        cleanupRevertedIndexes(builder);
     }
 }
