@@ -702,6 +702,11 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         closed = true;
     }
 
+    /** Returns the checkpoint this run should start from, or null for initial indexing. */
+    protected String resolveBeforeCheckpoint(NodeState async) {
+        return async.getString(name);
+    }
+
     private void runWhenPermitted() {
         if (indexStats.isPaused()) {
             if (indexStats.forcedLeaseRelease){
@@ -738,7 +743,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
 
         // find the last indexed state, and check if there are recent changes
         NodeState before;
-        String beforeCheckpoint = async.getString(name);
+        String beforeCheckpoint = resolveBeforeCheckpoint(async);
         AsyncUpdateCallback callback = newAsyncUpdateCallback(store,
                 name, leaseTimeOut, beforeCheckpoint, indexStats,
                 forcedStopFlag);
@@ -754,7 +759,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                     return;
                 }
                 root = store.getRoot();
-                beforeCheckpoint = root.getChildNode(ASYNC).getString(name);
+                beforeCheckpoint = resolveBeforeCheckpoint(root.getChildNode(ASYNC));
                 if (beforeCheckpoint != null) {
                     state = store.retrieve(beforeCheckpoint);
                     callback.setCheckpoint(beforeCheckpoint);

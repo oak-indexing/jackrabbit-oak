@@ -94,6 +94,15 @@ public class ResumableAsyncIndexUpdate extends AsyncIndexUpdate {
     }
 
     @Override
+    protected String resolveBeforeCheckpoint(NodeState async) {
+        String own = async.getString(getName());
+        if (own != null) {
+            return own;                       // resume lane already has its own checkpoint
+        }
+        return async.getString(baseLaneName(getName()));  // seed once from the base lane
+    }
+
+    @Override
     protected boolean isResumeLane() {
         return true;
     }
