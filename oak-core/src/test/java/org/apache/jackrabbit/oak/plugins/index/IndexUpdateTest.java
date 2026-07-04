@@ -763,6 +763,24 @@ public class IndexUpdateTest {
     }
 
     @Test
+    public void isIncludedRespectsResumeMode() {
+        NodeBuilder normal = EmptyNodeState.EMPTY_NODE.builder();
+        normal.setProperty("async", "async");
+
+        NodeBuilder resume = EmptyNodeState.EMPTY_NODE.builder();
+        resume.setProperty("async", "async");
+        resume.setProperty(IndexConstants.MODE_PROPERTY_NAME, IndexConstants.MODE_RESUME);
+
+        // normal lane (resumeLane=false): takes normal, skips resume-mode
+        assertTrue(IndexUpdate.isIncluded("async", normal, false));
+        assertFalse(IndexUpdate.isIncluded("async", resume, false));
+
+        // resume lane (resumeLane=true): takes resume-mode, skips normal
+        assertFalse(IndexUpdate.isIncluded("async", normal, true));
+        assertTrue(IndexUpdate.isIncluded("async", resume, true));
+    }
+
+    @Test
     public void corruptIndexSkipped() throws Exception{
         NodeState before = builder.getNodeState();
         createIndexDefinition(builder.child(INDEX_DEFINITIONS_NAME),
