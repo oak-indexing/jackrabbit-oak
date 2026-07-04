@@ -161,7 +161,7 @@ completes** (the run that reaches end-of-traversal with no remaining chunk), nev
 partial chunk — otherwise a crash mid-reindex would leave `reindex=false` on a half-built
 index.
 
-### C-fallback toggle: `FT_RESUMABLE_REINDEX_OAK-<issue>` (default off)
+### C-fallback toggle: `FT_RESUMABLE_INDEXING_OAK-<issue>` (default off)
 
 Scopes the **reindex path only**:
 
@@ -188,7 +188,7 @@ incremental indexing keeps working. Incremental resume itself stays behind the p
 ### Configuration
 
 - `mode` — per-index, on the index definition. The opt-in switch.
-- `FT_RESUMABLE_REINDEX_OAK-<issue>` — feature toggle, default off.
+- `FT_RESUMABLE_INDEXING_OAK-<issue>` — feature toggle, default off.
 - Chunk config (`chunkSize`, `chunkTimeMs`) — lane-level system properties read by
   `ResumableAsyncIndexUpdate` (chunk boundary is a property of the shared lane traversal,
   not of an individual index). May migrate to the def later; out of scope now.
@@ -222,6 +222,6 @@ incremental indexing keeps working. Incremental resume itself stays behind the p
 
 ## Open items / follow-ups
 
-- Exact Jira issue number for the toggle name (`FT_RESUMABLE_REINDEX_OAK-<issue>`).
+- Exact Jira issue number for the toggle name (`FT_RESUMABLE_INDEXING_OAK-<issue>`).
 - Precise mechanism for pausing the resume lane during a toggle-OFF reindex (detection of
   an in-flight native reindex on the base lane, and where the pause/reset is driven).
