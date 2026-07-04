@@ -28,6 +28,7 @@ import org.apache.jackrabbit.oak.api.Tree;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.plugins.index.AsyncIndexUpdate;
 import org.apache.jackrabbit.oak.plugins.index.CompositeIndexEditorProvider;
+import org.apache.jackrabbit.oak.plugins.index.ResumableAsyncIndexUpdate;
 import org.apache.jackrabbit.oak.plugins.index.counter.NodeCounterEditorProvider;
 import org.apache.jackrabbit.oak.plugins.index.nodetype.NodeTypeIndexProvider;
 import org.apache.jackrabbit.oak.plugins.index.property.PropertyIndexEditorProvider;
@@ -97,7 +98,6 @@ public class ResumeChunkFlushTest {
 
     @After
     public void tearDown() {
-        System.clearProperty("oak.async.resume");
         System.clearProperty("oak.async.chunkSize");
         System.clearProperty("oak.async.usePathTreeTraversal");
     }
@@ -148,9 +148,8 @@ public class ResumeChunkFlushTest {
      */
     private int indexAndCount(boolean chunked) throws Exception {
         // chunkSize is read once in the AsyncIndexUpdate constructor, so it must be set
-        // before construction. resume/usePathTreeTraversal are read fresh on every run(),
-        // so they are enabled only after the initial index has established a checkpoint.
-        System.clearProperty("oak.async.resume");
+        // before construction. usePathTreeTraversal is read fresh on every run(),
+        // so it is enabled only after the initial index has established a checkpoint.
         System.clearProperty("oak.async.usePathTreeTraversal");
         if (chunked) {
             System.setProperty("oak.async.chunkSize", "10"); // 60 nodes => ~6 chunks
@@ -177,7 +176,8 @@ public class ResumeChunkFlushTest {
                 .with(new NodeTypeIndexProvider())
                 .createContentRepository();
 
-        AsyncIndexUpdate async = new AsyncIndexUpdate("async", nodeStore,
+        AsyncIndexUpdate async = new ResumableAsyncIndexUpdate(
+                ResumableAsyncIndexUpdate.resumeLaneName("async"), nodeStore,
                 CompositeIndexEditorProvider.compose(Arrays.asList(
                         editorProvider,
                         new PropertyIndexEditorProvider(),
@@ -194,9 +194,10 @@ public class ResumeChunkFlushTest {
                 // async checkpoint (before != MISSING_NODE on subsequent runs).
                 runIndexer(async, tracker, 3);
 
-                // Phase 2: now enable resumable/chunked mode for the incremental pass.
+                // Phase 2: now enable PathTree-driven resume traversal for the incremental
+                // pass. Chunk mode itself comes from running ResumableAsyncIndexUpdate with
+                // a positive oak.async.chunkSize; there is no oak.async.resume gate any more.
                 if (chunked) {
-                    System.setProperty("oak.async.resume", "true");
                     System.setProperty("oak.async.usePathTreeTraversal", "true");
                 }
 
@@ -276,6 +277,8 @@ public class ResumeChunkFlushTest {
         idx.setProperty("jcr:primaryType", "oak:QueryIndexDefinition", Type.NAME);
         idx.setProperty("type", "lucene");
         idx.setProperty("async", "async");
+        // Opt this index into the segregated resume lane exercised by ResumableAsyncIndexUpdate.
+        idx.setProperty("mode", "resume");
         idx.setProperty("compatVersion", 2);
         idx.setProperty("reindex", true);
 
