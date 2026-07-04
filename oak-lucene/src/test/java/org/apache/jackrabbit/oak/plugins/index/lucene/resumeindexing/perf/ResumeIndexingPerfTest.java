@@ -45,6 +45,7 @@ import org.apache.jackrabbit.oak.spi.commit.Observer;
 import org.apache.jackrabbit.oak.spi.security.OpenSecurityProvider;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.apache.jackrabbit.oak.stats.DefaultStatisticsProvider;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -87,6 +88,7 @@ import static org.junit.Assume.assumeTrue;
  *   <li>Query verification with index hints</li>
  * </ul>
  */
+@Ignore("perf harness; run manually")
 public class ResumeIndexingPerfTest {
 
     public enum NodeStoreType {
