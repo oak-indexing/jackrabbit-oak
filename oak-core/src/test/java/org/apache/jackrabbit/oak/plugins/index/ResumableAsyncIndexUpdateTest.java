@@ -16,18 +16,32 @@
  */
 package org.apache.jackrabbit.oak.plugins.index;
 
+import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.ASYNC_PROPERTY_NAME;
+import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NAME;
+import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.MODE_PROPERTY_NAME;
+import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.MODE_RESUME;
+import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.REINDEX_PROPERTY_NAME;
+import static org.apache.jackrabbit.oak.plugins.index.IndexUtils.createIndexDefinition;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import java.util.Set;
+
 import org.apache.jackrabbit.oak.api.CommitFailedException;
+import org.apache.jackrabbit.oak.commons.collections.SetUtils;
 import org.apache.jackrabbit.oak.plugins.index.property.PropertyIndexEditorProvider;
+import org.apache.jackrabbit.oak.plugins.index.property.PropertyIndexLookup;
 import org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
+import org.apache.jackrabbit.oak.plugins.memory.PropertyValues;
+import org.apache.jackrabbit.oak.query.index.FilterImpl;
 import org.apache.jackrabbit.oak.spi.commit.CommitInfo;
 import org.apache.jackrabbit.oak.spi.commit.EmptyHook;
 import org.apache.jackrabbit.oak.spi.state.NodeBuilder;
 import org.apache.jackrabbit.oak.spi.state.NodeState;
+import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.apache.jackrabbit.oak.stats.StatisticsProvider;
 import org.junit.Test;
 
@@ -246,5 +260,54 @@ public class ResumableAsyncIndexUpdateTest {
         b3.child("oak:index").child("idx").setProperty(IndexConstants.REINDEX_PROPERTY_NAME, true);
         store.merge(b3, EmptyHook.INSTANCE, CommitInfo.EMPTY);
         assertFalse(r.shouldPauseForNativeReindex(store.getRoot()));
+    }
+
+    @Test
+    public void firstResumeRunAppliesIncrementalChangesWithoutReindexOrBaseCorruption() throws Exception {
+        NodeStore store = new MemoryNodeStore();
+        IndexEditorProvider provider = new PropertyIndexEditorProvider();
+
+        // 1. Base lane builds an async property index over initial content.
+        NodeBuilder builder = store.getRoot().builder();
+        createIndexDefinition(builder.child(INDEX_DEFINITIONS_NAME),
+                "resumeIndex", true, false, Set.of("foo"), null)
+                .setProperty(ASYNC_PROPERTY_NAME, "async");
+        builder.child("a").setProperty("foo", "x");
+        store.merge(builder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+
+        new AsyncIndexUpdate("async", store, provider).run();
+        String baseCp = store.getRoot().getChildNode(":async").getString("async");
+        assertNotNull("base lane must persist a checkpoint", baseCp);
+
+        // 2. Enable mode=resume (a refresh, NOT a reindex) and add a new node AFTER the base checkpoint.
+        builder = store.getRoot().builder();
+        builder.child(INDEX_DEFINITIONS_NAME).child("resumeIndex")
+                .setProperty(MODE_PROPERTY_NAME, MODE_RESUME);
+        builder.child("b").setProperty("foo", "y");
+        store.merge(builder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+
+        // 3. First resume-lane run: must succeed, index "b" incrementally, persist its own checkpoint,
+        //    and NOT release/corrupt the base checkpoint.
+        ResumableAsyncIndexUpdate resume = new ResumableAsyncIndexUpdate(
+                ResumableAsyncIndexUpdate.resumeLaneName("async"), store, provider);
+        resume.run();
+
+        NodeState root = store.getRoot();
+        assertNotNull("resume lane must persist its own checkpoint (no OakAsync0001)",
+                root.getChildNode(":async").getString("resume_async"));
+        assertNotNull("base checkpoint must survive (resume lane must not release it)",
+                store.retrieve(baseCp));
+
+        PropertyIndexLookup lookup = new PropertyIndexLookup(root);
+        assertEquals(Set.of("a"), find(lookup, "foo", "x"));   // still indexed
+        assertEquals(Set.of("b"), find(lookup, "foo", "y"));   // newly indexed incrementally
+        assertFalse("no reindex was triggered",
+                root.getChildNode(INDEX_DEFINITIONS_NAME).getChildNode("resumeIndex")
+                        .getBoolean(REINDEX_PROPERTY_NAME));
+    }
+
+    private static Set<String> find(PropertyIndexLookup lookup, String name, String value) {
+        return SetUtils.toSet(lookup.query(FilterImpl.newTestInstance(), name,
+                PropertyValues.newString(value)));
     }
 }

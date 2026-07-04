@@ -770,8 +770,16 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         // find the last indexed state, and check if there are recent changes
         NodeState before;
         String beforeCheckpoint = resolveBeforeCheckpoint(async);
+        // Concurrency identity + release target must be the lane's OWN persisted checkpoint,
+        // never the diff-from seed. On a resume lane's first run resolveBeforeCheckpoint() returns
+        // the base lane's checkpoint (the seed) so we diff from where the base left off, but this
+        // lane owns no checkpoint yet: ownCheckpoint is null. Using the seed as the concurrency
+        // identity would make mergeWithConcurrencyCheck compare seed != async.getString(name) and
+        // throw OakAsync0001 every run; using it as the release target would release the base lane's
+        // active checkpoint. For the base lane the two are always equal, so its behaviour is unchanged.
+        String ownCheckpoint = async.getString(name);
         AsyncUpdateCallback callback = newAsyncUpdateCallback(store,
-                name, leaseTimeOut, beforeCheckpoint, indexStats,
+                name, leaseTimeOut, ownCheckpoint, indexStats,
                 forcedStopFlag);
         if (beforeCheckpoint != null) {
             NodeState state = store.retrieve(beforeCheckpoint);
@@ -785,10 +793,12 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                     return;
                 }
                 root = store.getRoot();
-                beforeCheckpoint = resolveBeforeCheckpoint(root.getChildNode(ASYNC));
+                NodeState freshAsync = root.getChildNode(ASYNC);
+                beforeCheckpoint = resolveBeforeCheckpoint(freshAsync);
+                ownCheckpoint = freshAsync.getString(name);
                 if (beforeCheckpoint != null) {
                     state = store.retrieve(beforeCheckpoint);
-                    callback.setCheckpoint(beforeCheckpoint);
+                    callback.setCheckpoint(ownCheckpoint);
                 }
             }
 
@@ -797,7 +807,8 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                         "[{}] Failed to retrieve previously indexed checkpoint {}; re-running the initial index update",
                         name, beforeCheckpoint);
                 beforeCheckpoint = null;
-                callback.setCheckpoint(beforeCheckpoint);
+                ownCheckpoint = null;
+                callback.setCheckpoint(ownCheckpoint);
                 before = MISSING_NODE;
             } else if (noVisibleChanges(state, root) && !switchOnSync) {
                 log.debug(
@@ -887,7 +898,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             Thread.currentThread().setName(newThreadName);
             // BUG 2 FIXED: Pass resumeFromPath to updateIndex
             // beforeCheckpoint stays as last completed checkpoint (NOT changed to resumeCheckpoint)
-            updatePostRunStatus = updateIndex(before, beforeCheckpoint, after,
+            updatePostRunStatus = updateIndex(before, ownCheckpoint, after,
                     afterCheckpoint, afterTime, callback, checkpointToReleaseRef, resumeFromPath);
 
             // Update checkpoint state if update completed
@@ -900,7 +911,9 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 // the update succeeded, so we are sure we can release the earlier checkpoint -
                 // otherwise the new checkpoint associated with the failed update
                 // may still get released in the finally block (depending on where the index update failed)
-                checkpointToReleaseRef.set(beforeCheckpoint);
+                // Release the lane's OWN prior checkpoint (null on a seeded first resume run), never the
+                // diff-from seed - releasing the seed would drop the base lane's active checkpoint.
+                checkpointToReleaseRef.set(ownCheckpoint);
                 indexStats.setReferenceCheckpoint(afterCheckpoint);
                 indexStats.setProcessedCheckpoint("");
                 indexStats.releaseTempCheckpoint(afterCheckpoint);
