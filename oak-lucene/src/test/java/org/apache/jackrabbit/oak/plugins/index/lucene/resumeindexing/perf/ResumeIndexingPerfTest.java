@@ -211,25 +211,27 @@ public class ResumeIndexingPerfTest {
             System.out.println("\n--- Phase 1: Initial Index Creation ---");
             System.out.println("Running async indexer to complete initial index (reindex=true -> false)...");
             
-            // Run until reindex becomes false
+            // Phase 1 always runs on the base "async" lane. For a mode=resume def this is
+            // fallback C: the normal lane natively rebuilds the index while reindex=true,
+            // then hands off to the resume lane for incremental (Phase 3).
             int initialRuns = 0;
             while (true) {
-                ctx.asyncIndexUpdate.run();
+                ctx.baseAsyncIndexUpdate.run();
                 ctx.indexTracker.refresh();
                 initialRuns++;
-                
+
                 org.apache.jackrabbit.oak.spi.state.NodeState rootAfterRun = ctx.nodeStore.getRoot();
-                org.apache.jackrabbit.oak.spi.state.NodeState idxState = 
+                org.apache.jackrabbit.oak.spi.state.NodeState idxState =
                     rootAfterRun.getChildNode("oak:index").getChildNode("damAssetLucene");
                 boolean reindex = idxState.getBoolean("reindex");
-                
+
                 // Debug output
                 if (initialRuns <= 5 || initialRuns % 100 == 0) {
-                    System.out.println("  Run #" + initialRuns + ": reindex=" + reindex + 
-                        ", exists=" + idxState.exists() + 
-                        ", checkpoint=" + rootAfterRun.getChildNode(":async").getString("resume_async"));
+                    System.out.println("  Run #" + initialRuns + ": reindex=" + reindex +
+                        ", exists=" + idxState.exists() +
+                        ", checkpoint=" + rootAfterRun.getChildNode(":async").getString("async"));
                 }
-                
+
                 if (!reindex) {
                     System.out.println("  Initial index complete after " + initialRuns + " run(s)");
                     break;
@@ -238,9 +240,9 @@ public class ResumeIndexingPerfTest {
                     throw new RuntimeException("Initial indexing took too many runs (>1000)");
                 }
             }
-            
-            // Verify checkpoint was created
-            String initialCheckpoint = ctx.nodeStore.getRoot().getChildNode(":async").getString("resume_async");
+
+            // Verify checkpoint was created (base lane persists to :async/async)
+            String initialCheckpoint = ctx.nodeStore.getRoot().getChildNode(":async").getString("async");
             System.out.println("  Checkpoint after initial index: " + initialCheckpoint);
 
             // === PHASE 2: Create content AFTER initial index is built ===
@@ -282,8 +284,8 @@ public class ResumeIndexingPerfTest {
 
             long startIndexing = System.currentTimeMillis();
             int cycleCount = 0;
-            int maxCycles = 100;  // Reasonable max for chunked cycles
-            long maxTimeMs = 600_000;  // 10 minutes max
+            int maxCycles = Integer.getInteger("perf.maxCycles", 100);  // chunked-cycle cap
+            long maxTimeMs = Long.getLong("perf.maxTimeMs", 600_000L);  // wall-clock cap
             String lastResumeState = null;
             int stuckCounter = 0;
             
@@ -305,7 +307,8 @@ public class ResumeIndexingPerfTest {
             java.util.List<Long> chunkGcTimeMs = new java.util.ArrayList<>();
             java.util.List<Long> chunkCpuTimeMs = new java.util.ArrayList<>();
             java.util.List<Long> chunkSegmentStoreSizeMB = new java.util.ArrayList<>();
-            
+            java.util.List<Long> chunkBlobStoreSizeMB = new java.util.ArrayList<>();
+
             // Run indexing cycles until complete
             while (true) {
                 long cycleStart = System.currentTimeMillis();
@@ -447,7 +450,8 @@ public class ResumeIndexingPerfTest {
                     chunkGcTimeMs.add(getGcTime());
                     chunkCpuTimeMs.add(getProcessCpuTime() / 1_000_000); // Convert ns to ms
                     chunkSegmentStoreSizeMB.add(getSegmentStoreSize(ctx) / (1024 * 1024));
-                    
+                    chunkBlobStoreSizeMB.add(getBlobStoreSize(ctx) / (1024 * 1024));
+
                     // Get skip statistics (traversed = processed + skipped)
                     // Note: These are cumulative since test start, not per-chunk
                     // We'll calculate per-chunk deltas in the shell script
@@ -468,7 +472,7 @@ public class ResumeIndexingPerfTest {
                         cycleCount, partialResults, queryTime, nodesProcessed, totalTraversed, skipFull, currentResumeState));
                     
                     // Output detailed metrics for this chunk
-                    System.out.println(String.format("CHUNK_METRICS: cycle=%d, nodes=%d, heap=%dMB, nonHeap=%dMB, gc=%d, gcTime=%dms, cpu=%dms, segStore=%dMB",
+                    System.out.println(String.format("CHUNK_METRICS: cycle=%d, nodes=%d, heap=%dMB, nonHeap=%dMB, gc=%d, gcTime=%dms, cpu=%dms, segStore=%dMB, blobStore=%dMB",
                         cycleCount,
                         nodesProcessed,
                         chunkHeapUsedMB.get(chunkHeapUsedMB.size() - 1),
@@ -476,7 +480,8 @@ public class ResumeIndexingPerfTest {
                         chunkGcCount.get(chunkGcCount.size() - 1),
                         chunkGcTimeMs.get(chunkGcTimeMs.size() - 1),
                         chunkCpuTimeMs.get(chunkCpuTimeMs.size() - 1),
-                        chunkSegmentStoreSizeMB.get(chunkSegmentStoreSizeMB.size() - 1)));
+                        chunkSegmentStoreSizeMB.get(chunkSegmentStoreSizeMB.size() - 1),
+                        chunkBlobStoreSizeMB.get(chunkBlobStoreSizeMB.size() - 1)));
                     
                     // Assertion: Query should not return errors (negative values)
                     assertTrue("Incremental query should not fail (cycle " + cycleCount + ")", partialResults >= 0);
@@ -612,10 +617,12 @@ public class ResumeIndexingPerfTest {
             
             // Disk Analysis
             long segmentStoreSize = getSegmentStoreSize(ctx);
+            long blobStoreSize = getBlobStoreSize(ctx);
             System.out.println(String.format("\n  Disk Analysis:"));
             System.out.println(String.format("    SegmentStore Size: %d MB", segmentStoreSize / (1024 * 1024)));
-            System.out.println(String.format("    Lucene Index Size: %d MB", mainIndexSize / (1024 * 1024)));
-            System.out.println(String.format("    Total Disk Usage: %d MB", diskUsage / (1024 * 1024)));
+            System.out.println(String.format("    BlobStore (FileDataStore) Size: %d MB", blobStoreSize / (1024 * 1024)));
+            System.out.println(String.format("    Lucene Index Dir Size: %d MB", mainIndexSize / (1024 * 1024)));
+            System.out.println(String.format("    Total Disk Usage (segment+blob): %d MB", (segmentStoreSize + blobStoreSize) / (1024 * 1024)));
             
             // Per-chunk metrics summary (if available)
             if (!chunkHeapUsedMB.isEmpty()) {
@@ -623,10 +630,15 @@ public class ResumeIndexingPerfTest {
                 System.out.println(String.format("    Heap Growth: %d MB → %d MB", 
                     chunkHeapUsedMB.get(0), 
                     chunkHeapUsedMB.get(chunkHeapUsedMB.size() - 1)));
-                System.out.println(String.format("    SegmentStore Growth: %d MB → %d MB", 
-                    chunkSegmentStoreSizeMB.get(0), 
+                System.out.println(String.format("    SegmentStore Growth: %d MB → %d MB",
+                    chunkSegmentStoreSizeMB.get(0),
                     chunkSegmentStoreSizeMB.get(chunkSegmentStoreSizeMB.size() - 1)));
-                
+                if (!chunkBlobStoreSizeMB.isEmpty()) {
+                    System.out.println(String.format("    BlobStore Growth: %d MB → %d MB",
+                        chunkBlobStoreSizeMB.get(0),
+                        chunkBlobStoreSizeMB.get(chunkBlobStoreSizeMB.size() - 1)));
+                }
+
                 // Calculate average per-chunk GC
                 int totalChunkGc = 0;
                 for (int gc : chunkGcCount) totalChunkGc += gc;
@@ -820,10 +832,16 @@ public class ResumeIndexingPerfTest {
         root.commit();
     }
 
+    // Content is sharded to approximate a realistic DAM layout instead of one flat folder:
+    // /content/dam/folder-<K>/shard-<M>/asset-<i>, K rolling over every TOP_FOLDER_SIZE assets,
+    // M rolling over every SUB_FOLDER_SIZE assets within the current top folder.
+    private static final int TOP_FOLDER_SIZE = 5000;
+    private static final int SUB_FOLDER_SIZE = 500;
+
     private void createContent(PerfContext ctx, int count, int batchSize) throws Exception {
         Tree content = ctx.root.getTree("/").addChild("content");
         content.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
-        
+
         Tree dam = content.addChild("dam");
         dam.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
 
@@ -831,12 +849,33 @@ public class ResumeIndexingPerfTest {
         // Spread them evenly across all nodes so each chunk sees some approved nodes
         int approvedInterval = Math.max(1, count / QUERY_TARGET_COUNT);
         int approvedCount = 0;
-        
-        System.out.println("Creating " + count + " nodes with " + QUERY_TARGET_COUNT + 
-            " approved nodes (every " + approvedInterval + "th node for even distribution)");
+
+        System.out.println("Creating " + count + " nodes with " + QUERY_TARGET_COUNT +
+            " approved nodes (every " + approvedInterval + "th node for even distribution), " +
+            "sharded " + TOP_FOLDER_SIZE + "/folder, " + SUB_FOLDER_SIZE + "/subfolder");
+
+        int currentTopIndex = -1;
+        int currentSubIndex = -1;
+        Tree currentTopFolder = null;
+        Tree currentSubFolder = null;
 
         for (int i = 0; i < count; i++) {
-            Tree asset = dam.addChild("asset-" + i);
+            int topIndex = i / TOP_FOLDER_SIZE;
+            int subIndex = (i % TOP_FOLDER_SIZE) / SUB_FOLDER_SIZE;
+
+            if (topIndex != currentTopIndex) {
+                currentTopFolder = dam.addChild("folder-" + topIndex);
+                currentTopFolder.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+                currentTopIndex = topIndex;
+                currentSubIndex = -1; // force subfolder recreation below
+            }
+            if (subIndex != currentSubIndex) {
+                currentSubFolder = currentTopFolder.addChild("shard-" + subIndex);
+                currentSubFolder.setProperty("jcr:primaryType", "nt:unstructured", Type.NAME);
+                currentSubIndex = subIndex;
+            }
+
+            Tree asset = currentSubFolder.addChild("asset-" + i);
             asset.setProperty("jcr:primaryType", "dam:Asset", Type.NAME);
             
             // Add jcr:content with metadata
@@ -878,6 +917,9 @@ public class ResumeIndexingPerfTest {
         ContentRepository contentRepository;
         ContentSession contentSession;
         Root root;
+        // Phase-1 native reindex always runs on the base "async" lane (fallback C).
+        AsyncIndexUpdate baseAsyncIndexUpdate;
+        // Phase-3 incremental indexer: the resume lane when chunked, else the base lane.
         AsyncIndexUpdate asyncIndexUpdate;
         LuceneIndexProvider provider;
         LuceneIndexEditorProvider editorProvider;
@@ -887,6 +929,7 @@ public class ResumeIndexingPerfTest {
         
         FileStore fileStore;
         File storeDir;
+        File blobDir;
         File indexDir;
         ScheduledExecutorService scheduledExecutor;
         MongoConnection mongoConnection;
@@ -903,9 +946,9 @@ public class ResumeIndexingPerfTest {
             DefaultStatisticsProvider statisticsProvider = new DefaultStatisticsProvider(ctx.scheduledExecutor);
             
             // FileDataStore for blob storage
-            File blobDir = temporaryFolder.newFolder("blobs-" + System.nanoTime());
+            ctx.blobDir = temporaryFolder.newFolder("blobs-" + System.nanoTime());
             OakFileDataStore fds = new OakFileDataStore();
-            fds.setPath(blobDir.getAbsolutePath());
+            fds.setPath(ctx.blobDir.getAbsolutePath());
             fds.init(null);
             ctx.blobStore = new DataStoreBlobStore(fds);
             
@@ -914,6 +957,10 @@ public class ResumeIndexingPerfTest {
                     .withBlobStore(ctx.blobStore)
                     .withMaxFileSize(256)
                     .withMemoryMapping(false)
+                    // Externalize even small binaries to the FileDataStore so the
+                    // blob-store split is visible at any scale (default is
+                    // Segment.MEDIUM_LIMIT ~16KB, which keeps small Lucene chunks inline).
+                    .withBinariesInlineThreshold(100)
                     .build();
             ctx.nodeStore = SegmentNodeStoreBuilders.builder(ctx.fileStore).build();
         } else if (NODE_STORE_TYPE == NodeStoreType.DOCUMENT) {
@@ -959,18 +1006,30 @@ public class ResumeIndexingPerfTest {
             System.out.println("  [TEST] Resumable indexing enabled - chunkSize: " + CHUNK_SIZE);
         }
 
-        // AsyncIndexUpdate: resume/chunk behaviour lives only in the segregated
-        // subclass running on the resume_ lane; the base class never chunks.
-        ctx.asyncIndexUpdate = new ResumableAsyncIndexUpdate(
-            ResumableAsyncIndexUpdate.resumeLaneName("async"), ctx.nodeStore,
+        // Shared editor provider for both lanes so they index identically.
+        org.apache.jackrabbit.oak.plugins.index.IndexEditorProvider composedEditors =
             org.apache.jackrabbit.oak.plugins.index.CompositeIndexEditorProvider.compose(
                 Arrays.asList(
                     ctx.editorProvider,
                     new org.apache.jackrabbit.oak.plugins.index.property.PropertyIndexEditorProvider(),
                     new org.apache.jackrabbit.oak.plugins.index.counter.NodeCounterEditorProvider()
                 )
-            )
-        );
+            );
+
+        // The base "async" lane always exists: it performs the Phase-1 native reindex
+        // (fallback C adopts the mode=resume def while reindex=true) and, in the NORMAL
+        // baseline (chunkSize=0, no mode=resume), it also does the Phase-3 incremental.
+        ctx.baseAsyncIndexUpdate = new AsyncIndexUpdate("async", ctx.nodeStore, composedEditors);
+
+        // resume/chunk behaviour lives only in the segregated subclass on the resume_ lane;
+        // the base class never chunks. Only build it when resumable (chunked) mode is on.
+        if (CHUNK_SIZE > 0) {
+            ctx.asyncIndexUpdate = new ResumableAsyncIndexUpdate(
+                ResumableAsyncIndexUpdate.resumeLaneName("async"), ctx.nodeStore, composedEditors);
+        } else {
+            // NORMAL baseline: Phase 3 runs on the same base lane (no pathtree).
+            ctx.asyncIndexUpdate = ctx.baseAsyncIndexUpdate;
+        }
     }
 
     private void createLuceneIndex(Root root) throws Exception {
@@ -979,7 +1038,12 @@ public class ResumeIndexingPerfTest {
         index.setProperty("jcr:primaryType", "oak:QueryIndexDefinition", Type.NAME);
         index.setProperty("type", "lucene");
         index.setProperty("async", "async");
-        index.setProperty("mode", "resume");
+        // Only opt into the resume lane when chunking is configured. The NORMAL baseline
+        // (chunkSize=0) stays a plain async index so it never creates a PathTree — that is
+        // the point of the baseline we measure the PathTree overhead against.
+        if (CHUNK_SIZE > 0) {
+            index.setProperty("mode", "resume");
+        }
         index.setProperty("compatVersion", 2);
         index.setProperty("reindex", true);
         index.setProperty("evaluatePathRestrictions", true);
@@ -1034,6 +1098,11 @@ public class ResumeIndexingPerfTest {
     private void teardownContext(PerfContext ctx) throws Exception {
         if (ctx.contentSession != null) ctx.contentSession.close();
         if (ctx.asyncIndexUpdate != null) ctx.asyncIndexUpdate.close();
+        // Close the base lane too, unless it is the same instance as the Phase-3 indexer
+        // (NORMAL baseline shares one updater across both phases).
+        if (ctx.baseAsyncIndexUpdate != null && ctx.baseAsyncIndexUpdate != ctx.asyncIndexUpdate) {
+            ctx.baseAsyncIndexUpdate.close();
+        }
         if (ctx.indexCopierExecutor != null) ctx.indexCopierExecutor.shutdown();
         if (ctx.fileStore != null) ctx.fileStore.close();
         if (ctx.scheduledExecutor != null) ctx.scheduledExecutor.shutdown();
@@ -1303,6 +1372,19 @@ public class ResumeIndexingPerfTest {
     private static long getSegmentStoreSize(PerfContext ctx) {
         if (ctx.storeDir != null) {
             try (java.util.stream.Stream<Path> walk = Files.walk(ctx.storeDir.toPath())) {
+                return walk.filter(p -> p.toFile().isFile())
+                        .mapToLong(p -> p.toFile().length())
+                        .sum();
+            } catch (IOException e) {
+                return -1;
+            }
+        }
+        return 0;
+    }
+
+    private static long getBlobStoreSize(PerfContext ctx) {
+        if (ctx.blobDir != null) {
+            try (java.util.stream.Stream<Path> walk = Files.walk(ctx.blobDir.toPath())) {
                 return walk.filter(p -> p.toFile().isFile())
                         .mapToLong(p -> p.toFile().length())
                         .sum();
