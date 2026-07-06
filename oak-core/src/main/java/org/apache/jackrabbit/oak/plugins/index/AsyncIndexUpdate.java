@@ -27,6 +27,7 @@ import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.REINDEX_PRO
 import static org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState.MISSING_NODE;
 
 import java.io.Closeable;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
@@ -255,12 +256,16 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
      *   <li>{@code oak.async.chunkTimeMs} — max wall-clock ms per chunk (&gt;0 enables time-based chunking)</li>
      *   <li>{@code oak.async.usePathTreeTraversal} — drive resume via PathTree instead of a full EditorDiff</li>
      *   <li>{@code oak.async.pathTreeSlimFormat} — persist the PathTree in SLIM format</li>
+     *   <li>{@code oak.async.pathTreeBinaryFormat} — persist the SLIM PathTree as a
+     *       {@code Type.BINARY} blob instead of {@code Type.STRINGS} arrays (requires
+     *       {@code oak.async.pathTreeSlimFormat=true})</li>
      * </ul>
      */
     private static final String PROP_CHUNK_SIZE = "oak.async.chunkSize";
     protected static final String PROP_CHUNK_TIME_MS = "oak.async.chunkTimeMs";
     private static final String PROP_USE_PATHTREE_TRAVERSAL = "oak.async.usePathTreeTraversal";
     private static final String PROP_PATHTREE_SLIM_FORMAT = "oak.async.pathTreeSlimFormat";
+    private static final String PROP_PATHTREE_BINARY_FORMAT = "oak.async.pathTreeBinaryFormat";
 
     private List<ValidatorProvider> validatorProviders = Collections.emptyList();
 
@@ -1664,10 +1669,18 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         // SLIM: Frontier nodes + in-progress chain (~200-500 bytes) - uses ancestor checking
         // FULL: All nodes (~1.5MB) - uses exact path lookup
         boolean useSlimFormat = Boolean.getBoolean(PROP_PATHTREE_SLIM_FORMAT);
+        boolean useBinaryFormat = Boolean.getBoolean(PROP_PATHTREE_BINARY_FORMAT);
 
         long serializeStartTime = System.currentTimeMillis();
         String formatUsed;
-        if (useSlimFormat) {
+        if (useSlimFormat && useBinaryFormat) {
+            try {
+                currentPathTree.serializeSlimBinaryTo(laneBuilder.child("pathTree"));
+            } catch (IOException e) {
+                throw new CommitFailedException("Async", 3, "Failed to serialize resume PathTree as binary blob", e);
+            }
+            formatUsed = "SLIM-BINARY";
+        } else if (useSlimFormat) {
             currentPathTree.serializeSlimTo(laneBuilder.child("pathTree"));
             formatUsed = "SLIM";
         } else {

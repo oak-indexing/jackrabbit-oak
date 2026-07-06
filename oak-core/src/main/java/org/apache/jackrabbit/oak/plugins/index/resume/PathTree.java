@@ -16,6 +16,7 @@
  */
 package org.apache.jackrabbit.oak.plugins.index.resume;
 
+import org.apache.jackrabbit.oak.api.Blob;
 import org.apache.jackrabbit.oak.api.PropertyState;
 import org.apache.jackrabbit.oak.api.Type;
 import org.apache.jackrabbit.oak.commons.PathUtils;
@@ -26,6 +27,12 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -488,11 +495,56 @@ public class PathTree {
     }
     
     /**
+     * Same as {@link #serializeSlimTo(NodeBuilder)}, but packs the frontier
+     * paths into a single {@code Type.BINARY} blob property instead of four
+     * {@code Type.STRINGS} array properties. Once the blob grows past the
+     * NodeStore's binary-inline threshold, it is externalized to the
+     * configured BlobStore instead of being kept in the SegmentStore.
+     */
+    public void serializeSlimBinaryTo(@NotNull NodeBuilder builder) throws IOException {
+        builder.setProperty("totalNodes", totalNodes);
+        builder.setProperty("indexedNodes", indexedNodes);
+        builder.setProperty("fullyProcessedCount", getFullyProcessedCount());
+
+        java.util.List<String> paths = new java.util.ArrayList<>();
+        java.util.List<String> enterFlags = new java.util.ArrayList<>();
+        java.util.List<String> leaveFlags = new java.util.ArrayList<>();
+        java.util.List<String> frontierFlags = new java.util.ArrayList<>();
+
+        collectFrontierPaths(root, "/", paths, enterFlags, leaveFlags, frontierFlags);
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(baos)) {
+            out.writeInt(paths.size());
+            for (int i = 0; i < paths.size(); i++) {
+                out.writeUTF(paths.get(i));
+                out.writeBoolean(Boolean.parseBoolean(enterFlags.get(i)));
+                out.writeBoolean(Boolean.parseBoolean(leaveFlags.get(i)));
+                out.writeBoolean(Boolean.parseBoolean(frontierFlags.get(i)));
+            }
+        }
+        Blob blob = builder.createBlob(new ByteArrayInputStream(baos.toByteArray()));
+        builder.setProperty("pathTreeData", blob, Type.BINARY);
+
+        builder.setProperty("slimFormat", true);
+        builder.setProperty("binaryFormat", true); // Marks the Type.BINARY encoding
+        builder.setProperty("pathCount", paths.size());
+
+        int frontierCount = 0;
+        for (String flag : frontierFlags) {
+            if ("true".equals(flag)) frontierCount++;
+        }
+
+        log.debug("[PATHTREE-FRONTIER] Serialized {} paths (frontier={}, inProgress={}) as binary ({} bytes) vs {} total nodes",
+            paths.size(), frontierCount, paths.size() - frontierCount, baos.size(), totalNodes);
+    }
+
+    /**
      * Collect paths for frontier-based serialization:
      * - NOT fully processed nodes (in-progress chain)
      * - FRONTIER: fully processed children of NOT fully processed parents
      */
-    private void collectFrontierPaths(PathNode node, String path, 
+    private void collectFrontierPaths(PathNode node, String path,
             java.util.List<String> paths, 
             java.util.List<String> enterFlags,
             java.util.List<String> leaveFlags,
@@ -554,11 +606,46 @@ public class PathTree {
             tree.indexedNodes = indexedProp.getValue(Type.LONG).intValue();
         }
         
-        // Check for frontier format (new) vs legacy unprocessedPaths format
+        // Check for binary format (newest) vs frontier STRINGS format vs legacy unprocessedPaths format
+        PropertyState binaryProp = state.getProperty("binaryFormat");
+        boolean isBinaryFormat = binaryProp != null && binaryProp.getValue(Type.BOOLEAN);
+
         PropertyState frontierProp = state.getProperty("frontierFormat");
         boolean isFrontierFormat = frontierProp != null && frontierProp.getValue(Type.BOOLEAN);
-        
-        if (isFrontierFormat) {
+
+        if (isBinaryFormat) {
+            PropertyState blobProp = state.getProperty("pathTreeData");
+            if (blobProp != null) {
+                Blob blob = blobProp.getValue(Type.BINARY);
+                int frontierCount = 0;
+                int inProgressCount = 0;
+                try (DataInputStream in = new DataInputStream(blob.getNewStream())) {
+                    int count = in.readInt();
+                    for (int i = 0; i < count; i++) {
+                        String path = in.readUTF();
+                        boolean enterCompleted = in.readBoolean();
+                        boolean leaveCompleted = in.readBoolean();
+                        boolean isFrontier = in.readBoolean();
+
+                        PathNode node = tree.getOrCreateNode(path);
+                        node.setEnterCompleted(enterCompleted);
+                        node.setLeaveCompleted(leaveCompleted);
+
+                        if (isFrontier) {
+                            node.setIndexed(true);
+                            frontierCount++;
+                        } else {
+                            inProgressCount++;
+                        }
+                    }
+                } catch (IOException e) {
+                    throw new IllegalStateException("Failed to deserialize binary PathTree data", e);
+                }
+
+                log.debug("[PATHTREE-FRONTIER] Loaded {} paths (frontier={}, inProgress={}) from binary format",
+                    frontierCount + inProgressCount, frontierCount, inProgressCount);
+            }
+        } else if (isFrontierFormat) {
             // New frontier format
             PropertyState pathsProp = state.getProperty("paths");
             PropertyState enterProp = state.getProperty("enterFlags");
