@@ -773,45 +773,6 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             }
         }
 
-        // Fallback C: pause this lane while a native reindex runs; reset once it completes.
-        // Only merge the pause marker + log INFO on the TRANSITION into paused; while already
-        // paused (a native reindex can run for hours) just return so we don't re-merge the
-        // marker and log an INFO on every scheduler cycle.
-        if (shouldPauseForNativeReindex(root)) {
-            if (!isReindexPaused(root)) {
-                NodeBuilder pauseBuilder = store.getRoot().builder();
-                markReindexPaused(pauseBuilder);
-                try {
-                    store.merge(pauseBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
-                } catch (CommitFailedException e) {
-                    log.warn("[{}] Failed to persist reindex-pause marker", name, e);
-                }
-                log.info("[{}] Pausing lane while a native reindex is in flight", name);
-            } else {
-                log.debug("[{}] Lane already paused for native reindex; skipping run", name);
-            }
-            return;
-        }
-        if (isReindexPaused(root)) {
-            NodeBuilder resetBuilder = store.getRoot().builder();
-            resetAfterNativeReindex(resetBuilder);
-            try {
-                store.merge(resetBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
-            } catch (CommitFailedException e) {
-                log.warn("[{}] Failed to reset resume state after native reindex", name, e);
-            }
-            root = store.getRoot();          // re-read after reset so the run proceeds from clean state
-            async = root.getChildNode(ASYNC);
-            log.info("[{}] Native reindex complete; lane reset to base checkpoint", name);
-        }
-
-        // A resume lane with no mode=resume work and no residual resume state must stay inert
-        // rather than run an empty diff and churn a checkpoint every cycle (base lane never skips).
-        if (skipInertResumeRun(root)) {
-            log.debug("[{}] No resume-mode work and no residual resume state; run is inert", name);
-            return;
-        }
-
         // start collecting runtime statistics
         preAsyncRunStatsStats(indexStats);
 
@@ -1285,39 +1246,6 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         if (fullyCompleted && indexUpdate != null) {
             indexUpdate.finalizeChunkedReindex();   // no-op unless a chunked reindex just completed
         }
-    }
-
-    /**
-     * Whether this run must be skipped because a native reindex of one of this
-     * lane's resume-mode defs is in flight (fallback C). Base default: false.
-     */
-    protected boolean shouldPauseForNativeReindex(NodeState root) {
-        return false;
-    }
-
-    /** Records that this lane is paused for a native reindex. Base default: no-op. */
-    protected void markReindexPaused(NodeBuilder builder) {
-        // no-op in the base implementation
-    }
-
-    /** Whether this lane is currently marked paused for a native reindex. Base default: false. */
-    protected boolean isReindexPaused(NodeState root) {
-        return false;
-    }
-
-    /** Resets this lane's resume state after a native reindex completes. Base default: no-op. */
-    protected void resetAfterNativeReindex(NodeBuilder builder) {
-        // no-op in the base implementation
-    }
-
-    /**
-     * Whether this run has nothing to do and must not touch {@code :async}. Lets a resume
-     * lane short-circuit when there is no {@code mode=resume} work and no residual resume
-     * state, so pristine deployments (zero resume defs) never churn a checkpoint per cycle.
-     * Base implementation always returns {@code false}: the normal async lane never skips.
-     */
-    protected boolean skipInertResumeRun(NodeState root) {
-        return false;
     }
 
     /**

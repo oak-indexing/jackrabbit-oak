@@ -19,8 +19,6 @@ package org.apache.jackrabbit.oak.plugins.index;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.ASYNC_PROPERTY_NAME;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_CONTENT_NODE_NAME;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NAME;
-import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.MODE_PROPERTY_NAME;
-import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.MODE_RESUME;
 import static org.apache.jackrabbit.oak.plugins.index.IndexUtils.createIndexDefinition;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -78,8 +76,7 @@ public class AsyncIndexUpdateResumptionTest {
         NodeBuilder builder = store.getRoot().builder();
         createIndexDefinition(builder.child(INDEX_DEFINITIONS_NAME),
                 "rootIndex", true, false, Set.of("foo"), null)
-                .setProperty(ASYNC_PROPERTY_NAME, "async")
-                .setProperty(MODE_PROPERTY_NAME, MODE_RESUME);
+                .setProperty(ASYNC_PROPERTY_NAME, ResumableAsyncIndexUpdate.resumeLaneName("async"));
         store.merge(builder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
 
         // Resume/chunk mode now comes solely from running the segregated subclass on
@@ -150,8 +147,7 @@ public class AsyncIndexUpdateResumptionTest {
         NodeBuilder builder = store.getRoot().builder();
         createIndexDefinition(builder.child(INDEX_DEFINITIONS_NAME),
                 "rootIndex", true, false, Set.of("foo"), null)
-                .setProperty(ASYNC_PROPERTY_NAME, "async")
-                .setProperty(MODE_PROPERTY_NAME, MODE_RESUME);
+                .setProperty(ASYNC_PROPERTY_NAME, ResumableAsyncIndexUpdate.resumeLaneName("async"));
 
         // Create 500 nodes. Time limit is 1s.
         // 500 * 10ms = 5s. Should definitely hit limit.
