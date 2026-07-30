@@ -259,6 +259,8 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
      *   <li>{@code oak.async.pathTreeBinaryFormat} — persist the SLIM PathTree as a
      *       {@code Type.BINARY} blob instead of {@code Type.STRINGS} arrays (requires
      *       {@code oak.async.pathTreeSlimFormat=true})</li>
+     *   <li>{@code oak.async.resumeLanes} — comma-separated base lane names selected for
+     *       seamless resumable indexing when {@code FT_RESUMABLE_ASYNC} is enabled</li>
      * </ul>
      */
     private static final String PROP_CHUNK_SIZE = "oak.async.chunkSize";
