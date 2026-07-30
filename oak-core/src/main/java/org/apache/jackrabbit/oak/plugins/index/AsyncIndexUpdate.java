@@ -266,12 +266,21 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
     private static final String PROP_USE_PATHTREE_TRAVERSAL = "oak.async.usePathTreeTraversal";
     private static final String PROP_PATHTREE_SLIM_FORMAT = "oak.async.pathTreeSlimFormat";
     private static final String PROP_PATHTREE_BINARY_FORMAT = "oak.async.pathTreeBinaryFormat";
+    private static final String PROP_RESUME_LANES = "oak.async.resumeLanes";
 
     private List<ValidatorProvider> validatorProviders = Collections.emptyList();
 
     private TrackingCorruptIndexHandler corruptIndexHandler = new TrackingCorruptIndexHandler();
 
     private final StatisticsProvider statisticsProvider;
+
+    /** Base lanes selected for seamless resumable indexing (from oak.async.resumeLanes). */
+    private final Set<String> resumeLanes;
+
+    /** Feature toggle gating seamless resumable async; wired at registration. Null => OFF. */
+    private Feature resumableAsyncFeature;
+    /** Test-only override of the seamless-resume toggle state. */
+    private Boolean resumableAsyncEnabledOverride;
 
     public AsyncIndexUpdate(@NotNull String name, @NotNull NodeStore store,
                             @NotNull IndexEditorProvider provider, boolean switchOnSync) {
@@ -292,7 +301,8 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         
         // Cache chunk size configuration at construction time
         this.configuredChunkSize = Long.getLong(PROP_CHUNK_SIZE, -1);
-        
+        this.resumeLanes = parseResumeLanes(System.getProperty(PROP_RESUME_LANES));
+
         if (configuredChunkSize > 0) {
             log.info("[{}] Resumable indexing enabled - chunkSize: {}", name, configuredChunkSize);
         }
@@ -1155,6 +1165,42 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             return resumableReindexEnabledOverride;
         }
         return resumableReindexFeature != null && resumableReindexFeature.isEnabled();
+    }
+
+    /** Parses the comma-separated {@code oak.async.resumeLanes} list; blanks dropped. */
+    static Set<String> parseResumeLanes(String csv) {
+        if (csv == null || csv.trim().isEmpty()) {
+            return Set.of();
+        }
+        Set<String> lanes = new HashSet<>();
+        for (String s : csv.split(",")) {
+            String t = s.trim();
+            if (!t.isEmpty()) {
+                lanes.add(t);
+            }
+        }
+        return lanes;
+    }
+
+    /** Wires the seamless resumable-async feature toggle (called at registration). */
+    public void setResumableAsyncFeature(Feature feature) {
+        this.resumableAsyncFeature = feature;
+    }
+
+    void setResumableAsyncEnabledForTest(boolean enabled) {
+        this.resumableAsyncEnabledOverride = enabled;
+    }
+
+    /**
+     * Whether this base lane runs seamless resumable indexing: the feature toggle is on
+     * AND this lane is in {@code oak.async.resumeLanes}. The test override bypasses both.
+     */
+    protected boolean isResumableAsyncEnabled() {
+        if (resumableAsyncEnabledOverride != null) {
+            return resumableAsyncEnabledOverride;
+        }
+        return resumableAsyncFeature != null && resumableAsyncFeature.isEnabled()
+                && resumeLanes.contains(name);
     }
 
     /**
