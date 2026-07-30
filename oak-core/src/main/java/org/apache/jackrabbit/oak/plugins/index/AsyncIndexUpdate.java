@@ -1399,7 +1399,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
 
             // Create IndexUpdate with ResumeContext
             indexUpdate = new IndexUpdate(provider, indexMatchLaneName(), after, builder, callback, callback,
-                    info, corruptIndexHandler, resumeContext, null, isResumeLane(), chunkedMode, isResumableReindexEnabled())
+                    info, corruptIndexHandler, resumeContext, null, chunkedMode, isResumableReindexEnabled())
                     .withMissingProviderStrategy(missingStrategy);
             configureRateEstimator(indexUpdate);
                             

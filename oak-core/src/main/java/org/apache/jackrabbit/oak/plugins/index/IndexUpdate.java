@@ -24,8 +24,6 @@ import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.ASYNC_REIND
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEXING_MODE_NRT;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEXING_MODE_SYNC;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.INDEX_DEFINITIONS_NAME;
-import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.MODE_PROPERTY_NAME;
-import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.MODE_RESUME;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.REINDEX_ASYNC_PROPERTY_NAME;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.REINDEX_COUNT;
 import static org.apache.jackrabbit.oak.plugins.index.IndexConstants.REINDEX_PROPERTY_NAME;
@@ -96,10 +94,6 @@ public class IndexUpdate implements Editor, PathSource {
     // detection message has already been logged in this JVM. They legitimately use
     // jcr:primaryType=nt:unstructured, so their presence is reported once at INFO.
     private static final Set<String> diffIndexesDetected = ConcurrentHashMap.newKeySet();
-
-    // Paths of nested (non top-level) mode=resume defs for which the "mode ignored" warning
-    // has already been logged in this JVM; used to keep the WARN from repeating every traversal.
-    private static final Set<String> nestedResumeWarned = ConcurrentHashMap.newKeySet();
 
     static void resetDiffIndexesDetectedForTest() {
         diffIndexesDetected.clear();
@@ -222,7 +216,7 @@ public class IndexUpdate implements Editor, PathSource {
             CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler,
             @Nullable ResumeContext resumeContext, @Nullable NodeStore store) {
         this(provider, async, root, builder, updateCallback, traversalCallback,
-                commitInfo, corruptIndexHandler, resumeContext, store, false, false, true);
+                commitInfo, corruptIndexHandler, resumeContext, store, false, true);
     }
 
     /**
@@ -238,8 +232,6 @@ public class IndexUpdate implements Editor, PathSource {
      * @param corruptIndexHandler handler for corrupt indexes
      * @param resumeContext context for resumable indexing (can be null)
      * @param store node store used by the diff-index optimization (can be null)
-     * @param resumeLane {@code true} if this IndexUpdate run is the segregated resume lane,
-     *                   processing only {@code mode=resume} index definitions
      * @param chunked {@code true} if this run is a chunked resumable reindex, so reindex
      *                completion state is deferred until the build fully completes
      * @param resumableReindexEnabled {@code true} if the resumable-reindex feature toggle is
@@ -252,12 +244,12 @@ public class IndexUpdate implements Editor, PathSource {
             IndexUpdateCallback updateCallback, NodeTraversalCallback traversalCallback,
             CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler,
             @Nullable ResumeContext resumeContext, @Nullable NodeStore store,
-            boolean resumeLane, boolean chunked, boolean resumableReindexEnabled) {
+            boolean chunked, boolean resumableReindexEnabled) {
         this.store = store;
         this.parent = null;
         this.name = null;
         this.path = "/";
-        this.rootState = new IndexUpdateRootState(provider, async, root, builder, updateCallback, traversalCallback, commitInfo, corruptIndexHandler, resumeContext, resumeLane, chunked, resumableReindexEnabled);
+        this.rootState = new IndexUpdateRootState(provider, async, root, builder, updateCallback, traversalCallback, commitInfo, corruptIndexHandler, resumeContext, chunked, resumableReindexEnabled);
         this.builder = requireNonNull(builder);
 
         // If we have a resume context and it's in skip mode, start in skip mode
@@ -564,19 +556,9 @@ public class IndexUpdate implements Editor, PathSource {
                 && rootState.async == null) {
             DiffIndex.applyDiffIndexChanges(store, definitions);
         }
-        // mode=resume is only supported on top-level /oak:index defs (see I-3). A nested
-        // mode=resume def is treated as an ordinary async def so that the top-level pause/
-        // cleanup scans stay correct by construction.
-        boolean isTopLevel = "/".equals(getPath());
         for (String name : definitions.getChildNodeNames()) {
             NodeBuilder definition = definitions.getChildNode(name);
-            if (!isTopLevel && MODE_RESUME.equals(definition.getString(MODE_PROPERTY_NAME))
-                    && nestedResumeWarned.add(concat(getPath(), INDEX_DEFINITIONS_NAME, name))) {
-                log.warn("[{}] mode=resume is only supported on top-level /oak:index definitions;"
-                        + " ignoring mode on nested def {} and indexing it as ordinary async",
-                        rootState.async, concat(getPath(), INDEX_DEFINITIONS_NAME, name));
-            }
-            if (isIncluded(isTopLevel, rootState.async, definition, rootState.resumeLane, rootState.resumableReindexEnabled)) {
+            if (isIncluded(rootState.async, definition)) {
                 String type = definition.getString(TYPE_PROPERTY_NAME);
                 String primaryType = definition.getName(JcrConstants.JCR_PRIMARYTYPE);
                 if (type == null) {
@@ -708,38 +690,6 @@ public class IndexUpdate implements Editor, PathSource {
     }
 
     static boolean isIncluded(String asyncRef, NodeBuilder definition) {
-        return isIncluded(true, asyncRef, definition, false, true);
-    }
-
-    static boolean isIncluded(String asyncRef, NodeBuilder definition, boolean resumeLane) {
-        return isIncluded(true, asyncRef, definition, resumeLane, true);
-    }
-
-    static boolean isIncluded(String asyncRef, NodeBuilder definition,
-                              boolean resumeLane, boolean resumableReindexEnabled) {
-        return isIncluded(true, asyncRef, definition, resumeLane, resumableReindexEnabled);
-    }
-
-    /**
-     * @param isTopLevel {@code true} if {@code definition} lives directly under the top-level
-     *        {@code /oak:index}. {@code mode=resume} is only honoured for top-level defs; a
-     *        nested {@code mode=resume} def is treated as an ordinary async def (see I-3), so
-     *        it is picked up by the normal lane and never by the resume lane.
-     */
-    static boolean isIncluded(boolean isTopLevel, String asyncRef, NodeBuilder definition,
-                              boolean resumeLane, boolean resumableReindexEnabled) {
-        boolean resumeDef = isTopLevel && MODE_RESUME.equals(definition.getString(MODE_PROPERTY_NAME));
-        // A resume lane only processes resume-mode defs; a normal lane only non-resume defs.
-        if (resumeDef != resumeLane) {
-            // Fallback C: with resumable reindex disabled, the NORMAL lane adopts a
-            // resume-mode def that needs a (re)index so it is rebuilt natively.
-            boolean normalLaneAdoptsReindex = !resumeLane && resumeDef
-                    && !resumableReindexEnabled
-                    && definition.getBoolean(REINDEX_PROPERTY_NAME);
-            if (!normalLaneAdoptsReindex) {
-                return false;
-            }
-        }
         if (definition.hasProperty(ASYNC_PROPERTY_NAME)) {
             PropertyState p = definition.getProperty(ASYNC_PROPERTY_NAME);
             Iterable<String> opt = p.getValue(Type.STRINGS);
@@ -1048,9 +998,6 @@ public class IndexUpdate implements Editor, PathSource {
         @Nullable
         final ResumeContext resumeContext;
 
-        /** {@code true} if this IndexUpdate run is the segregated resume lane. */
-        final boolean resumeLane;
-
         /** {@code true} if this run is a chunked resumable reindex (defers reindex completion). */
         final boolean chunked;
 
@@ -1061,7 +1008,7 @@ public class IndexUpdate implements Editor, PathSource {
                                      NodeBuilder builder, IndexUpdateCallback updateCallback,
                                      NodeTraversalCallback traversalCallback,
                                      CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler,
-                                     @Nullable ResumeContext resumeContext, boolean resumeLane,
+                                     @Nullable ResumeContext resumeContext,
                                      boolean chunked, boolean resumableReindexEnabled) {
             this.provider = requireNonNull(provider);
             this.async = async;
@@ -1071,7 +1018,6 @@ public class IndexUpdate implements Editor, PathSource {
             this.indexDisabler = new IndexDisabler(builder);
             this.progressReporter = new IndexingProgressReporter(updateCallback, traversalCallback);
             this.resumeContext = resumeContext;
-            this.resumeLane = resumeLane;
             this.chunked = chunked;
             this.resumableReindexEnabled = resumableReindexEnabled;
         }

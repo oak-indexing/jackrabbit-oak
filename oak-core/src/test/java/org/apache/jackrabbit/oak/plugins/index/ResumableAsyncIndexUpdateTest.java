@@ -206,21 +206,6 @@ public class ResumableAsyncIndexUpdateTest {
     }
 
     @Test
-    public void normalLaneReindexesResumeDefWhenToggleOff() {
-        NodeBuilder resumeReindexing = EmptyNodeState.EMPTY_NODE.builder();
-        resumeReindexing.setProperty("async", "async");
-        resumeReindexing.setProperty(IndexConstants.MODE_PROPERTY_NAME, IndexConstants.MODE_RESUME);
-        resumeReindexing.setProperty(IndexConstants.REINDEX_PROPERTY_NAME, true);
-
-        // toggle OFF: normal lane (resumeLane=false) MUST pick it up to run the native reindex
-        assertTrue(IndexUpdate.isIncluded("async", resumeReindexing, false, /*resumableReindexEnabled*/ false));
-        // toggle ON: normal lane still skips it (resume lane handles the reindex)
-        assertFalse(IndexUpdate.isIncluded("async", resumeReindexing, false, /*resumableReindexEnabled*/ true));
-        // resume lane (resumeLane=true) always processes its own resume-mode defs
-        assertTrue(IndexUpdate.isIncluded("async", resumeReindexing, true, /*resumableReindexEnabled*/ false));
-    }
-
-    @Test
     public void resumeLanePausesDuringNativeReindexThenResets() throws Exception {
         MemoryNodeStore store = new MemoryNodeStore();
         NodeBuilder b = store.getRoot().builder();
