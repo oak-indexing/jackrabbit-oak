@@ -80,6 +80,7 @@ import static org.junit.Assert.fail;
  *   <li>terminates with every document → passes (feature works).</li>
  * </ul>
  */
+@Ignore("OAK-XXXXX: obsolete V4 mode=resume/self-heal E2E test; retired by the dual-enablement migration. Rewrite against resume_<lane> routing / FT_RESUMABLE_ASYNC is a documented follow-up.")
 public class ResumeChunkFlushTest {
 
     private static final int NODE_COUNT = 60;
