@@ -131,12 +131,16 @@ public class AsyncIndexerService {
         Feature resumableReindex = Feature.newFeature("FT_RESUMABLE_REINDEXING_OAK-0", whiteboard);
         closer.register(resumableReindex);
 
+        Feature resumableAsync = Feature.newFeature("FT_RESUMABLE_ASYNC_OAK-0", whiteboard);
+        closer.register(resumableAsync);
+
         for (AsyncConfig c : asyncIndexerConfig) {
             AsyncIndexUpdate task = new AsyncIndexUpdate(c.name, nodeStore, indexEditorProvider,
                     statisticsProvider, false);
             task.setCorruptIndexHandler(corruptIndexHandler);
             task.setValidatorProviders(Collections.singletonList(validatorProvider));
             task.setResumableReindexFeature(resumableReindex);
+            task.setResumableAsyncFeature(resumableAsync);
 
             long leaseTimeOutMin = config.leaseTimeOutMinutes();
 

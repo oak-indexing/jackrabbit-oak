@@ -154,4 +154,15 @@ public class AsyncIndexUpdateResumeToggleTest {
             System.clearProperty("oak.async.chunkTimeMs");
         }
     }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void baseRejectsResumeLaneName() {
+        new AsyncIndexUpdate("resume_async", new MemoryNodeStore(), new PropertyIndexEditorProvider());
+    }
+
+    @Test
+    public void resumeSubclassAcceptsResumeLaneName() {
+        // must not throw
+        new ResumableAsyncIndexUpdate("resume_async", new MemoryNodeStore(), new PropertyIndexEditorProvider());
+    }
 }

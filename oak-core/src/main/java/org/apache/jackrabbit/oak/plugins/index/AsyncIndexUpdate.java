@@ -292,6 +292,10 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
     public AsyncIndexUpdate(@NotNull String name, @NotNull NodeStore store,
                             @NotNull IndexEditorProvider provider, StatisticsProvider statsProvider, boolean switchOnSync) {
         this.name = checkValidName(name);
+        if (ResumableAsyncIndexUpdate.isResumeLane(this.name) && !(this instanceof ResumableAsyncIndexUpdate)) {
+            throw new IllegalArgumentException("Resume lane [" + this.name
+                    + "] must run on ResumableAsyncIndexUpdate, not the base AsyncIndexUpdate");
+        }
         this.lastIndexedTo = lastIndexedTo(name);
         this.store = requireNonNull(store);
         this.provider = requireNonNull(provider);
