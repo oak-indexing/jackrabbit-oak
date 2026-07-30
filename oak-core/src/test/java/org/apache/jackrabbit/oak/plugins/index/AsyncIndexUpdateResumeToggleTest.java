@@ -16,6 +16,7 @@
  */
 package org.apache.jackrabbit.oak.plugins.index;
 
+import static org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState.MISSING_NODE;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -25,6 +26,7 @@ import java.util.Set;
 
 import org.apache.jackrabbit.oak.plugins.index.property.PropertyIndexEditorProvider;
 import org.apache.jackrabbit.oak.plugins.memory.MemoryNodeStore;
+import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.apache.jackrabbit.oak.spi.toggle.Feature;
 import org.apache.jackrabbit.oak.spi.toggle.FeatureToggle;
@@ -118,6 +120,38 @@ public class AsyncIndexUpdateResumeToggleTest {
             }
         } finally {
             System.clearProperty(PROP_RESUME_LANES);
+        }
+    }
+
+    /** Exposes the protected isChunkedRun + lets a chunk size be forced without system props. */
+    static class TestableAsync extends AsyncIndexUpdate {
+        TestableAsync(String lane, NodeStore store) {
+            super(lane, store, new PropertyIndexEditorProvider());
+        }
+        boolean chunked(NodeState before) {
+            return isChunkedRun(before);
+        }
+    }
+
+    @Test
+    public void baseNeverChunksWhenResumeDisabled() {
+        TestableAsync a = new TestableAsync("async", new MemoryNodeStore());
+        a.setResumableAsyncEnabledForTest(false);
+        assertFalse(a.chunked(MISSING_NODE));
+    }
+
+    @Test
+    public void baseChunksIncrementalWhenResumeEnabledAndChunkConfigured() {
+        System.setProperty("oak.async.chunkTimeMs", "1000");
+        try {
+            TestableAsync a = new TestableAsync("async", new MemoryNodeStore());
+            a.setResumableAsyncEnabledForTest(true);
+            // before != MISSING_NODE => incremental => chunk
+            assertTrue(a.chunked(new MemoryNodeStore().getRoot()));
+            // before == MISSING_NODE (reindex) => only when resumable-reindex is on (default off)
+            assertFalse(a.chunked(MISSING_NODE));
+        } finally {
+            System.clearProperty("oak.async.chunkTimeMs");
         }
     }
 }

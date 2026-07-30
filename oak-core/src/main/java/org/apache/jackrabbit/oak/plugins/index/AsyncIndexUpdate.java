@@ -754,6 +754,25 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             }
         }
 
+        // Seamless resume: when the resumable-async toggle is OFF for this base lane, drop any
+        // residual chunk cursor so the lane continues monolithically from :async/<name>. The
+        // segregated resume lane manages its own state and is excluded.
+        if (!isResumeLane() && !isResumableAsyncEnabled()) {
+            String staleResumeNode = name + "-resume";
+            if (async.getChildNode(staleResumeNode).exists()) {
+                NodeBuilder cleanupBuilder = store.getRoot().builder();
+                cleanupBuilder.getChildNode(ASYNC).getChildNode(staleResumeNode).remove();
+                try {
+                    store.merge(cleanupBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+                } catch (CommitFailedException e) {
+                    log.warn("[{}] Failed to clear stale resume state after disabling resumable async", name, e);
+                }
+                root = store.getRoot();
+                async = root.getChildNode(ASYNC);
+                log.info("[{}] Resumable async disabled; cleared stale chunk cursor", name);
+            }
+        }
+
         // Fallback C: pause this lane while a native reindex runs; reset once it completes.
         // Only merge the pause marker + log INFO on the TRANSITION into paused; while already
         // paused (a native reindex can run for hours) just return so we don't re-merge the
@@ -1207,19 +1226,27 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
 
     /**
      * Whether the current run should operate in chunk-based (resumable)
-     * mode. Base implementation always returns {@code false}: plain
-     * {@code AsyncIndexUpdate} never chunks, regardless of system properties.
-     * Chunking is re-enabled only by {@link ResumableAsyncIndexUpdate}.
+     * mode. {@code true} only when the seamless resumable-async toggle is
+     * enabled for this lane ({@link #isResumableAsyncEnabled()}), a chunk
+     * boundary (size or time) is configured, and either this is an
+     * incremental run or resumable reindex is also enabled.
      */
     protected boolean isChunkedRun(NodeState before) {
-        return false;
+        if (!isResumableAsyncEnabled()) {
+            return false;
+        }
+        boolean chunkConfigured = configuredChunkSize > 0 || Long.getLong(PROP_CHUNK_TIME_MS, 0) > 0;
+        if (!chunkConfigured) {
+            return false;
+        }
+        if (before != MISSING_NODE) {
+            return true;                        // incremental always chunks
+        }
+        return isResumableReindexEnabled();     // initial/reindex chunks only when toggle ON
     }
 
     /**
      * Handles a chunk boundary: commits the chunk and persists resume state.
-     * Base implementation returns {@code false}: the base indexer never
-     * reaches a chunk boundary. {@link ResumableAsyncIndexUpdate} overrides
-     * this to perform the real chunk-commit.
      */
     protected boolean onChunkComplete(CommitFailedException exception,
                                        AsyncUpdateCallback callback,
@@ -1229,25 +1256,35 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                                        String beforeCheckpoint,
                                        String afterCheckpoint,
                                        AtomicReference<String> checkpointToReleaseRef) throws CommitFailedException {
-        return false;
+        commitChunkAndSaveResumeState(exception, callback, resumeContext, indexUpdate,
+                builder, beforeCheckpoint, afterCheckpoint);
+        // Keep both checkpoints; they are released when indexing fully completes.
+        checkpointToReleaseRef.set(null);
+        log.info("[{}] Chunk commit complete - index is incrementally searchable", name);
+        return true;
     }
 
     /**
      * Builds the {@link ResumeContext} threaded into the {@link IndexUpdate}.
-     * Base implementation produces a plain non-resume context (no resume path),
-     * exactly as the non-chunked path always has. {@link ResumableAsyncIndexUpdate}
-     * overrides this to wire up the PathTree-backed resume context.
      */
     protected ResumeContext buildResumeContext(String resumeFromPath, PathTree pathTree, long chunkLimit) {
+        if (resumeFromPath != null && !"/".equals(resumeFromPath)) {
+            log.info("[{}] Created resume context from path: {} (PathTree has {} indexed nodes)",
+                    name, resumeFromPath, pathTree.getIndexedNodes());
+            return ResumeContext.createForResume(resumeFromPath, pathTree, (int) chunkLimit);
+        }
+        log.debug("[{}] Created first-run resume context with PathTree", name);
         return new ResumeContext(null, pathTree, (int) chunkLimit);
     }
 
     /**
      * Hook invoked after a run finishes, right before the checkpoint state
-     * is updated. Base implementation is a no-op.
+     * is updated.
      */
     protected void afterRun(NodeBuilder builder, IndexUpdate indexUpdate, boolean fullyCompleted) {
-        // no-op in the base implementation
+        if (fullyCompleted && indexUpdate != null) {
+            indexUpdate.finalizeChunkedReindex();   // no-op unless a chunked reindex just completed
+        }
     }
 
     /**
