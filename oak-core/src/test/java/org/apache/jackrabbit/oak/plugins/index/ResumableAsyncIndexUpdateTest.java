@@ -46,14 +46,15 @@ public class ResumableAsyncIndexUpdateTest {
     }
 
     @Test
-    public void resumeLaneAlwaysChunksIncrementalWhenConfigured() {
+    public void resumeLaneChunksBothPathsWhenToggleOn() {
         System.setProperty("oak.async.chunkTimeMs", "1000");
         try {
             TestableResume r = new TestableResume("resume_async", new MemoryNodeStore());
-            // no FT_RESUMABLE_ASYNC needed on the resume lane
-            assertTrue(r.chunked(new MemoryNodeStore().getRoot())); // incremental => chunk
-            assertFalse(r.chunked(MISSING_NODE));                    // reindex only when reindex toggle on
-            r.setResumableReindexEnabledForTest(true);
+            // FT_RESUMABLE_ASYNC is the single gate; off => neither path chunks
+            assertFalse(r.chunked(new MemoryNodeStore().getRoot())); // incremental, toggle off
+            assertFalse(r.chunked(MISSING_NODE));                    // reindex, toggle off
+            r.setResumableAsyncEnabledForTest(true);
+            assertTrue(r.chunked(new MemoryNodeStore().getRoot()));  // incremental chunks with toggle on
             assertTrue(r.chunked(MISSING_NODE));                     // reindex chunks with toggle on
         } finally {
             System.clearProperty("oak.async.chunkTimeMs");

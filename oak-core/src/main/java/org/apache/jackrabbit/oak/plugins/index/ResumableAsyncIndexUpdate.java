@@ -16,19 +16,18 @@
  */
 package org.apache.jackrabbit.oak.plugins.index;
 
-import static org.apache.jackrabbit.oak.plugins.memory.EmptyNodeState.MISSING_NODE;
-
-import org.apache.jackrabbit.oak.spi.state.NodeState;
 import org.apache.jackrabbit.oak.spi.state.NodeStore;
 import org.apache.jackrabbit.oak.stats.StatisticsProvider;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * Segregated resume/chunked variant of {@link AsyncIndexUpdate}. It runs on a dedicated
- * {@code resume_}-prefixed lane and always chunks (given chunk configuration), independent of
- * the {@code FT_RESUMABLE_ASYNC} toggle that governs base lanes. Moving an index onto a
- * {@code resume_} lane is a lane-name change and therefore reindexes on switch; all lane state
- * is keyed by this lane's own name under {@code :async} and never collides with the base lane.
+ * {@code resume_}-prefixed lane and chunks both incremental and reindex runs (given chunk
+ * configuration) whenever the {@code FT_RESUMABLE_ASYNC} toggle is on. Unlike base lanes it
+ * does not consult the {@code oak.async.resumeLanes} allowlist: routing an index onto a
+ * {@code resume_} lane is itself the opt-in. Moving an index onto a {@code resume_} lane is a
+ * lane-name change and therefore reindexes on switch; all lane state is keyed by this lane's
+ * own name under {@code :async} and never collides with the base lane.
  */
 public class ResumableAsyncIndexUpdate extends AsyncIndexUpdate {
 
@@ -66,15 +65,14 @@ public class ResumableAsyncIndexUpdate extends AsyncIndexUpdate {
         return true;
     }
 
+    /**
+     * Dedicated resume lane: self-selected by routing, so it does not consult the
+     * {@code oak.async.resumeLanes} allowlist. The raw {@code FT_RESUMABLE_ASYNC} toggle
+     * alone enables resume for both incremental and reindex runs, and (via the base class)
+     * activates the PathTree/PTBIN/default-chunk configuration.
+     */
     @Override
-    protected boolean isChunkedRun(NodeState before) {
-        boolean chunkConfigured = configuredChunkSize > 0 || Long.getLong(PROP_CHUNK_TIME_MS, 0) > 0;
-        if (!chunkConfigured) {
-            return false;
-        }
-        if (before != MISSING_NODE) {
-            return true;                        // incremental always chunks
-        }
-        return isResumableReindexEnabled();     // initial/reindex chunks only when toggle ON
+    protected boolean isResumeEnabledForLane() {
+        return isResumableAsyncToggleEnabled();
     }
 }

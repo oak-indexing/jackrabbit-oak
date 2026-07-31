@@ -123,13 +123,19 @@ public class AsyncIndexUpdateResumeToggleTest {
         }
     }
 
-    /** Exposes the protected isChunkedRun + lets a chunk size be forced without system props. */
+    /** Exposes the protected chunk seams so defaults can be asserted without a full run. */
     static class TestableAsync extends AsyncIndexUpdate {
         TestableAsync(String lane, NodeStore store) {
             super(lane, store, new PropertyIndexEditorProvider());
         }
         boolean chunked(NodeState before) {
             return isChunkedRun(before);
+        }
+        long effChunkSize() {
+            return effectiveChunkSize();
+        }
+        boolean resolveFlag(String prop) {
+            return resolveResumeFlag(prop);
         }
     }
 
@@ -141,17 +147,82 @@ public class AsyncIndexUpdateResumeToggleTest {
     }
 
     @Test
-    public void baseChunksIncrementalWhenResumeEnabledAndChunkConfigured() {
+    public void baseChunksBothPathsWhenResumeEnabledAndChunkConfigured() {
         System.setProperty("oak.async.chunkTimeMs", "1000");
         try {
             TestableAsync a = new TestableAsync("async", new MemoryNodeStore());
             a.setResumableAsyncEnabledForTest(true);
-            // before != MISSING_NODE => incremental => chunk
-            assertTrue(a.chunked(new MemoryNodeStore().getRoot()));
-            // before == MISSING_NODE (reindex) => only when resumable-reindex is on (default off)
-            assertFalse(a.chunked(MISSING_NODE));
+            // FT_RESUMABLE_ASYNC is the single gate: both incremental and reindex chunk.
+            assertTrue(a.chunked(new MemoryNodeStore().getRoot())); // incremental
+            assertTrue(a.chunked(MISSING_NODE));                    // reindex
         } finally {
             System.clearProperty("oak.async.chunkTimeMs");
+        }
+    }
+
+    @Test
+    public void enablingToggleAloneChunksBothPathsWithDefaultChunkSize() {
+        // No chunkSize / chunkTimeMs set: FT_RESUMABLE_ASYNC is the top switch, so enabling
+        // it alone yields a working chunked config with the default chunk size.
+        TestableAsync a = new TestableAsync("async", new MemoryNodeStore());
+        a.setResumableAsyncEnabledForTest(true);
+        assertEquals(AsyncIndexUpdate.DEFAULT_RESUME_CHUNK_SIZE, a.effChunkSize());
+        assertTrue(a.chunked(new MemoryNodeStore().getRoot())); // incremental
+        assertTrue(a.chunked(MISSING_NODE));                    // reindex
+    }
+
+    @Test
+    public void defaultChunkSizeOnlyAppliesWhenResumeEnabled() {
+        TestableAsync a = new TestableAsync("async", new MemoryNodeStore());
+        a.setResumableAsyncEnabledForTest(false);
+        assertEquals(0, a.effChunkSize());
+    }
+
+    @Test
+    public void explicitChunkSizeOverridesDefault() {
+        System.setProperty("oak.async.chunkSize", "250");
+        try {
+            TestableAsync a = new TestableAsync("async", new MemoryNodeStore());
+            a.setResumableAsyncEnabledForTest(true);
+            assertEquals(250, a.effChunkSize());
+        } finally {
+            System.clearProperty("oak.async.chunkSize");
+        }
+    }
+
+    @Test
+    public void explicitZeroChunkSizeDisablesCountChunking() {
+        System.setProperty("oak.async.chunkSize", "0");
+        try {
+            TestableAsync a = new TestableAsync("async", new MemoryNodeStore());
+            a.setResumableAsyncEnabledForTest(true);
+            assertEquals(0, a.effChunkSize());
+            // Falls back to time-based chunking only; with none configured, no chunking.
+            assertFalse(a.chunked(MISSING_NODE));
+        } finally {
+            System.clearProperty("oak.async.chunkSize");
+        }
+    }
+
+    @Test
+    public void resumeTuningFlagsDefaultOnWhenResumeEnabledAndOffOtherwise() {
+        // PTBIN (SLIM) format is part of the resume default set: on when resume is enabled.
+        String prop = "oak.async.pathTreeSlimFormat";
+        TestableAsync a = new TestableAsync("async", new MemoryNodeStore());
+
+        a.setResumableAsyncEnabledForTest(true);
+        assertTrue(a.resolveFlag(prop)); // default on when resume enabled
+
+        a.setResumableAsyncEnabledForTest(false);
+        assertFalse(a.resolveFlag(prop)); // default off when resume disabled
+
+        // Explicit value always wins, regardless of resume state.
+        System.setProperty(prop, "false");
+        try {
+            a.setResumableAsyncEnabledForTest(true);
+            assertFalse(a.resolveFlag(prop));
+        } finally {
+            System.clearProperty(prop);
         }
     }
 

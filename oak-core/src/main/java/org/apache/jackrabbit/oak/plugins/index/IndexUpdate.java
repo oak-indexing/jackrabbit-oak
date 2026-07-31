@@ -216,7 +216,7 @@ public class IndexUpdate implements Editor, PathSource {
             CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler,
             @Nullable ResumeContext resumeContext, @Nullable NodeStore store) {
         this(provider, async, root, builder, updateCallback, traversalCallback,
-                commitInfo, corruptIndexHandler, resumeContext, store, false, true);
+                commitInfo, corruptIndexHandler, resumeContext, store, false);
     }
 
     /**
@@ -234,9 +234,6 @@ public class IndexUpdate implements Editor, PathSource {
      * @param store node store used by the diff-index optimization (can be null)
      * @param chunked {@code true} if this run is a chunked resumable reindex, so reindex
      *                completion state is deferred until the build fully completes
-     * @param resumableReindexEnabled {@code true} if the resumable-reindex feature toggle is
-     *                enabled; controls whether the normal lane adopts a resume-mode def that
-     *                needs a native reindex (fallback C)
      */
     public IndexUpdate(
             IndexEditorProvider provider, String async,
@@ -244,12 +241,12 @@ public class IndexUpdate implements Editor, PathSource {
             IndexUpdateCallback updateCallback, NodeTraversalCallback traversalCallback,
             CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler,
             @Nullable ResumeContext resumeContext, @Nullable NodeStore store,
-            boolean chunked, boolean resumableReindexEnabled) {
+            boolean chunked) {
         this.store = store;
         this.parent = null;
         this.name = null;
         this.path = "/";
-        this.rootState = new IndexUpdateRootState(provider, async, root, builder, updateCallback, traversalCallback, commitInfo, corruptIndexHandler, resumeContext, chunked, resumableReindexEnabled);
+        this.rootState = new IndexUpdateRootState(provider, async, root, builder, updateCallback, traversalCallback, commitInfo, corruptIndexHandler, resumeContext, chunked);
         this.builder = requireNonNull(builder);
 
         // If we have a resume context and it's in skip mode, start in skip mode
@@ -380,11 +377,19 @@ public class IndexUpdate implements Editor, PathSource {
             rootState.progressReporter.reindexingTraversalStart(getPath());
         }
 
-        // no-op when reindex is empty
-        CommitFailedException exception = EditorDiff.process(
-                VisibleEditor.wrap(wrapProgress(CompositeEditor.compose(List.copyOf(reindex.values())))),
-                MISSING_NODE,
-                after);
+        // For a chunked reindex-from-scratch the outer diff is already a full MISSING->after
+        // walk, so the reindex editors are driven by the resume-aware IndexUpdate traversal
+        // (see collectIndexEditors) instead of this separate walk. The separate walk is not
+        // resume-aware: it always restarts from the root, hits the chunk limit at the same node
+        // every cycle and never advances the resume cursor, i.e. it livelocks.
+        CommitFailedException exception = null;
+        if (!(rootState.chunked && before == MISSING_NODE)) {
+            // no-op when reindex is empty
+            exception = EditorDiff.process(
+                    VisibleEditor.wrap(wrapProgress(CompositeEditor.compose(List.copyOf(reindex.values())))),
+                    MISSING_NODE,
+                    after);
+        }
         rootState.progressReporter.reindexingTraversalEnd();
         if (exception != null) {
             throw exception;
@@ -652,6 +657,16 @@ public class IndexUpdate implements Editor, PathSource {
                         clearCorruptFlag(definition, indexPath);
                         reindex.put(concat(getPath(), INDEX_DEFINITIONS_NAME, name), editor);
                         deferredReindexDefs.add(definition);
+                        if (before == MISSING_NODE) {
+                            // Reindex-from-scratch: the outer diff is a full MISSING->after walk,
+                            // so drive this editor through the resume-aware IndexUpdate traversal
+                            // (skip already-processed paths, mark progress, honour the chunk limit)
+                            // rather than the separate resume-unaware reindex walk, which would
+                            // livelock. performFullInitialization skips that separate walk for this
+                            // case; the editor stays in the reindex map only to keep isReindexing()
+                            // and reindex progress reporting accurate.
+                            editors.add(wrapProgress(editor));
+                        }
                     }
 
                     rootState.indexDisabler.markDisableFlagIfRequired(indexPath, definition);
@@ -1001,15 +1016,12 @@ public class IndexUpdate implements Editor, PathSource {
         /** {@code true} if this run is a chunked resumable reindex (defers reindex completion). */
         final boolean chunked;
 
-        /** {@code true} if the resumable-reindex feature toggle is enabled. */
-        final boolean resumableReindexEnabled;
-
         private IndexUpdateRootState(IndexEditorProvider provider, String async, NodeState root,
                                      NodeBuilder builder, IndexUpdateCallback updateCallback,
                                      NodeTraversalCallback traversalCallback,
                                      CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler,
                                      @Nullable ResumeContext resumeContext,
-                                     boolean chunked, boolean resumableReindexEnabled) {
+                                     boolean chunked) {
             this.provider = requireNonNull(provider);
             this.async = async;
             this.root = requireNonNull(root);
@@ -1019,7 +1031,6 @@ public class IndexUpdate implements Editor, PathSource {
             this.progressReporter = new IndexingProgressReporter(updateCallback, traversalCallback);
             this.resumeContext = resumeContext;
             this.chunked = chunked;
-            this.resumableReindexEnabled = resumableReindexEnabled;
         }
         
         /**

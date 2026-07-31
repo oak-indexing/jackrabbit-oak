@@ -128,9 +128,6 @@ public class AsyncIndexerService {
 
         TrackingCorruptIndexHandler corruptIndexHandler = createCorruptIndexHandler(config);
 
-        Feature resumableReindex = Feature.newFeature("FT_RESUMABLE_REINDEXING_OAK-0", whiteboard);
-        closer.register(resumableReindex);
-
         Feature resumableAsync = Feature.newFeature("FT_RESUMABLE_ASYNC_OAK-0", whiteboard);
         closer.register(resumableAsync);
 
@@ -139,7 +136,6 @@ public class AsyncIndexerService {
                     statisticsProvider, false);
             task.setCorruptIndexHandler(corruptIndexHandler);
             task.setValidatorProviders(Collections.singletonList(validatorProvider));
-            task.setResumableReindexFeature(resumableReindex);
             task.setResumableAsyncFeature(resumableAsync);
 
             long leaseTimeOutMin = config.leaseTimeOutMinutes();
@@ -165,7 +161,7 @@ public class AsyncIndexerService {
                     statisticsProvider, false);
             resumeTask.setCorruptIndexHandler(corruptIndexHandler);
             resumeTask.setValidatorProviders(Collections.singletonList(validatorProvider));
-            resumeTask.setResumableReindexFeature(resumableReindex);
+            resumeTask.setResumableAsyncFeature(resumableAsync);
             resumeTask.setLeaseTimeOut(TimeUnit.MINUTES.toMillis(leaseTimeOutMin));
             indexRegistration.registerAsyncIndexer(resumeTask, c.timeIntervalInSecs);
             closer.register(resumeTask);

@@ -248,17 +248,26 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
      * field initializers.
      *
      * <p>There is no longer a global {@code oak.async.resume} master switch:
-     * chunked/resumable indexing engages only when running
-     * {@link ResumableAsyncIndexUpdate}, whose seam overrides consult the chunk
-     * configuration below. Plain {@code AsyncIndexUpdate} never chunks.
+     * chunked/resumable indexing engages only when resume is enabled for the lane
+     * (see {@link #isResumeEnabledForLane()}). When it is, {@code FT_RESUMABLE_ASYNC}
+     * acts as the top switch: the properties below all default to the resume feature's
+     * recommended configuration (SLIM binary format + a {@value #DEFAULT_RESUME_CHUNK_SIZE}-node
+     * chunk) unless an operator sets them explicitly, in which case the explicit value always
+     * wins. Plain {@code AsyncIndexUpdate} on a non-selected lane never chunks and keeps the
+     * legacy off defaults.
      * <ul>
-     *   <li>{@code oak.async.chunkSize} — max NEW nodes indexed per chunk (&gt;0 enables count-based chunking)</li>
+     *   <li>{@code oak.async.chunkSize} — max NEW nodes indexed per chunk (defaults to
+     *       {@value #DEFAULT_RESUME_CHUNK_SIZE} when resume is enabled; set explicitly to override,
+     *       or to {@code 0} to disable count-based chunking)</li>
      *   <li>{@code oak.async.chunkTimeMs} — max wall-clock ms per chunk (&gt;0 enables time-based chunking)</li>
-     *   <li>{@code oak.async.usePathTreeTraversal} — drive resume via PathTree instead of a full EditorDiff</li>
-     *   <li>{@code oak.async.pathTreeSlimFormat} — persist the PathTree in SLIM format</li>
+     *   <li>{@code oak.async.usePathTreeTraversal} — drive resume via PathTree instead of a full
+     *       EditorDiff, skipping SegmentStore reads for fully-processed subtrees (defaults to on
+     *       when resume is enabled)</li>
+     *   <li>{@code oak.async.pathTreeSlimFormat} — persist the PathTree in SLIM format
+     *       (defaults to on when resume is enabled)</li>
      *   <li>{@code oak.async.pathTreeBinaryFormat} — persist the SLIM PathTree as a
      *       {@code Type.BINARY} blob instead of {@code Type.STRINGS} arrays (requires
-     *       {@code oak.async.pathTreeSlimFormat=true})</li>
+     *       {@code oak.async.pathTreeSlimFormat=true}; defaults to on when resume is enabled)</li>
      *   <li>{@code oak.async.resumeLanes} — comma-separated base lane names selected for
      *       seamless resumable indexing when {@code FT_RESUMABLE_ASYNC} is enabled</li>
      * </ul>
@@ -269,6 +278,13 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
     private static final String PROP_PATHTREE_SLIM_FORMAT = "oak.async.pathTreeSlimFormat";
     private static final String PROP_PATHTREE_BINARY_FORMAT = "oak.async.pathTreeBinaryFormat";
     private static final String PROP_RESUME_LANES = "oak.async.resumeLanes";
+
+    /**
+     * Default nodes-per-chunk applied when resume is enabled for the lane but
+     * {@code oak.async.chunkSize} was not set explicitly. Enabling {@code FT_RESUMABLE_ASYNC}
+     * alone yields a working chunked configuration without any further tuning.
+     */
+    static final long DEFAULT_RESUME_CHUNK_SIZE = 5000;
 
     private List<ValidatorProvider> validatorProviders = Collections.emptyList();
 
@@ -1131,28 +1147,6 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         return false;
     }
 
-    /** Feature toggle gating resumable reindex; wired at registration (Task 8). Null => OFF. */
-    private Feature resumableReindexFeature;
-    /** Test-only override of the toggle state. */
-    private Boolean resumableReindexEnabledOverride;
-
-    /** Wires the resumable-reindex feature toggle (called at registration in Task 8). */
-    public void setResumableReindexFeature(Feature feature) {
-        this.resumableReindexFeature = feature;
-    }
-
-    void setResumableReindexEnabledForTest(boolean enabled) {
-        this.resumableReindexEnabledOverride = enabled;
-    }
-
-    /** Whether resumable reindex is enabled. Base default is OFF (null feature => false). */
-    protected boolean isResumableReindexEnabled() {
-        if (resumableReindexEnabledOverride != null) {
-            return resumableReindexEnabledOverride;
-        }
-        return resumableReindexFeature != null && resumableReindexFeature.isEnabled();
-    }
-
     /** Parses the comma-separated {@code oak.async.resumeLanes} list; blanks dropped. */
     static Set<String> parseResumeLanes(String csv) {
         if (csv == null || csv.trim().isEmpty()) {
@@ -1178,6 +1172,18 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
     }
 
     /**
+     * Raw state of the {@code FT_RESUMABLE_ASYNC} toggle, ignoring the
+     * {@code oak.async.resumeLanes} allowlist. Used by the dedicated resume lane, which
+     * is self-selected by routing. The test override takes precedence.
+     */
+    protected boolean isResumableAsyncToggleEnabled() {
+        if (resumableAsyncEnabledOverride != null) {
+            return resumableAsyncEnabledOverride;
+        }
+        return resumableAsyncFeature != null && resumableAsyncFeature.isEnabled();
+    }
+
+    /**
      * Whether this base lane runs seamless resumable indexing: the feature toggle is on
      * AND this lane is in {@code oak.async.resumeLanes}. The test override bypasses both.
      */
@@ -1185,29 +1191,57 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         if (resumableAsyncEnabledOverride != null) {
             return resumableAsyncEnabledOverride;
         }
-        return resumableAsyncFeature != null && resumableAsyncFeature.isEnabled()
-                && resumeLanes.contains(name);
+        return isResumableAsyncToggleEnabled() && resumeLanes.contains(name);
+    }
+
+    /**
+     * Whether resume is active for this lane. This is the single predicate that turns
+     * {@code FT_RESUMABLE_ASYNC} into the top switch: when it is {@code true} the chunk
+     * size and PathTree/PTBIN properties fall back to the resume feature's defaults.
+     * Base lanes require the toggle AND the {@code oak.async.resumeLanes} allowlist;
+     * {@link ResumableAsyncIndexUpdate} overrides this to consult the raw toggle only.
+     */
+    protected boolean isResumeEnabledForLane() {
+        return isResumableAsyncEnabled();
+    }
+
+    /**
+     * Effective nodes-per-chunk. An explicitly configured {@code oak.async.chunkSize}
+     * (including {@code 0} to disable count-based chunking) always wins; otherwise resume
+     * lanes default to {@link #DEFAULT_RESUME_CHUNK_SIZE} and non-resume lanes to 0.
+     */
+    protected long effectiveChunkSize() {
+        if (configuredChunkSize >= 0) {
+            return configuredChunkSize;
+        }
+        return isResumeEnabledForLane() ? DEFAULT_RESUME_CHUNK_SIZE : 0;
+    }
+
+    /**
+     * Resolves a resume tuning flag: an explicitly set system property wins; otherwise the
+     * flag defaults to on when resume is enabled for this lane, off when it is not.
+     */
+    boolean resolveResumeFlag(String prop) {
+        String explicit = System.getProperty(prop);
+        if (explicit != null) {
+            return Boolean.parseBoolean(explicit);
+        }
+        return isResumeEnabledForLane();
     }
 
     /**
      * Whether the current run should operate in chunk-based (resumable)
-     * mode. {@code true} only when the seamless resumable-async toggle is
-     * enabled for this lane ({@link #isResumableAsyncEnabled()}), a chunk
-     * boundary (size or time) is configured, and either this is an
-     * incremental run or resumable reindex is also enabled.
+     * mode. {@code true} only when resume is enabled for this lane
+     * ({@link #isResumeEnabledForLane()}) and a chunk boundary (size or time) is
+     * in effect. With {@code FT_RESUMABLE_ASYNC} as the top switch the size boundary
+     * defaults to {@link #DEFAULT_RESUME_CHUNK_SIZE}, so enabling the toggle alone chunks
+     * both incremental and reindex runs.
      */
     protected boolean isChunkedRun(NodeState before) {
-        if (!isResumableAsyncEnabled()) {
+        if (!isResumeEnabledForLane()) {
             return false;
         }
-        boolean chunkConfigured = configuredChunkSize > 0 || Long.getLong(PROP_CHUNK_TIME_MS, 0) > 0;
-        if (!chunkConfigured) {
-            return false;
-        }
-        if (before != MISSING_NODE) {
-            return true;                        // incremental always chunks
-        }
-        return isResumableReindexEnabled();     // initial/reindex chunks only when toggle ON
+        return effectiveChunkSize() > 0 || Long.getLong(PROP_CHUNK_TIME_MS, 0) > 0;
     }
 
     /**
@@ -1285,17 +1319,18 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         // in the base indexer and true only for ResumableAsyncIndexUpdate.
         boolean isInitialIndex = before == MISSING_NODE;
         boolean chunkedMode = isChunkedRun(before);
+        long chunkSize = effectiveChunkSize(); // explicit oak.async.chunkSize, else resume default
 
         // Log indexing mode
         String indexingMode = chunkedMode ? "RESUME" : "NORMAL";
         log.debug("[MODE] Indexing mode: {}, chunkSize={}, chunkTimeMs={}, isInitialIndex={}, chunkedMode={}",
-            indexingMode, configuredChunkSize, chunkTimeMs, isInitialIndex, chunkedMode);
-        
+            indexingMode, chunkSize, chunkTimeMs, isInitialIndex, chunkedMode);
+
         if (chunkedMode) {
-                callback.setUpdateLimit((int) configuredChunkSize);
+                callback.setUpdateLimit((int) chunkSize);
             callback.setTimeLimit(chunkTimeMs);
-            log.debug("[CHUNK] Chunk mode enabled - updateLimit={}, timeLimit={}", configuredChunkSize, chunkTimeMs);
-            log.info("[{}] Chunk-based indexing enabled - chunkSize: {}, chunkTimeMs: {}", name, configuredChunkSize, chunkTimeMs);
+            log.debug("[CHUNK] Chunk mode enabled - updateLimit={}, timeLimit={}", chunkSize, chunkTimeMs);
+            log.info("[{}] Chunk-based indexing enabled - chunkSize: {}, chunkTimeMs: {}", name, chunkSize, chunkTimeMs);
         } else if (isInitialIndex) {
             // Disable chunk limits during initial index - let it complete fully
             callback.setUpdateLimit(-1);
@@ -1326,12 +1361,12 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             // Build the ResumeContext. Resume wiring is subclass-specific: the base
             // produces a plain non-resume context, ResumableAsyncIndexUpdate wires
             // up the PathTree-backed resume context.
-            int chunkLimit = chunkedMode ? (int) configuredChunkSize : 0;
+            int chunkLimit = chunkedMode ? (int) chunkSize : 0;
             ResumeContext resumeContext = buildResumeContext(resumeFromPath, pathTree, chunkLimit);
 
             // Create IndexUpdate with ResumeContext
             indexUpdate = new IndexUpdate(provider, indexMatchLaneName(), after, builder, callback, callback,
-                    info, corruptIndexHandler, resumeContext, null, chunkedMode, isResumableReindexEnabled())
+                    info, corruptIndexHandler, resumeContext, null, chunkedMode)
                     .withMissingProviderStrategy(missingStrategy);
             configureRateEstimator(indexUpdate);
                             
@@ -1371,8 +1406,11 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             IndexUpdate.resetSkipCounters();
             PathTreeEditorDiff.resetStats();
                                         
-            // Check if PathTree traversal is enabled
-            boolean usePathTreeTraversal = Boolean.getBoolean(PROP_USE_PATHTREE_TRAVERSAL);
+            // PathTree-driven traversal is part of the FT_RESUMABLE_ASYNC default set: it lets a
+            // resume skip SegmentStore reads for fully-processed subtrees. PathTreeEditorDiff always
+            // enumerates the real children from the node states (consulting the PathTree only to skip
+            // fully-processed nodes), so brand-new content is discovered rather than dropped.
+            boolean usePathTreeTraversal = resolveResumeFlag(PROP_USE_PATHTREE_TRAVERSAL);
             
             CommitFailedException exception;
             if (usePathTreeTraversal && !pathTree.isEmpty() && isResuming) {
@@ -1685,8 +1723,8 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         // Serialization format options:
         // SLIM: Frontier nodes + in-progress chain (~200-500 bytes) - uses ancestor checking
         // FULL: All nodes (~1.5MB) - uses exact path lookup
-        boolean useSlimFormat = Boolean.getBoolean(PROP_PATHTREE_SLIM_FORMAT);
-        boolean useBinaryFormat = Boolean.getBoolean(PROP_PATHTREE_BINARY_FORMAT);
+        boolean useSlimFormat = resolveResumeFlag(PROP_PATHTREE_SLIM_FORMAT);
+        boolean useBinaryFormat = resolveResumeFlag(PROP_PATHTREE_BINARY_FORMAT);
 
         long serializeStartTime = System.currentTimeMillis();
         String formatUsed;

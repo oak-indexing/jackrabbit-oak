@@ -107,7 +107,11 @@ public class ResumeIndexingPerfTest {
     private static final int NODE_COUNT = Math.max(1000, Integer.getInteger("perf.nodeCount", 10000)); // Default 10k
     private static final int BATCH_SIZE = Integer.getInteger("perf.batchSize", 100);
     private static final int CHUNK_SIZE = Integer.getInteger("perf.chunkSize", 1000); // Default 1k per chunk
-    
+    // When true, content is created BEFORE the first indexer run so the measured loop captures a
+    // reindex-from-scratch (initial indexing) instead of an incremental resume. Phase 1 (the empty
+    // pre-build that would otherwise establish a checkpoint over an empty repo) is skipped.
+    private static final boolean REINDEX_FROM_SCRATCH = Boolean.getBoolean("perf.reindexFromScratch");
+
     // Fixed query result target - always return ~1000 results regardless of NODE_COUNT
     private static final int QUERY_TARGET_COUNT = 1000;
 
@@ -207,51 +211,68 @@ public class ResumeIndexingPerfTest {
         setupContext(ctx);
 
         try {
-            // === PHASE 1: Create index and complete initial index build ===
-            System.out.println("\n--- Phase 1: Initial Index Creation ---");
-            System.out.println("Running async indexer to complete initial index (reindex=true -> false)...");
-            
-            // Phase 1 always runs on the base "async" lane. For a mode=resume def this is
-            // fallback C: the normal lane natively rebuilds the index while reindex=true,
-            // then hands off to the resume lane for incremental (Phase 3).
-            int initialRuns = 0;
-            while (true) {
-                ctx.baseAsyncIndexUpdate.run();
-                ctx.indexTracker.refresh();
-                initialRuns++;
+            long contentTime;
+            if (REINDEX_FROM_SCRATCH) {
+                // === REINDEX-FROM-SCRATCH: create content BEFORE any indexer run ===
+                // The def still has reindex=true (never cleared, since Phase 1 is skipped), so the
+                // measured loop below runs an initial reindex over all NODE_COUNT nodes: monolithic
+                // on the NORMAL baseline (chunkSize=0), chunked on the resumable arm.
+                System.out.println("\n--- Reindex-from-scratch: Creating Content (before first index run) ---");
+                long startContent = System.currentTimeMillis();
+                createContent(ctx, NODE_COUNT, BATCH_SIZE);
+                contentTime = System.currentTimeMillis() - startContent;
+                System.out.println("Content creation: " + contentTime + " ms (" +
+                    String.format("%.1f", NODE_COUNT * 1000.0 / contentTime) + " nodes/sec)");
+                System.out.println("  Skipping Phase 1 empty pre-build; reindex flag left true.");
+            } else {
+                // === PHASE 1: Create index and complete initial index build ===
+                System.out.println("\n--- Phase 1: Initial Index Creation ---");
+                System.out.println("Running async indexer to complete initial index (reindex=true -> false)...");
 
-                org.apache.jackrabbit.oak.spi.state.NodeState rootAfterRun = ctx.nodeStore.getRoot();
-                org.apache.jackrabbit.oak.spi.state.NodeState idxState =
-                    rootAfterRun.getChildNode("oak:index").getChildNode("damAssetLucene");
-                boolean reindex = idxState.getBoolean("reindex");
+                // Phase 1 runs on the lane that OWNS the def: the base "async" lane for the NORMAL
+                // baseline, the resume_async lane for the resumable arm (Surface B). ctx.asyncIndexUpdate
+                // is the base lane when chunkSize=0 and the resume_async subclass otherwise. The initial
+                // build runs over a near-empty repo (content is created in Phase 2), so it is monolithic
+                // and cheap regardless of lane; chunking is exercised on the Phase-3 incremental diff.
+                int initialRuns = 0;
+                while (true) {
+                    ctx.asyncIndexUpdate.run();
+                    ctx.indexTracker.refresh();
+                    initialRuns++;
 
-                // Debug output
-                if (initialRuns <= 5 || initialRuns % 100 == 0) {
-                    System.out.println("  Run #" + initialRuns + ": reindex=" + reindex +
-                        ", exists=" + idxState.exists() +
-                        ", checkpoint=" + rootAfterRun.getChildNode(":async").getString("async"));
+                    org.apache.jackrabbit.oak.spi.state.NodeState rootAfterRun = ctx.nodeStore.getRoot();
+                    org.apache.jackrabbit.oak.spi.state.NodeState idxState =
+                        rootAfterRun.getChildNode("oak:index").getChildNode("damAssetLucene");
+                    boolean reindex = idxState.getBoolean("reindex");
+
+                    // Debug output
+                    if (initialRuns <= 5 || initialRuns % 100 == 0) {
+                        System.out.println("  Run #" + initialRuns + ": reindex=" + reindex +
+                            ", exists=" + idxState.exists() +
+                            ", checkpoint=" + rootAfterRun.getChildNode(":async").getString("async"));
+                    }
+
+                    if (!reindex) {
+                        System.out.println("  Initial index complete after " + initialRuns + " run(s)");
+                        break;
+                    }
+                    if (initialRuns > 1000) {
+                        throw new RuntimeException("Initial indexing took too many runs (>1000)");
+                    }
                 }
 
-                if (!reindex) {
-                    System.out.println("  Initial index complete after " + initialRuns + " run(s)");
-                    break;
-                }
-                if (initialRuns > 1000) {
-                    throw new RuntimeException("Initial indexing took too many runs (>1000)");
-                }
+                // Verify checkpoint was created (base lane persists to :async/async)
+                String initialCheckpoint = ctx.nodeStore.getRoot().getChildNode(":async").getString("async");
+                System.out.println("  Checkpoint after initial index: " + initialCheckpoint);
+
+                // === PHASE 2: Create content AFTER initial index is built ===
+                System.out.println("\n--- Phase 2: Creating Content ---");
+                long startContent = System.currentTimeMillis();
+                createContent(ctx, NODE_COUNT, BATCH_SIZE);
+                contentTime = System.currentTimeMillis() - startContent;
+                System.out.println("Content creation: " + contentTime + " ms (" +
+                    String.format("%.1f", NODE_COUNT * 1000.0 / contentTime) + " nodes/sec)");
             }
-
-            // Verify checkpoint was created (base lane persists to :async/async)
-            String initialCheckpoint = ctx.nodeStore.getRoot().getChildNode(":async").getString("async");
-            System.out.println("  Checkpoint after initial index: " + initialCheckpoint);
-
-            // === PHASE 2: Create content AFTER initial index is built ===
-            System.out.println("\n--- Phase 2: Creating Content ---");
-            long startContent = System.currentTimeMillis();
-            createContent(ctx, NODE_COUNT, BATCH_SIZE);
-            long contentTime = System.currentTimeMillis() - startContent;
-            System.out.println("Content creation: " + contentTime + " ms (" + 
-                String.format("%.1f", NODE_COUNT * 1000.0 / contentTime) + " nodes/sec)");
 
             // === PHASE 3: Run indexing to process new content ===
             System.out.println("\n--- Phase 3: Indexing New Content ---");
@@ -1016,9 +1037,9 @@ public class ResumeIndexingPerfTest {
                 )
             );
 
-        // The base "async" lane always exists: it performs the Phase-1 native reindex
-        // (fallback C adopts the mode=resume def while reindex=true) and, in the NORMAL
-        // baseline (chunkSize=0, no mode=resume), it also does the Phase-3 incremental.
+        // The base "async" lane drives the NORMAL baseline (chunkSize=0): Phase-1 reindex and
+        // Phase-3 incremental both run monolithically here. In the resumable arm the def is routed
+        // to resume_async instead, so this base lane has no def and is left unused.
         ctx.baseAsyncIndexUpdate = new AsyncIndexUpdate("async", ctx.nodeStore, composedEditors);
 
         // resume/chunk behaviour lives only in the segregated subclass on the resume_ lane;
@@ -1026,10 +1047,23 @@ public class ResumeIndexingPerfTest {
         if (CHUNK_SIZE > 0) {
             ctx.asyncIndexUpdate = new ResumableAsyncIndexUpdate(
                 ResumableAsyncIndexUpdate.resumeLaneName("async"), ctx.nodeStore, composedEditors);
+            // Enable the FT_RESUMABLE_ASYNC toggle for this lane. In production the toggle is wired
+            // from the OSGi whiteboard; the perf harness has none, so without this the resume lane
+            // reports isResumeEnabledForLane()==false and runs monolithically (no chunking). We flip
+            // the package-private test override via reflection to avoid a production-only test hook.
+            enableResumeForTest(ctx.asyncIndexUpdate);
         } else {
             // NORMAL baseline: Phase 3 runs on the same base lane (no pathtree).
             ctx.asyncIndexUpdate = ctx.baseAsyncIndexUpdate;
         }
+    }
+
+    /** Flips AsyncIndexUpdate#setResumableAsyncEnabledForTest(true) (package-private) via reflection. */
+    private static void enableResumeForTest(AsyncIndexUpdate updater) throws Exception {
+        java.lang.reflect.Method m = AsyncIndexUpdate.class
+            .getDeclaredMethod("setResumableAsyncEnabledForTest", boolean.class);
+        m.setAccessible(true);
+        m.invoke(updater, true);
     }
 
     private void createLuceneIndex(Root root) throws Exception {
@@ -1037,13 +1071,12 @@ public class ResumeIndexingPerfTest {
         Tree index = oakIndex.addChild("damAssetLucene");
         index.setProperty("jcr:primaryType", "oak:QueryIndexDefinition", Type.NAME);
         index.setProperty("type", "lucene");
-        index.setProperty("async", "async");
-        // Only opt into the resume lane when chunking is configured. The NORMAL baseline
-        // (chunkSize=0) stays a plain async index so it never creates a PathTree — that is
-        // the point of the baseline we measure the PathTree overhead against.
-        if (CHUNK_SIZE > 0) {
-            index.setProperty("mode", "resume");
-        }
+        // Surface B routing (post mode=resume migration): the resumable arm names the def's
+        // async lane resume_async, so the ResumableAsyncIndexUpdate subclass owns it and chunks.
+        // The NORMAL baseline (chunkSize=0) stays on the plain async lane so it never creates a
+        // PathTree — that is the baseline we measure the PathTree overhead against.
+        index.setProperty("async",
+            CHUNK_SIZE > 0 ? ResumableAsyncIndexUpdate.resumeLaneName("async") : "async");
         index.setProperty("compatVersion", 2);
         index.setProperty("reindex", true);
         index.setProperty("evaluatePathRestrictions", true);

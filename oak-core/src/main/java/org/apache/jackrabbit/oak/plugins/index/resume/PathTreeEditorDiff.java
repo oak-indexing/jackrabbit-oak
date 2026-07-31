@@ -183,30 +183,32 @@ public class PathTreeEditorDiff {
             editor.enter(before, after);
             stats.editorCallbackTimeNanos += System.nanoTime() - callbackStart;
 
-            // Process properties from after state (involves SegmentStore reads)
-            if (!usePathTree && before != MISSING_NODE && after != MISSING_NODE) {
-                long propStart = System.nanoTime();
-                for (PropertyState afterProp : after.getProperties()) {
-                    PropertyState beforeProp = before.getProperty(afterProp.getName());
-                    if (beforeProp == null) {
-                        editor.propertyAdded(afterProp);
-                    } else if (!beforeProp.equals(afterProp)) {
-                        editor.propertyChanged(beforeProp, afterProp);
-                    }
+            // Diff properties, mirroring EditorDiff.compareAgainstBaseState(). This must run for
+            // every visited node, including newly-discovered ones (before == MISSING_NODE): those
+            // are exactly the nodes whose property values need to be fed to the index editor. The
+            // previous guard skipped added/deleted nodes, so a resumed node was marked processed in
+            // the PathTree without its properties ever reaching the index (silent data loss). Both
+            // MISSING_NODE.getProperties() and getProperty() are empty/null, so the generic diff is
+            // correct for added (before MISSING), changed (both present) and deleted (after MISSING).
+            long propStart = System.nanoTime();
+            for (PropertyState afterProp : after.getProperties()) {
+                PropertyState beforeProp = before.getProperty(afterProp.getName());
+                if (beforeProp == null) {
+                    editor.propertyAdded(afterProp);
+                } else if (!beforeProp.equals(afterProp)) {
+                    editor.propertyChanged(beforeProp, afterProp);
                 }
-
-                // Check for deleted properties
-                for (PropertyState beforeProp : before.getProperties()) {
-                    if (!after.hasProperty(beforeProp.getName())) {
-                        editor.propertyDeleted(beforeProp);
-                    }
-                }
-                stats.segmentStoreReadTimeNanos += System.nanoTime() - propStart;
             }
+            for (PropertyState beforeProp : before.getProperties()) {
+                if (!after.hasProperty(beforeProp.getName())) {
+                    editor.propertyDeleted(beforeProp);
+                }
+            }
+            stats.segmentStoreReadTimeNanos += System.nanoTime() - propStart;
 
             // Process child nodes
             CommitFailedException childException = processChildren(
-                editor, pathTree, path, before, after, usePathTree, stats);
+                editor, pathTree, path, before, after, stats);
 
             if (childException != null) {
                 return childException;
@@ -280,45 +282,32 @@ public class PathTreeEditorDiff {
             @NotNull String parentPath,
             @NotNull NodeState before,
             @NotNull NodeState after,
-            boolean usePathTree,
             @NotNull Stats stats) throws CommitFailedException {
 
-        // Get child names - either from PathTree or SegmentStore
-        Iterable<String> childNames;
+        // Always enumerate the REAL children from the node states, never from the
+        // PathTree. Only fully-processed nodes may be traversed from the tree, and those
+        // are short-circuited earlier (processFullyProcessedChildren); by the time we get
+        // here the node is a frontier node whose children may include brand-new content
+        // that no prior chunk has seen — and such nodes are not in the PathTree. Driving
+        // enumeration from the tree would silently drop them (verified data loss). The
+        // PathTree is still consulted per child, but only to cheaply SKIP fully-processed
+        // subtrees, not to decide which children exist.
+        stats.segmentStoreChildLookups++;
+        LOG.trace("[PathTreeDiff] Enumerating real children for: {}", parentPath);
 
-        if (usePathTree) {
-            // Get children from PathTree (no SegmentStore call!)
-            Set<String> pathTreeChildren = pathTree.getChildNamesFromPathTree(parentPath);
-            stats.pathTreeChildLookups += pathTreeChildren.size();
-            childNames = pathTreeChildren;
-
-            LOG.trace("[PathTreeDiff] Got {} children from PathTree for: {}",
-                pathTreeChildren.size(), parentPath);
-        } else {
-            // Get children from SegmentStore
-            childNames = after.getChildNodeNames();
-            stats.segmentStoreChildLookups++;
-
-            LOG.trace("[PathTreeDiff] Got children from SegmentStore for: {}", parentPath);
-        }
-
-        // Process each child
-        for (String childName : childNames) {
+        for (String childName : after.getChildNodeNames()) {
             String childPath = parentPath.equals("/") ? "/" + childName : parentPath + "/" + childName;
 
-            // CRITICAL OPTIMIZATION: Check PathTree FIRST, BEFORE any SegmentStore calls!
-            // This is the key to avoiding expensive I/O for fully-processed nodes.
+            // Check the PathTree FIRST: a fully-processed child needs no SegmentStore read
+            // and no descent — the editor would skip it anyway.
             long lookupStart = System.nanoTime();
             boolean childFullyProcessed = pathTree.isFullyProcessed(childPath);
             stats.pathTreeLookupTimeNanos += System.nanoTime() - lookupStart;
 
             if (childFullyProcessed) {
-                // Child is fully processed - use dummy NodeStates to avoid SegmentStore
-                // The editor will skip processing anyway due to PathTree skip logic
                 LOG.trace("[PathTreeDiff] Child {} fully processed - SKIPPING SegmentStore entirely", childPath);
                 stats.skippedGetChildCalls += 2; // Saved 2 getChildNode calls (before + after)
 
-                // Call childNodeChanged with dummy states - editor will skip
                 long callbackStart = System.nanoTime();
                 Editor childEditor = editor.childNodeChanged(childName, MISSING_NODE, MISSING_NODE);
                 stats.editorCallbackTimeNanos += System.nanoTime() - callbackStart;
@@ -329,19 +318,16 @@ public class PathTreeEditorDiff {
                     if (e != null) return e;
                 }
             } else {
-                // Child NOT fully processed - need to read from SegmentStore
-                // This is the expensive path that we want to minimize
+                // Frontier / unprocessed child - read the real states.
                 long readStart = System.nanoTime();
                 NodeState beforeChild = before.getChildNode(childName);
                 NodeState afterChild = after.getChildNode(childName);
                 stats.segmentStoreReadTimeNanos += System.nanoTime() - readStart;
 
-                // Determine if this is add, change, or exists in both
                 boolean beforeExists = beforeChild.exists();
-                boolean afterExists = afterChild.exists();
 
-                if (!beforeExists && afterExists) {
-                    // Child added
+                if (!beforeExists) {
+                    // Child added since the base state.
                     long callbackStart = System.nanoTime();
                     Editor childEditor = editor.childNodeAdded(childName, afterChild);
                     stats.editorCallbackTimeNanos += System.nanoTime() - callbackStart;
@@ -351,7 +337,7 @@ public class PathTreeEditorDiff {
                             childEditor, pathTree, childPath, MISSING_NODE, afterChild, stats);
                         if (e != null) return e;
                     }
-                } else if (beforeExists && afterExists) {
+                } else {
                     // Prune unchanged subtrees, mirroring EditorDiff's
                     // compareAgainstBaseState(): descend only into children that
                     // actually differ. Without this, resume walks every node in the
@@ -360,7 +346,6 @@ public class PathTreeEditorDiff {
                     if (afterChild.equals(beforeChild)) {
                         continue;
                     }
-                    // Child changed
                     long callbackStart = System.nanoTime();
                     Editor childEditor = editor.childNodeChanged(childName, beforeChild, afterChild);
                     stats.editorCallbackTimeNanos += System.nanoTime() - callbackStart;
@@ -370,35 +355,21 @@ public class PathTreeEditorDiff {
                             childEditor, pathTree, childPath, beforeChild, afterChild, stats);
                         if (e != null) return e;
                     }
-                } else if (beforeExists && !afterExists) {
-                    // Child deleted
-                    long callbackStart = System.nanoTime();
-                    Editor childEditor = editor.childNodeDeleted(childName, beforeChild);
-                    stats.editorCallbackTimeNanos += System.nanoTime() - callbackStart;
-
-                    if (childEditor != null) {
-                        CommitFailedException e = processPath(
-                            childEditor, pathTree, childPath, beforeChild, MISSING_NODE, stats);
-                        if (e != null) return e;
-                    }
                 }
-                // else: neither exists, skip
             }
         }
 
-        // If NOT using PathTree, also check for children only in before state (deleted)
-        if (!usePathTree) {
-            for (String childName : before.getChildNodeNames()) {
-                if (!after.hasChildNode(childName)) {
-                    String childPath = parentPath.equals("/") ? "/" + childName : parentPath + "/" + childName;
-                    NodeState beforeChild = before.getChildNode(childName);
+        // Children present in the base state but gone in after: deletions.
+        for (String childName : before.getChildNodeNames()) {
+            if (!after.hasChildNode(childName)) {
+                String childPath = parentPath.equals("/") ? "/" + childName : parentPath + "/" + childName;
+                NodeState beforeChild = before.getChildNode(childName);
 
-                    Editor childEditor = editor.childNodeDeleted(childName, beforeChild);
-                    if (childEditor != null) {
-                        CommitFailedException e = processPath(
-                            childEditor, pathTree, childPath, beforeChild, MISSING_NODE, stats);
-                        if (e != null) return e;
-                    }
+                Editor childEditor = editor.childNodeDeleted(childName, beforeChild);
+                if (childEditor != null) {
+                    CommitFailedException e = processPath(
+                        childEditor, pathTree, childPath, beforeChild, MISSING_NODE, stats);
+                    if (e != null) return e;
                 }
             }
         }

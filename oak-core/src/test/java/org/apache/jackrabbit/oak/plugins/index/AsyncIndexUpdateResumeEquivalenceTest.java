@@ -123,4 +123,44 @@ public class AsyncIndexUpdateResumeEquivalenceTest {
             System.clearProperty("oak.async.chunkSize");
         }
     }
+
+    /**
+     * Reindex-from-scratch (before == MISSING_NODE) must also chunk and converge. Here the content
+     * exists BEFORE the first indexer run, so the very first pass is an initial reindex over all
+     * NODE_COUNT nodes; with resume enabled it must spread that reindex across multiple chunk
+     * cycles and still index the exact same keys as a monolithic reindex — without livelocking.
+     */
+    @Test
+    public void chunkedReindexFromScratchMatchesMonolithicAndActuallyChunks() throws Exception {
+        System.setProperty("oak.async.chunkSize", "10");
+        try {
+            // --- monolithic reindex baseline (resume off -> single pass) ---
+            NodeStore mono = storeWithIndex();
+            addContent(mono);            // content present before the first run
+            AsyncIndexUpdate monoAsync =
+                    new AsyncIndexUpdate("async", mono, new PropertyIndexEditorProvider());
+            drain(monoAsync);            // initial reindex over all content, monolithic
+            Set<String> monolithic = indexedKeys(mono);
+
+            // --- chunked reindex-from-scratch (resume on) ---
+            NodeStore ch = storeWithIndex();
+            addContent(ch);              // content present before the first run
+            AsyncIndexUpdate chAsync =
+                    new AsyncIndexUpdate("async", ch, new PropertyIndexEditorProvider());
+            chAsync.setResumableAsyncEnabledForTest(true);
+            int chunkedCycles = drain(chAsync);   // initial reindex must chunk over NODE_COUNT nodes
+            Set<String> chunked = indexedKeys(ch);
+
+            assertFalse("index content must not be empty", monolithic.isEmpty());
+            assertEquals(NODE_COUNT, monolithic.size());
+            assertEquals("chunked reindex-from-scratch must index the same keys as monolithic",
+                    monolithic, chunked);
+            assertTrue("chunked reindex must take multiple cycles, got " + chunkedCycles,
+                    chunkedCycles > 1);
+            assertTrue("chunked reindex must converge (not livelock), got " + chunkedCycles
+                    + " cycles", chunkedCycles < 200);
+        } finally {
+            System.clearProperty("oak.async.chunkSize");
+        }
+    }
 }

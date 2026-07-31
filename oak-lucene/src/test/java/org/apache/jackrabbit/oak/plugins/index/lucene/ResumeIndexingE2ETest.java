@@ -306,13 +306,13 @@ public class ResumeIndexingE2ETest {
         );
     }
 
-    /** Creates a real, ENABLED FT_RESUMABLE_REINDEXING_OAK-0 feature toggle for wiring into the resume lane. */
-    private Feature enabledResumableReindexFeature() {
+    /** Creates a real, ENABLED FT_RESUMABLE_ASYNC_OAK-0 feature toggle for wiring into the resume lane. */
+    private Feature enabledResumableAsyncFeature() {
         Whiteboard whiteboard = new DefaultWhiteboard();
-        Feature feature = Feature.newFeature("FT_RESUMABLE_REINDEXING_OAK-0", whiteboard);
+        Feature feature = Feature.newFeature("FT_RESUMABLE_ASYNC_OAK-0", whiteboard);
         Tracker<FeatureToggle> tracker = whiteboard.track(FeatureToggle.class);
         for (FeatureToggle ft : tracker.getServices()) {
-            if ("FT_RESUMABLE_REINDEXING_OAK-0".equals(ft.getName())) {
+            if ("FT_RESUMABLE_ASYNC_OAK-0".equals(ft.getName())) {
                 ft.setEnabled(true);
             }
         }
@@ -890,7 +890,7 @@ public class ResumeIndexingE2ETest {
             + "(AsyncIndexUpdate.java:1334 requires !pathTree.isEmpty() && isResuming), which does not "
             + "populate the PathTree, so resume state is saved as path=\"/\" and every subsequent run "
             + "restarts from the root -> no forward progress. This is the deferred seek-and-continue work "
-            + "for the initial-reindex path and is gated OFF by default (FT_RESUMABLE_REINDEXING_OAK-0), "
+            + "for the initial-reindex path and is gated OFF by default (FT_RESUMABLE_ASYNC_OAK-0), "
             + "so it does not block the per-index production rollout of mode=resume incremental indexing "
             + "(covered by enableResumeModeContinuesIncrementallyNoReindex, which passes). Un-ignore once "
             + "the chunked PathTree population lands.")
@@ -902,8 +902,8 @@ public class ResumeIndexingE2ETest {
         Feature feature = null;
         try {
             switchToResumeIndexer();
-            feature = enabledResumableReindexFeature();      // toggle ON
-            asyncIndexUpdate.setResumableReindexFeature(feature);
+            feature = enabledResumableAsyncFeature();         // toggle ON
+            asyncIndexUpdate.setResumableAsyncFeature(feature);
 
             // mode=resume, reindex=true, 20 nodes, fulltext content (NO jcr:primaryType)
             createFulltextIndex("reindexIdx", "body", true);
