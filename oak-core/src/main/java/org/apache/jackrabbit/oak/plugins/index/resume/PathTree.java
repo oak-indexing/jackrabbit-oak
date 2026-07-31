@@ -280,30 +280,23 @@ public class PathTree {
      * If any ancestor is fully processed, the path is implicitly fully processed.
      */
     public boolean isFullyProcessed(@NotNull String path) {
-        return isFullyProcessedInternal(path, 0);
-    }
-    
-    private boolean isFullyProcessedInternal(String path, int depth) {
-        // Safety limit to prevent infinite recursion
-        if (depth > 100) {
-            return false;
+        // Walk from the path up to the root. If the exact node or any ancestor is fully
+        // processed, this path is (implicitly) fully processed - this is what enables
+        // frontier-based storage: only the first fully-processed node in each subtree is
+        // stored, and all descendants are implicitly fully processed. Iterative rather than
+        // recursive so there is neither an arbitrary depth cap (which would wrongly re-process
+        // paths deeper than the cap) nor a stack-overflow risk on very deep trees.
+        String current = path;
+        while (true) {
+            PathNode node = getNode(current);
+            if (node != null && node.isFullyProcessed()) {
+                return true;
+            }
+            if ("/".equals(current)) {
+                return false;
+            }
+            current = PathUtils.getParentPath(current);
         }
-        
-        // Check if exact path is fully processed
-        PathNode node = getNode(path);
-        if (node != null && node.isFullyProcessed()) {
-            return true;
-        }
-        
-        // Check ancestors - if any ancestor is fully processed, so is this path
-        // This enables frontier-based storage: we only store the first fully-processed
-        // node in each subtree, and all descendants are implicitly fully processed
-        if (!"/".equals(path)) {
-            String parentPath = PathUtils.getParentPath(path);
-            return isFullyProcessedInternal(parentPath, depth + 1);
-        }
-        
-        return false;
     }
     
     /**
@@ -425,13 +418,15 @@ public class PathTree {
             node.setLeaveCompleted(true);
         }
         
+        // Per-node state ("indexed", "primaryType", "enterCompleted", "leaveCompleted") is
+        // stored as PROPERTIES, which occupy a separate namespace from child nodes in Oak's
+        // NodeState - getChildNodeNames() never returns them. So every child name here is a
+        // real path segment and must be recursed into, even one that happens to equal a state
+        // property name (a valid JCR node name); filtering those out would silently drop the
+        // processed-state of such subtrees.
         for (String childName : state.getChildNodeNames()) {
-            // Skip property-like child names
-            if (!"indexed".equals(childName) && !"primaryType".equals(childName) 
-                && !"enterCompleted".equals(childName) && !"leaveCompleted".equals(childName)) {
-                PathNode child = node.getOrCreateChild(childName);
-                deserializeNode(child, state.getChildNode(childName));
-            }
+            PathNode child = node.getOrCreateChild(childName);
+            deserializeNode(child, state.getChildNode(childName));
         }
     }
     

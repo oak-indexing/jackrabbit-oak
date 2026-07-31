@@ -191,6 +191,10 @@ public abstract class FulltextIndexEditorContext<D> {
         Calendar currentTime = getCalendar();
         final long start = PERF_LOGGER.start();
         boolean indexUpdated = getWriter().close(currentTime.getTimeInMillis());
+        // The underlying writer is now closed. Drop the reference so a subsequent flushWriter()
+        // is a guarded no-op and getWriter() lazily opens a fresh writer for the next chunk,
+        // rather than flushing/closing an already-closed writer at the next chunk boundary.
+        writer = null;
 
         if (indexUpdated) {
             PERF_LOGGER.end(start, -1, "Closed writer for directory {}", definition);

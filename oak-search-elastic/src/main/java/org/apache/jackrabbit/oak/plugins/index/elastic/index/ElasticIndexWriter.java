@@ -194,6 +194,14 @@ class ElasticIndexWriter implements FulltextIndexWriter<ElasticDocument> {
     }
 
     @Override
+    public void flush() throws IOException {
+        // Resumable-indexing chunk boundary: durably send buffered documents to Elasticsearch
+        // (and wait for acknowledgement when configured) without unregistering the index, so a
+        // resumed run does not skip and lose documents that were only buffered in the ingester.
+        bulkProcessorHandler.flush(indexName);
+    }
+
+    @Override
     public boolean close(long timestamp) throws IOException {
         boolean updateStatus = bulkProcessorHandler.flushIndex(indexName);
         if (reindex) {

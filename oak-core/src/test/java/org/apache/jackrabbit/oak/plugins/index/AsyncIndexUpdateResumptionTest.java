@@ -83,6 +83,8 @@ public class AsyncIndexUpdateResumptionTest {
         // the resume_ lane; there is no oak.async.resume gate any more.
         String resumeLane = ResumableAsyncIndexUpdate.resumeLaneName("async");
         AsyncIndexUpdate async = new ResumableAsyncIndexUpdate(resumeLane, store, provider);
+        // Resume/chunk mode requires FT_RESUMABLE_ASYNC on top of resume_ lane routing.
+        async.setResumableAsyncEnabledForTest(true);
 
         // Chunking is deliberately disabled during the initial index, so run once to
         // establish the first checkpoint before adding the content that must be chunked.
@@ -161,7 +163,9 @@ public class AsyncIndexUpdateResumptionTest {
 
         AsyncIndexUpdate async = new ResumableAsyncIndexUpdate(
                 ResumableAsyncIndexUpdate.resumeLaneName("async"), store, provider);
-        
+        // Resume/chunk mode requires FT_RESUMABLE_ASYNC on top of resume_ lane routing.
+        async.setResumableAsyncEnabledForTest(true);
+
         // Ensure the time limit is picked up (it's read in constructor of AsyncIndexUpdate or set via setter?)
         // In my implementation: private final int asyncTimeLimit = Integer.getInteger("oak.async.timeLimit", -1);
         // So it is read at constructor time.

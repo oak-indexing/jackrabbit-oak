@@ -300,34 +300,7 @@ public class ElasticBulkProcessorHandler {
         bulkIngester.flush();
 
         if (indexInfo.waitForESAcknowledgement) {
-            // All the operations for this index have been sent. Now we need to wait for all of them to be processed
-            long highestBulkRequestSent = bulkIngester.requestCount();
-            lock.lock();
-            try {
-                // This request number is higher or equal than any request that may contain operations for the index that
-                // we are closing. Wait until all requests lower or equal to this number are processed.
-                OptionalLong lowestPendingBulkRequest = pendingBulks.stream().mapToLong(Long::longValue).min();
-                // If there is no pending request, we return immediately
-                long remainingTimeoutNanos = TimeUnit.MILLISECONDS.toNanos(bulkFlushIntervalMillis * 5L);
-                while (lowestPendingBulkRequest.isPresent() && lowestPendingBulkRequest.getAsLong() <= highestBulkRequestSent) {
-                    LOG.debug("Waiting for request {} to be processed. Lowest pending request: {}", highestBulkRequestSent, lowestPendingBulkRequest.getAsLong());
-                    try {
-                        if (remainingTimeoutNanos <= 0) {
-                            LOG.error("Timeout waiting for bulk requests to return");
-                            break;
-                        }
-                        // wait on condition and check return value
-                        remainingTimeoutNanos = bulkProcessedCondition.awaitNanos(remainingTimeoutNanos);
-                        lowestPendingBulkRequest = pendingBulks.stream().mapToLong(Long::longValue).min();
-                    } catch (InterruptedException e) {
-                        LOG.warn("Interrupted while waiting for bulk processor to close", e);
-                        Thread.currentThread().interrupt();  // restore interrupt status
-                    }
-                }
-                LOG.debug("All requests up to {} have been processed, index flushed and closed", highestBulkRequestSent);
-            } finally {
-                lock.unlock();
-            }
+            awaitBulkRequestsProcessed();
         }
 
         // TODO: Support real time indexes
@@ -351,6 +324,75 @@ public class ElasticBulkProcessorHandler {
         checkFailuresForIndex(indexInfo);
         LOG.trace("Bulk identifier -> update status = {}", registeredIndexes);
         return indexInfo.indexModified;
+    }
+
+    /**
+     * Durably flushes the operations buffered so far for the given index <em>without</em>
+     * unregistering it, so indexing can continue afterwards. Used at resumable-indexing chunk
+     * boundaries: it guarantees the documents indexed in the just-completed chunk reach
+     * Elasticsearch before the resume checkpoint is persisted, otherwise a resumed run would
+     * skip those already-marked paths and permanently lose the documents still buffered in the
+     * bulk ingester. Like {@link #flushIndex(String)} it force-sends the shared bulk ingester
+     * and, when the index requested acknowledgement, waits for the server to confirm the sent
+     * operations; unlike it, the index stays registered for the next chunk.
+     *
+     * @return {@code true} if the index was modified so far, {@code false} otherwise
+     * @throws IOException if an error happened while processing the bulk requests
+     */
+    public boolean flush(String indexName) throws IOException {
+        LOG.debug("Flushing index (non-terminal): {}", indexName);
+        checkOpen();
+        IndexInfo indexInfo = registeredIndexes.get(indexName);
+        if (indexInfo == null) {
+            throw new IllegalArgumentException("Index not registered: " + indexName);
+        }
+
+        // Some of the operations for this index may still be buffered in the bulk ingester.
+        // Force sending them now.
+        bulkIngester.flush();
+
+        if (indexInfo.waitForESAcknowledgement) {
+            awaitBulkRequestsProcessed();
+        }
+
+        checkConnectionFailures();
+        checkFailuresForIndex(indexInfo);
+        return indexInfo.indexModified;
+    }
+
+    /**
+     * Waits until every bulk request sent so far has been processed by the server, or until a
+     * bounded timeout elapses. The caller must have already forced the ingester to send its
+     * buffered operations via {@link BulkIngester#flush()}.
+     */
+    private void awaitBulkRequestsProcessed() {
+        // This request number is higher or equal than any request that may contain operations
+        // sent so far. Wait until all requests lower or equal to this number are processed.
+        long highestBulkRequestSent = bulkIngester.requestCount();
+        lock.lock();
+        try {
+            OptionalLong lowestPendingBulkRequest = pendingBulks.stream().mapToLong(Long::longValue).min();
+            // If there is no pending request, we return immediately
+            long remainingTimeoutNanos = TimeUnit.MILLISECONDS.toNanos(bulkFlushIntervalMillis * 5L);
+            while (lowestPendingBulkRequest.isPresent() && lowestPendingBulkRequest.getAsLong() <= highestBulkRequestSent) {
+                LOG.debug("Waiting for request {} to be processed. Lowest pending request: {}", highestBulkRequestSent, lowestPendingBulkRequest.getAsLong());
+                try {
+                    if (remainingTimeoutNanos <= 0) {
+                        LOG.error("Timeout waiting for bulk requests to return");
+                        break;
+                    }
+                    // wait on condition and check return value
+                    remainingTimeoutNanos = bulkProcessedCondition.awaitNanos(remainingTimeoutNanos);
+                    lowestPendingBulkRequest = pendingBulks.stream().mapToLong(Long::longValue).min();
+                } catch (InterruptedException e) {
+                    LOG.warn("Interrupted while waiting for bulk processor to complete", e);
+                    Thread.currentThread().interrupt();  // restore interrupt status
+                }
+            }
+            LOG.debug("All requests up to {} have been processed", highestBulkRequestSent);
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**

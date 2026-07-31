@@ -149,10 +149,23 @@ public class IndexUpdate implements Editor, PathSource {
     private final Map<String, Editor> reindex = new HashMap<>();
 
     /**
-     * Index definitions whose reindex-completion state (clearing {@code reindex} and bumping
-     * the reindex count) is deferred until a chunked resumable reindex fully completes.
+     * Index definitions whose reindex-completion state (clearing {@code reindex}, bumping the
+     * reindex count, and clearing any stale corrupt flag) is deferred until a chunked resumable
+     * reindex fully completes. The index path is captured alongside the builder so the corrupt
+     * flag can be cleared with an accurate log message at finalization.
      */
-    private final List<NodeBuilder> deferredReindexDefs = new ArrayList<>();
+    private final List<DeferredReindex> deferredReindexDefs = new ArrayList<>();
+
+    /** A chunked-reindex definition and its index path, pending finalization. */
+    private static final class DeferredReindex {
+        final NodeBuilder definition;
+        final String indexPath;
+
+        DeferredReindex(NodeBuilder definition, String indexPath) {
+            this.definition = definition;
+            this.indexPath = indexPath;
+        }
+    }
 
     // ============================================================
     // Skip Mode Support - enables O(depth) resume instead of O(n)
@@ -193,6 +206,24 @@ public class IndexUpdate implements Editor, PathSource {
             IndexUpdateCallback updateCallback, NodeTraversalCallback traversalCallback,
             CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler) {
         this(provider, async, root, builder, updateCallback, traversalCallback, commitInfo, corruptIndexHandler, null, null);
+    }
+
+    /**
+     * Backwards-compatible constructor preserving the pre-resume public API (an exported
+     * package): same parameter list as before the {@link ResumeContext} overloads were added.
+     * Delegates with a {@code null} ResumeContext. Retained so external and binary callers of
+     * {@code IndexUpdate(..., NodeStore)} keep compiling and linking.
+     *
+     * @param store node store used by the diff-index optimization (can be null)
+     */
+    public IndexUpdate(
+            IndexEditorProvider provider, String async,
+            NodeState root, NodeBuilder builder,
+            IndexUpdateCallback updateCallback, NodeTraversalCallback traversalCallback,
+            CommitInfo commitInfo, CorruptIndexHandler corruptIndexHandler,
+            @Nullable NodeStore store) {
+        this(provider, async, root, builder, updateCallback, traversalCallback,
+                commitInfo, corruptIndexHandler, null, store);
     }
 
     /**
@@ -650,13 +681,14 @@ public class IndexUpdate implements Editor, PathSource {
                         // chunked resumable reindex: keep reindex=true until the build fully
                         // completes (a mid-reindex crash must resume, not restart from a
                         // half-built index). Clear stale content only on a fresh start; resumed
-                        // chunks must preserve content built by earlier chunks.
+                        // chunks must preserve content built by earlier chunks. The corrupt flag
+                        // is likewise cleared only at finalization (see finalizeChunkedReindex),
+                        // so a mid-reindex chunk never marks a still-corrupt index as healthy.
                         if (!rootState.isInSkipMode()) {
                             removeIndexState(definition);
                         }
-                        clearCorruptFlag(definition, indexPath);
                         reindex.put(concat(getPath(), INDEX_DEFINITIONS_NAME, name), editor);
-                        deferredReindexDefs.add(definition);
+                        deferredReindexDefs.add(new DeferredReindex(definition, indexPath));
                         if (before == MISSING_NODE) {
                             // Reindex-from-scratch: the outer diff is a full MISSING->after walk,
                             // so drive this editor through the resume-aware IndexUpdate traversal
@@ -914,9 +946,10 @@ public class IndexUpdate implements Editor, PathSource {
      * partial chunk). No-op when nothing was deferred (incremental runs, non-chunked reindex).
      */
     void finalizeChunkedReindex() {
-        for (NodeBuilder def : deferredReindexDefs) {
-            def.setProperty(REINDEX_PROPERTY_NAME, false);
-            incrementReIndexCount(def);
+        for (DeferredReindex deferred : deferredReindexDefs) {
+            deferred.definition.setProperty(REINDEX_PROPERTY_NAME, false);
+            incrementReIndexCount(deferred.definition);
+            clearCorruptFlag(deferred.definition, deferred.indexPath);
         }
         deferredReindexDefs.clear();
     }

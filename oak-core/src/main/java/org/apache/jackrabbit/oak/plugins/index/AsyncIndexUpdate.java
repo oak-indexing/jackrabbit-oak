@@ -81,7 +81,6 @@ import org.apache.jackrabbit.oak.spi.commit.EditorHook;
 import org.apache.jackrabbit.oak.plugins.index.resume.PathTree;
 import org.apache.jackrabbit.oak.plugins.index.resume.PathTreeEditorDiff;
 import org.apache.jackrabbit.oak.plugins.index.resume.ResumeContext;
-import org.apache.jackrabbit.oak.plugins.index.resume.ResumableEditorDiff;
 import org.apache.jackrabbit.oak.spi.commit.EditorProvider;
 import org.apache.jackrabbit.oak.spi.commit.EmptyHook;
 import org.apache.jackrabbit.oak.spi.commit.ResetCommitAttributeHook;
@@ -401,6 +400,22 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
          */
         private long chunkStartTime = 0;
 
+        /**
+         * Count of ALL nodes visited by {@link #traversedNode}, including those skipped
+         * because they are already fully processed. Drives lease renewal so a long skip
+         * phase over an already-indexed subtree cannot let the lease lapse (which would
+         * permit a second cluster node to run the same lane concurrently and corrupt it).
+         */
+        private long nodesVisited = 0;
+
+        /**
+         * Set once per run when the first not-fully-processed node is reached, marking the
+         * end of the skip phase. Used to restart the chunk time budget so time spent
+         * skipping an already-processed prefix cannot exhaust the budget before any forward
+         * progress is made (which would livelock time-based chunking).
+         */
+        private boolean chunkClockStartedAfterSkip = false;
+
         private List<ValidatorProvider> validatorProviders = Collections.emptyList();
 
         /**
@@ -601,12 +616,21 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             checkIfStopped();
             
             String currentPath = pathSource.getPath();
-            
+
+            // Renew the lease on a fixed cadence across EVERY visited node, including nodes
+            // skipped below because they are already fully processed. Basing lease renewal on
+            // the count of newly-indexed nodes (nodesRead) alone would skip renewal entirely
+            // during a long skip phase, letting the lease expire and allowing a second cluster
+            // node to start this same lane concurrently.
+            if (++nodesVisited % LEASE_CHECK_INTERVAL == 0) {
+                renewLeaseIfNeeded();
+            }
+
             // OPTIMIZATION: Skip counting if this path is FULLY PROCESSED (enter+leave done)
             // This means:
             // 1. enter() was called (markEnterCompleted)
             // 2. All properties were processed (happens between enter and leave)
-            // 3. All children were traversed  
+            // 3. All children were traversed
             // 4. leave() was called (markLeaveCompleted)
             // 5. The node's content is definitely in Lucene
             //
@@ -617,7 +641,16 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 log.trace("[{}] Skipping fully processed path: {}", name, currentPath);
                 return;
             }
-            
+
+            // First not-fully-processed node of the run: the skip phase is over, so restart
+            // the chunk time budget here. Otherwise time spent skipping an already-processed
+            // prefix could exhaust the budget before this node is indexed, aborting every
+            // chunk at the same node with zero forward progress (livelock).
+            if (timeLimit > 0 && chunkStartTime > 0 && !chunkClockStartedAfterSkip) {
+                chunkStartTime = System.currentTimeMillis();
+                chunkClockStartedAfterSkip = true;
+            }
+
             // Count this node as traversed (new node to index)
             long nodesRead = indexStats.incTraversal();
             
@@ -650,7 +683,15 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 }
             }
 
-            if (nodesRead % LEASE_CHECK_INTERVAL == 0 && isLeaseCheckEnabled(leaseTimeOut)) {
+        }
+
+        /**
+         * Renews the lease when it is close to expiry. Extracted so it can be called both on
+         * the per-visited-node cadence (covering skipped nodes) and preserved as the single
+         * point of lease-renewal logic.
+         */
+        private void renewLeaseIfNeeded() throws CommitFailedException {
+            if (isLeaseCheckEnabled(leaseTimeOut)) {
                 long now = getTime();
                 if (now + leaseTimeOut > lease) {
                     long newLease = now + 2 * leaseTimeOut;
@@ -743,6 +784,28 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         return async.getString(name);
     }
 
+    /**
+     * True when an interrupted chunked run left resume state (a target checkpoint to continue
+     * from) under {@code :async/<name>-resume}. Such state is invisible to
+     * {@link #noVisibleChanges(NodeState, NodeState)}, so callers must consult this before
+     * taking the no-changes early-return.
+     */
+    private boolean hasPendingResumeState(NodeState async) {
+        return async.getChildNode(name + "-resume").hasProperty("targetCheckpoint");
+    }
+
+    /**
+     * Whether this lane already owns persisted state under {@code :async}: either its own
+     * checkpoint or a pending resume node from an interrupted chunked run. A resume lane
+     * consults this so that, when the feature toggle is off, it still finishes work it had
+     * already started (reindex-on-revert) instead of stranding a half-built index, while a
+     * lane that never did any work stays inert.
+     */
+    protected boolean hasExistingLaneState() {
+        NodeState async = store.getRoot().getChildNode(ASYNC);
+        return async.hasProperty(name) || hasPendingResumeState(async);
+    }
+
     private void runWhenPermitted() {
         if (indexStats.isPaused()) {
             if (indexStats.forcedLeaseRelease){
@@ -779,11 +842,20 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
         // segregated resume lane manages its own state and is excluded.
         if (!isResumeLane() && !isResumableAsyncEnabled()) {
             String staleResumeNode = name + "-resume";
-            if (async.getChildNode(staleResumeNode).exists()) {
+            NodeState staleState = async.getChildNode(staleResumeNode);
+            if (staleState.exists()) {
+                // Capture the orphaned target checkpoint before removing the node so we can
+                // release it: otherwise it stays referenced forever and blocks revision GC.
+                String orphanCheckpoint = staleState.getString("targetCheckpoint");
                 NodeBuilder cleanupBuilder = store.getRoot().builder();
                 cleanupBuilder.getChildNode(ASYNC).getChildNode(staleResumeNode).remove();
                 try {
                     store.merge(cleanupBuilder, EmptyHook.INSTANCE, CommitInfo.EMPTY);
+                    // Release only after the reference is gone from the store, and never the
+                    // lane's own active checkpoint (which the monolithic run still needs).
+                    if (orphanCheckpoint != null && !orphanCheckpoint.equals(async.getString(name))) {
+                        store.release(orphanCheckpoint);
+                    }
                 } catch (CommitFailedException e) {
                     log.warn("[{}] Failed to clear stale resume state after disabling resumable async", name, e);
                 }
@@ -839,7 +911,12 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 ownCheckpoint = null;
                 callback.setCheckpoint(ownCheckpoint);
                 before = MISSING_NODE;
-            } else if (noVisibleChanges(state, root) && !switchOnSync) {
+            } else if (noVisibleChanges(state, root) && !switchOnSync
+                    && !hasPendingResumeState(async)) {
+                // noVisibleChanges() ignores hidden nodes, so a partially-built chunked index
+                // whose only pending work lives under the hidden :async/<name>-resume node would
+                // otherwise be treated as "no changes" and never advance. Only take the fast
+                // early-return when there is no in-flight chunk cursor to continue.
                 log.debug(
                         "[{}] No changes since last checkpoint; skipping the index update",
                         name);
@@ -992,7 +1069,7 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
 
     }
 
-    private boolean shouldProceed() {
+    protected boolean shouldProceed() {
         NodeState asyncNode = store.getRoot().getChildNode(":async");
         /*
             If /:async node already have the lane(under consideration) info, we can proceed ahead, as
@@ -1327,7 +1404,10 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             indexingMode, chunkSize, chunkTimeMs, isInitialIndex, chunkedMode);
 
         if (chunkedMode) {
-                callback.setUpdateLimit((int) chunkSize);
+            // Clamp to Integer.MAX_VALUE: a configured chunkSize above the int range would
+            // otherwise wrap to a negative updateLimit, silently disabling count-based chunk
+            // completion (traversedNode requires updateLimit > 0).
+            callback.setUpdateLimit(chunkSize > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) chunkSize);
             callback.setTimeLimit(chunkTimeMs);
             log.debug("[CHUNK] Chunk mode enabled - updateLimit={}, timeLimit={}", chunkSize, chunkTimeMs);
             log.info("[{}] Chunk-based indexing enabled - chunkSize: {}, chunkTimeMs: {}", name, chunkSize, chunkTimeMs);
@@ -1460,14 +1540,10 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
             lastResumeTimeToTarget = resumePathReachedTime[0];
             lastResumeTotalTime = totalDiffTime;
             
-            // Handle CHUNK_COMPLETE - commit chunk and save resume state, then exit
-            // Check for:
-            // 1. Static CHUNK_COMPLETE constant from AsyncUpdateCallback.traversedNode()
-            // 2. CHUNK_COMPLETE: prefix from IndexUpdate.leave() or ResumableEditorDiff
-            boolean isChunkComplete = (exception != null && 
-                (exception == CHUNK_COMPLETE ||
-                 ResumableEditorDiff.isChunkCompleteException(exception) || 
-                 (exception.getMessage() != null && exception.getMessage().startsWith("CHUNK_COMPLETE:"))));
+            // Handle CHUNK_COMPLETE - commit chunk and save resume state, then exit.
+            // The static CHUNK_COMPLETE constant thrown by AsyncUpdateCallback.traversedNode()
+            // is the sole chunk-boundary signal.
+            boolean isChunkComplete = exception == CHUNK_COMPLETE;
             
             if (isChunkComplete && onChunkComplete(exception, callback, resumeContext, indexUpdate,
                     builder, beforeCheckpoint, afterCheckpoint, checkpointToReleaseRef)) {
@@ -1656,14 +1732,9 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                                                NodeBuilder builder,
                                                String beforeCheckpoint,
                                                String afterCheckpoint) throws CommitFailedException {
-        // Get chunk path from various sources:
-        // 1. From callback (used by static CHUNK_COMPLETE)
-        // 2. From ResumableEditorDiff exception
-        // 3. From ResumeContext
+        // Get chunk path from either the callback (set by the static CHUNK_COMPLETE throw)
+        // or, as a fallback, the ResumeContext.
         String chunkPath = callback.getChunkLastIndexedPath();
-        if (chunkPath == null) {
-            chunkPath = ResumableEditorDiff.getChunkCompletePath(exception);
-        }
         if (chunkPath == null && resumeContext != null) {
             chunkPath = resumeContext.getLastIndexedPath();
         }
