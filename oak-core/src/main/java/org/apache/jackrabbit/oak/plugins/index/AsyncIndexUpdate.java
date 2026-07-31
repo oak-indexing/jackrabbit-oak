@@ -642,6 +642,23 @@ public class AsyncIndexUpdate implements Runnable, Closeable {
                 return;
             }
 
+            // A node that completed enter() in a PRIOR chunk (but whose leave() never ran, so it
+            // is not yet fully processed) is being re-walked only to reach the unfinished frontier
+            // beneath it: the not-fully-processed ancestor spine (e.g. /content, /content/dam) plus
+            // the node interrupted at the last chunk boundary. Re-counting these against the chunk
+            // budget is what livelocks resume - with a small updateLimit the spine alone can exhaust
+            // the budget before any new subtree's leave() marks it fully processed, so CHUNK_COMPLETE
+            // fires at the same path every chunk and the resume cursor never advances. They were
+            // already counted when first entered; skip the count so the budget is spent only on
+            // genuinely new nodes, guaranteeing forward progress. This mirrors the time-budget
+            // restart below, which likewise excludes the skip phase. traversedNode() runs from
+            // IndexUpdate.enter() before markEnterCompleted(), so isEnterCompleted() here reflects
+            // only prior runs, never the node currently being entered.
+            if (pathTree != null && pathTree.isEnterCompleted(currentPath)) {
+                log.trace("[{}] Re-walking prior-chunk node, not counted: {}", name, currentPath);
+                return;
+            }
+
             // First not-fully-processed node of the run: the skip phase is over, so restart
             // the chunk time budget here. Otherwise time spent skipping an already-processed
             // prefix could exhaust the budget before this node is indexed, aborting every
